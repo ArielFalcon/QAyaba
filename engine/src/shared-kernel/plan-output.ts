@@ -1,18 +1,18 @@
 import type { AgentTurnStats } from "@kernel/ports/agent-runtime.port.ts";
+import type { SubmissionContract } from "@kernel/submission.ts";
 import type { TimeLimitSource } from "@kernel/turn-limit.ts";
 
 /**
- * What a planning turn came to. `plan` is the object the lead's verdict carried, untrusted: only the orchestrator's admission reads
- * it. `noopReason` is the reason the lead gave for writing nothing when it declared that instead of planning. A turn that gives
- * neither is `parsed` when its verdict could be read at all; `timedOut` is a turn that ran out of its planning time.
+ * What a planning turn came to. `plan` is the submission the lead's contract accepted (a plan of flows, or a declared no-op),
+ * untrusted beyond that check: the orchestrator's admission reads it again under the run's time. A turn that delivered none, even
+ * after its one continuation, says why in `noSubmission`; `timedOut` is a turn that ran out of its planning time.
  */
 export interface PlanOutput {
   plan?: Record<string, unknown>;
-  noopReason?: string;
-  parsed: boolean;
+  noSubmission?: string;
   timedOut: boolean;
   turn?: AgentTurnStats;
-  /** The lead's planning session, held open whenever the turn answered: a refused or unreadable plan is asked about once in it, and the flows are reviewed there. The caller disposes it. */
+  /** The lead's planning session, held open whenever the turn answered: the plan's amendment and the review of the flows are asked there. The caller disposes it. */
   lead?: LeadSessionHandle;
 }
 /** The lead's planning session, held open for its next turn: asked read-only, a turn out of its time answers `timedOut`. */
@@ -24,9 +24,16 @@ export interface LeadTurnOpts {
   sectionSizes?: Record<string, number>;
   sectionHashes?: Record<string, string>;
 }
+/** What a lead turn that must submit came to: the value its contract accepted, or why none was delivered, even after the one continuation. */
+export interface LeadSubmission<T> {
+  value?: T;
+  noSubmission?: string;
+  timedOut: boolean;
+}
 export interface LeadSessionHandle {
-  ask(text: string, opts: LeadTurnOpts): Promise<{ output: string; timedOut: boolean }>;
-  /** Asks the lead for its plan again, read as a planning turn is read. */
-  askForPlan(text: string, opts: LeadTurnOpts): Promise<Pick<PlanOutput, "plan" | "noopReason" | "parsed" | "timedOut">>;
+  /** Asks the lead, read-only, for the answer of one contract: its review of the flows, or its routing of the findings. */
+  askSubmitting<T>(text: string, opts: LeadTurnOpts, contract: SubmissionContract<T>): Promise<LeadSubmission<T>>;
+  /** Asks the lead for its plan again, answered through the plan contract as a planning turn is. */
+  askForPlan(text: string, opts: LeadTurnOpts): Promise<Pick<PlanOutput, "plan" | "noSubmission" | "timedOut">>;
   dispose(): Promise<void>;
 }

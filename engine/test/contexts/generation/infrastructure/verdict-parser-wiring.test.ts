@@ -6,11 +6,23 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { VerdictParserAdapter } from "@contexts/generation/infrastructure/verdict-parser.adapter";
 import { GENERATION_NOTE_MAX_CHARS } from "@contexts/generation/application/index";
-import { parseVerdict } from "@contexts/generation/domain/verdict-parse.ts";
-import { parseReviewerVerdict } from "@contexts/generation/domain/verdict-validate.ts";
+import { readVerdict } from "@contexts/generation/domain/verdict-parse.ts";
+import { readReviewerVerdict } from "@contexts/generation/domain/verdict-validate.ts";
+import { objectIn } from "../../../support/submission.ts";
 
-function makeRealAdapter(): VerdictParserAdapter {
-  return new VerdictParserAdapter({ parseVerdict, parseReviewerVerdict });
+/* A test writes a submission as the JSON text of the tool call; a text with no such object is a turn that delivered none. */
+const parseVerdict = (text: string) => readVerdict(objectIn(text) ?? {});
+const parseReviewerVerdict = (text: string) => readReviewerVerdict(objectIn(text));
+
+function makeRealAdapter(): { parseGenerator(text: string, specDir?: string): ReturnType<VerdictParserAdapter["readGenerator"]>; parseReview(text: string): ReturnType<VerdictParserAdapter["readReview"]> } {
+  const adapter = new VerdictParserAdapter({ readVerdict });
+  return {
+    parseGenerator: (text, specDir) => {
+      const answer = objectIn(text);
+      return adapter.readGenerator(answer ? { answer, output: text } : { noSubmission: "no accepted submission", output: text }, specDir);
+    },
+    parseReview: (text) => adapter.readReview(parseReviewerVerdict(text)),
+  };
 }
 
 test("parseGenerator on a valid generator verdict", () => {
@@ -36,35 +48,15 @@ test("and never reads `approved` as one", () => {
   }
 });
 
-test("parseGenerator on a parse miss is fail-closed —", () => {
+test("parseGenerator on a turn with no submission is fail-closed —", () => {
   const text = "the agent wrote prose with no JSON verdict";
   const adapter = makeRealAdapter();
   const got = adapter.parseGenerator(text);
   const reference = parseVerdict(text);
   /* parsed:false is the contract on a miss; a gutted adapter returning parsed:true FAILS this */
   assert.equal(got.parsed, false);
-  assert.equal(got.parsed, reference.parsed);
   assert.deepEqual(got.specs, []);
-  assert.deepEqual(got.specs, reference.specs ?? []);
-});
-
-/* specs is the list of spec paths the run executes; an entry that is not a path string makes the
-   verdict unparseable, never a crash and never a shorter list read as the agent's decision. */
-test("a generator verdict listing a spec that is not a path string is a parse miss, with or without a suite dir", () => {
-  const specDir = mkdtempSync(join(tmpdir(), "verdict-specs-"));
-  try {
-    const adapter = makeRealAdapter();
-    for (const specs of [[{ path: "flows/a.spec.ts" }], [1], ["flows/a.spec.ts", null]]) {
-      const text = JSON.stringify({ specs });
-      for (const dir of [specDir, undefined]) {
-        const got = adapter.parseGenerator(text, dir);
-        assert.equal(got.parsed, false, `${text} (suite dir: ${dir !== undefined})`);
-        assert.deepEqual(got.specs, [], `${text} (suite dir: ${dir !== undefined})`);
-      }
-    }
-  } finally {
-    rmSync(specDir, { recursive: true, force: true });
-  }
+  assert.equal(reference.parsed, true, "a submission is read whole once the contract accepted it");
 });
 
 test("parseGenerator with specMetas forwards them — a gutted adapter that drops specMetas FAILS", () => {
@@ -171,7 +163,7 @@ test("a test-correct reason is redacted and bounded before it reaches the run", 
   assert.equal(long.testCorrect!.reason.length, GENERATION_NOTE_MAX_CHARS);
 });
 
-test("parseReview on a parse miss is fail-closed —", () => {
+test("parseReview on a submission with no verdict is fail-closed —", () => {
   const text = "the reviewer wrote prose but no JSON";
   const adapter = makeRealAdapter();
   const got = adapter.parseReview(text);
@@ -181,8 +173,8 @@ test("parseReview on a parse miss is fail-closed —", () => {
   assert.equal(got.approved, reference.approved);
   assert.equal(got.parsed, false);
   assert.equal(got.parsed, reference.parsed);
-  /* issues forwarded — the bounded repair loop reads them; a gutted adapter returning [] loses the repair fuel */
+  /* issues forwarded — the record says what could not be read; a gutted adapter returning [] loses it */
   assert.ok(Array.isArray(got.issues) && got.issues.length > 0,
     "issues must be non-empty on a parse miss — a gutted adapter FAILS this");
-  assert.deepEqual(got.issues, reference.issues);
+  assert.deepEqual(got.issues, reference.issues.map((issue) => `${issue.path}: ${issue.reason}`));
 });

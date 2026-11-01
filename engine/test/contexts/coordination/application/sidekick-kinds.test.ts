@@ -5,6 +5,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { REGISTERED_SIDEKICK_KINDS, SIDEKICK_KIND, sidekickKindSpec, delegatingKindSpec } from "@contexts/coordination/application/sidekick-kinds.ts";
 import { REVIEW_SIDEKICK } from "@kernel/sidekick-session.ts";
+import { SUBMIT_TOOL } from "@kernel/submission.ts";
 import { PatternRedactionAdapter } from "../../../../src/shared-infrastructure/redaction/pattern-redaction.adapter.ts";
 
 const ROOT = fileURLToPath(new URL("../../../../../", import.meta.url));
@@ -35,9 +36,10 @@ test("the review kind is the read-only reviewer agent working in the working cop
   assert.equal(spec.budget, "review-timeout");
 });
 
-test("the author kind reads an unreadable answer as a failed result", () => {
+test("the author kind delivers its result through the result tool, and a turn that delivered none is a failed result", () => {
   const spec = delegatingKindSpec(SIDEKICK_KIND.AUTHOR);
   const redaction = new PatternRedactionAdapter();
   const brief = { delegationId: "d", runId: "r", acceptanceCriteria: [], scope: { writablePaths: ["e2e/a.spec.ts"] } } as never;
-  assert.equal(spec.parse(redaction, "no json here", brief).status, "failed");
+  assert.equal(spec.contract(redaction, brief).tool, SUBMIT_TOOL.RESULT);
+  assert.equal(spec.unsubmitted(redaction, brief, "it stopped").status, "failed");
 });

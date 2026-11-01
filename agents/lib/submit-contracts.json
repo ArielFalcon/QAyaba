@@ -1,0 +1,759 @@
+{
+  "submit_plan": {
+    "type": "object",
+    "properties": {
+      "kind": {
+        "type": "string",
+        "enum": [
+          "fanout",
+          "noop"
+        ],
+        "description": "fanout when the change is one or more flows, each of which can be written and run without the others (a change that is one piece of work is a plan of one flow); noop when nothing here is worth a test."
+      },
+      "reason": {
+        "description": "With noop: why nothing here is worth a test, or the element and the evidence showing the change cannot be observed on DEV in its current state.",
+        "type": "string"
+      },
+      "dropped": {
+        "description": "With fanout: the use cases the prompt lists that need no test, each with a basis and a reason. Leave it out when you drop none.",
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "candidate": {
+              "type": "string",
+              "description": "Id of a use case that needs no test."
+            },
+            "basis": {
+              "type": "string",
+              "enum": [
+                "no-observable-change",
+                "already-covered",
+                "needs-unavailable-state"
+              ],
+              "description": "Why it needs none: no-observable-change, already-covered, needs-unavailable-state. The plan turn states what each requires."
+            },
+            "reason": {
+              "type": "string",
+              "description": "Why, in words."
+            }
+          },
+          "required": [
+            "candidate",
+            "basis",
+            "reason"
+          ]
+        }
+      },
+      "flows": {
+        "description": "With fanout: the flows to author.",
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "description": "A short slug naming the flow. It names the flow's spec file; no two flows share one."
+            },
+            "objective": {
+              "type": "string",
+              "description": "What the flow proves."
+            },
+            "acceptance": {
+              "description": "One observable outcome per behaviour the change decides on the flow's pages: the outcome when it succeeds, and each other state the change handles there that the page can be brought to through the UI against DEV.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "routes": {
+              "description": "Site-relative paths the flow visits, each starting with /.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "candidates": {
+              "description": "Ids of the use cases the flow covers.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "location": {
+              "description": "One of the app's locations by name, or a point, when the prompt lists the locations.",
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "latitude": {
+                      "type": "number"
+                    },
+                    "longitude": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "latitude",
+                    "longitude"
+                  ]
+                }
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "objective"
+          ]
+        }
+      }
+    },
+    "required": [
+      "kind"
+    ]
+  },
+  "submit_flow_review": {
+    "type": "object",
+    "properties": {
+      "review": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "flow": {
+              "type": "string",
+              "description": "The id of the flow this decision is about."
+            },
+            "action": {
+              "type": "string",
+              "enum": [
+                "accept",
+                "revise",
+                "replace",
+                "drop"
+              ],
+              "description": "accept, revise (needs an instruction), replace, or drop (a flow that delivered nothing, with a reason)."
+            },
+            "instruction": {
+              "description": "With revise or replace: what to change. Be specific: name the assertion, the page or the fact to fix.",
+              "type": "string"
+            },
+            "reason": {
+              "description": "With drop: why.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "flow",
+            "action"
+          ]
+        },
+        "description": "One decision per flow; a flow you do not name stays as it is."
+      }
+    },
+    "required": [
+      "review"
+    ]
+  },
+  "submit_corrections": {
+    "type": "object",
+    "properties": {
+      "corrections": {
+        "description": "One order per flow that corrects.",
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "flow": {
+              "type": "string",
+              "description": "The id of the flow that corrects."
+            },
+            "action": {
+              "type": "string",
+              "enum": [
+                "revise",
+                "replace"
+              ],
+              "description": "revise sends your instruction and the flow's findings to the same sidekick; replace starts a fresh sidekick on the same flow, for one that is stuck."
+            },
+            "findings": {
+              "description": "The numbers of the findings that cite no flow, or that you move to this flow, exactly as the list numbers them. A finding citing a flow's spec is always sent to it.",
+              "type": "array",
+              "items": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            },
+            "instruction": {
+              "description": "What to change.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "flow",
+            "action"
+          ]
+        }
+      },
+      "rebuttals": {
+        "description": "Only when the findings are the independent reviewer's; leave it out when they are facts the run observed.",
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "finding": {
+              "type": "integer",
+              "minimum": -9007199254740991,
+              "maximum": 9007199254740991,
+              "description": "The number of the finding you hold to be wrong, exactly as the list numbers it."
+            },
+            "basis": {
+              "type": "string",
+              "enum": [
+                "execution",
+                "contract"
+              ],
+              "description": "execution: a test of this run that passed on the current bytes; contract: a clause that still holds."
+            },
+            "ref": {
+              "type": "string",
+              "description": "The test or the clause."
+            },
+            "reason": {
+              "description": "Why the finding is wrong.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "finding",
+            "basis",
+            "ref"
+          ]
+        }
+      }
+    }
+  },
+  "submit_result": {
+    "type": "object",
+    "properties": {
+      "status": {
+        "type": "string",
+        "enum": [
+          "completed",
+          "completed-with-concerns",
+          "blocked",
+          "needs-lead",
+          "failed"
+        ],
+        "description": "completed, completed-with-concerns, blocked, needs-lead or failed."
+      },
+      "summary": {
+        "type": "string",
+        "description": "What you did and what came of it."
+      },
+      "filesChanged": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "path"
+          ]
+        },
+        "description": "The files you wrote or changed."
+      },
+      "acceptance": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "criterion": {
+              "type": "integer",
+              "minimum": -9007199254740991,
+              "maximum": 9007199254740991,
+              "description": "The criterion's number, as the brief lists it, from 1."
+            },
+            "status": {
+              "type": "string",
+              "enum": [
+                "met",
+                "unmet",
+                "unverified"
+              ],
+              "description": "met only when you checked it holds, unmet when your work does not satisfy it, unverified when you could not check it."
+            },
+            "note": {
+              "type": "string"
+            },
+            "cause": {
+              "description": "With unmet: DEV's state prevents the criterion, as pages you read in this turn show.",
+              "type": "string",
+              "const": "dev-state"
+            },
+            "pages": {
+              "description": "With cause dev-state: the paths of the pages you read.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "criterion",
+            "status"
+          ]
+        },
+        "description": "One entry for every numbered acceptance criterion; empty when there are none."
+      },
+      "candidates": {
+        "description": "One entry for every use case of the Change section, when the brief lists any.",
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "description": "The id of a use case of the Change section."
+            },
+            "status": {
+              "type": "string",
+              "enum": [
+                "covered",
+                "not-covered",
+                "blocked"
+              ],
+              "description": "covered when a test of yours exercises it, not-covered when none does, blocked when you could not."
+            },
+            "spec": {
+              "description": "The title of the test that covers it.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "status"
+          ]
+        }
+      },
+      "testCorrect": {
+        "description": "Only when you hold a failing test right and the application or the environment wrong.",
+        "type": "object",
+        "properties": {
+          "cause": {
+            "type": "string",
+            "enum": [
+              "env",
+              "app"
+            ]
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "cause",
+          "reason"
+        ]
+      },
+      "concerns": {
+        "description": "Notes; only an unmet acceptance entry reports a failure.",
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "unresolvedQuestions": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      }
+    },
+    "required": [
+      "status",
+      "summary",
+      "filesChanged",
+      "acceptance"
+    ]
+  },
+  "submit_specs": {
+    "type": "object",
+    "properties": {
+      "specs": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "The suite-relative paths of the spec files you wrote or changed. [] only with noop, testCorrect or rebuttals."
+      },
+      "specMetas": {
+        "description": "One entry per spec: its file, flow, objective and the code it targets.",
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "file": {
+              "type": "string",
+              "minLength": 1
+            },
+            "flow": {
+              "type": "string",
+              "minLength": 1
+            },
+            "objective": {
+              "type": "string",
+              "minLength": 1
+            },
+            "targets": {
+              "default": [],
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "file",
+            "flow",
+            "objective"
+          ]
+        }
+      },
+      "note": {
+        "type": "string"
+      },
+      "noop": {
+        "description": "The decision to write no spec, with its reason.",
+        "type": "object",
+        "properties": {
+          "kind": {
+            "description": "not-worth: nothing in the change is worth an E2E test. unobservable: DEV cannot show the changed behavior in its current state.",
+            "type": "string",
+            "enum": [
+              "not-worth",
+              "unobservable"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "description": "Why nothing was written."
+          }
+        },
+        "required": [
+          "reason"
+        ]
+      },
+      "testCorrect": {
+        "description": "Only when you hold a failing test right and the application or the environment wrong.",
+        "type": "object",
+        "properties": {
+          "cause": {
+            "type": "string",
+            "enum": [
+              "env",
+              "app"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "cause",
+          "reason"
+        ]
+      },
+      "rebuttals": {
+        "description": "The findings you dispute instead of correcting, each with the evidence the orchestrator can check.",
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "finding": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                },
+                {
+                  "type": "string",
+                  "minLength": 1
+                }
+              ]
+            },
+            "basis": {
+              "type": "string",
+              "enum": [
+                "execution",
+                "contract"
+              ]
+            },
+            "ref": {
+              "type": "string",
+              "minLength": 1
+            },
+            "reason": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "finding",
+            "basis",
+            "ref",
+            "reason"
+          ]
+        }
+      }
+    },
+    "required": [
+      "specs"
+    ]
+  },
+  "submit_review": {
+    "type": "object",
+    "properties": {
+      "approved": {
+        "type": "boolean",
+        "description": "true when these specs may be published as they are, false when a correction must be made first."
+      },
+      "rationale": {
+        "description": "One or two sentences, on approval too: what these tests do or fail to do about the change.",
+        "type": "string"
+      },
+      "corrections": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "text": {
+              "type": "string",
+              "description": "The actionable message, prefixed with its class tag: what file, what to change, why."
+            },
+            "severity": {
+              "type": "string",
+              "enum": [
+                "blocking",
+                "advisory"
+              ],
+              "description": "blocking makes the test worthless and fails the gate; advisory is a nit that is recorded."
+            },
+            "citation": {
+              "description": "The evidence the correction rests on. A correction with no citation cannot block.",
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "contract",
+                        "execution",
+                        "dom",
+                        "arm",
+                        "availability",
+                        "contradiction",
+                        "ambient"
+                      ]
+                    },
+                    "ref": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "ref"
+                  ]
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "text",
+            "severity"
+          ]
+        },
+        "description": "The findings, blocking first. [] beside an approval is a complete answer."
+      }
+    },
+    "required": [
+      "approved",
+      "corrections"
+    ]
+  },
+  "submit_profiles": {
+    "type": "object",
+    "properties": {
+      "candidates": {
+        "type": "array",
+        "items": {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "transport": {
+                  "type": "string",
+                  "const": "http"
+                },
+                "frontFiles": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "frontCallSite": {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "receiver": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "kind"
+                  ]
+                },
+                "servicePrefixTemplate": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "serviceRepoTemplate": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "openApiPath": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "transport",
+                "frontFiles",
+                "frontCallSite",
+                "servicePrefixTemplate",
+                "serviceRepoTemplate",
+                "openApiPath"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "transport": {
+                  "type": "string",
+                  "const": "event"
+                },
+                "files": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "eventPattern": {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "listenerBaseType": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "listenerEventCall": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "subscriberBaseType": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "publishCall": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "listenerBaseType",
+                    "listenerEventCall",
+                    "subscriberBaseType",
+                    "publishCall"
+                  ]
+                }
+              },
+              "required": [
+                "transport",
+                "files",
+                "eventPattern"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "transport": {
+                  "type": "string",
+                  "const": "http-backend"
+                },
+                "sourceFiles": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "callPattern": {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "receiver": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "kind"
+                  ]
+                },
+                "servicePrefixTemplate": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "serviceRepoTemplate": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "openApiPath": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "transport",
+                "sourceFiles",
+                "callPattern",
+                "servicePrefixTemplate",
+                "serviceRepoTemplate",
+                "openApiPath"
+              ]
+            }
+          ]
+        },
+        "description": "The boundary profiles you hypothesize, each discriminated by `transport`. [] when you found no boundary."
+      }
+    },
+    "required": [
+      "candidates"
+    ]
+  }
+}

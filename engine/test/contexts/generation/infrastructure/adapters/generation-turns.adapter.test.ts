@@ -53,8 +53,8 @@ function fakeAuthoringPorts(overrides: {
       specFileForFlow: (flow: string) => `flows/${flow}.spec.ts`,
     },
     verdicts: {
-      parseGenerator: () => ({ specs: ["flows/checkout.spec.ts"], note: "ok" }),
-      parseReview: () => ({ approved: true, findings: [], parsed: true, valid: true, issues: [] }),
+      readGenerator: () => ({ specs: ["flows/checkout.spec.ts"], note: "ok" }),
+      readReview: () => ({ approved: true, findings: [], parsed: true, valid: true, issues: [] }),
     },
     manifest: {
       read: async () => [],
@@ -86,7 +86,7 @@ const TESTED_METAS = { specs: ["flows/checkout.spec.ts"], parsed: true, specMeta
 
 test("author() publishes no specMetas unless the run requires a review", async () => {
   const ports = fakeAuthoringPorts();
-  ports.verdicts.parseGenerator = () => TESTED_METAS;
+  ports.verdicts.readGenerator = () => TESTED_METAS;
   const adapter = new GenerationTurnsAdapter(new GenerateTestsUseCase(ports), { ...STATIC_CONTEXT });
   const result = await adapter.author("/mirrors/org/app/e2e");
   assert.equal("specMetas" in result, false);
@@ -95,7 +95,7 @@ test("author() publishes no specMetas unless the run requires a review", async (
 
 test("author() publishes the manifest's flow and objective when the run requires a review", async () => {
   const ports = fakeAuthoringPorts();
-  ports.verdicts.parseGenerator = () => TESTED_METAS;
+  ports.verdicts.readGenerator = () => TESTED_METAS;
   const adapter = new GenerationTurnsAdapter(new GenerateTestsUseCase(ports), { ...STATIC_CONTEXT, reviewRequired: true });
   const result = await adapter.author("/mirrors/org/app/e2e");
   assert.deepEqual(result.specMetas, [{ flow: "checkout", objective: "the user pays" }]);
@@ -120,7 +120,7 @@ test("author() forwards an exhausted generation's end, its note and the main tur
         dispose: async () => {},
       }),
     } as unknown as AuthoringPorts["runtime"],
-    verdicts: { ...ports.verdicts, parseGenerator: () => ({ specs: [], parsed: true, outputTail: "cut off" }) },
+    verdicts: { ...ports.verdicts, readGenerator: () => ({ specs: [], parsed: true, outputTail: "cut off" }) },
   };
   const adapter = new GenerationTurnsAdapter(new GenerateTestsUseCase(exhausting), { ...STATIC_CONTEXT});
   const result = await adapter.author("/mirrors/org/app/e2e");
@@ -132,7 +132,7 @@ test("author() forwards an exhausted generation's end, its note and the main tur
 
 test("author() populates specSources from an injected file-read collaborator (absent by default), handing it the run's spec root and each reported path", async () => {
   const ports = fakeAuthoringPorts();
-  ports.verdicts.parseGenerator = () => ({ specs: ["flows/checkout.spec.ts", "login.spec.ts"], note: "ok" });
+  ports.verdicts.readGenerator = () => ({ specs: ["flows/checkout.spec.ts", "login.spec.ts"], note: "ok" });
   const useCase = new GenerateTestsUseCase(ports);
   const calls: Array<{ root: SpecRoot; reported: string }> = [];
   const readSpecSource = (root: SpecRoot, reported: string): string => {
@@ -207,7 +207,7 @@ test("author() fails with the typed error, naming the reported path, when a deli
 test("author() fails with the typed error when a delivered spec climbs out of the spec directory", () =>
   withMirror(async ({ mirror, specDir }) => {
     const ports = fakeAuthoringPorts();
-    ports.verdicts.parseGenerator = () => ({ specs: ["../../secret.txt"], note: "ok" });
+    ports.verdicts.readGenerator = () => ({ specs: ["../../secret.txt"], note: "ok" });
     const adapter = new GenerationTurnsAdapter(
       new GenerateTestsUseCase(ports),
       { ...STATIC_CONTEXT, mirrorDir: mirror},
@@ -909,8 +909,8 @@ async function generatorPromptFor(
     runtime: {
       openSession: async (role) => ({
         prompt: async (text: string) => {
-          if (role === "author") generatorPrompt = text;
-          return { output: '{"specs":[]}' };
+          if (role === "author" && generatorPrompt === "") generatorPrompt = text;
+          return { output: "" };
         },
         dispose: async () => {},
       }),
@@ -919,8 +919,8 @@ async function generatorPromptFor(
       buildPromptAssembled, buildReviewerPromptAssembled, specFileForFlow,
     }),
     verdicts: {
-      parseGenerator: () => ({ specs: [], parsed: true }),
-      parseReview: () => ({ approved: true, findings: [], parsed: true, valid: true, issues: [] }),
+      readGenerator: () => ({ specs: [], parsed: true }),
+      readReview: () => ({ approved: true, findings: [], parsed: true, valid: true, issues: [] }),
     },
     manifest: { read: async () => [], reconcile: async (_specDir, entries) => [...entries] },
   });
@@ -984,7 +984,7 @@ test("author() puts the author's limit from the resolver on every input it build
 test("plan() puts the lead's limit from the resolver on the input of the planning turn", async () => {
   const inputs: OpencodeRunInput[] = [];
   const asked: StepLimitRole[] = [];
-  const planning = { ...recordingUseCase(inputs), plan: async (input: OpencodeRunInput) => { inputs.push(input); return { parsed: true, timedOut: false }; } } as unknown as GenerateTestsUseCase;
+  const planning = { ...recordingUseCase(inputs), plan: async (input: OpencodeRunInput) => { inputs.push(input); return { timedOut: false }; } } as unknown as GenerateTestsUseCase;
   const adapter = new GenerationTurnsAdapter(planning, { ...STATIC_CONTEXT }, { stepLimitFor: resolverAsking(asked) });
 
   await adapter.plan("/mirrors/org/app/e2e", undefined, undefined, { planning: { budgetMs: 1000 } as never });
@@ -1265,7 +1265,7 @@ test("plan() hands the use case the input a first pass has, with the limits of t
   const useCase = Object.assign(new GenerateTestsUseCase(fakeAuthoringPorts()), {
     plan: async (input: OpencodeRunInput) => {
       seen.push(input);
-      return { plan: { kind: "single" }, parsed: true, timedOut: false };
+      return { plan: { kind: "single" }, timedOut: false };
     },
   });
   const adapter = new GenerationTurnsAdapter(useCase, { ...STATIC_CONTEXT, guidance: "cover the cart" });
@@ -1289,14 +1289,14 @@ test("plan() refuses a call that carries no limits for the plan, before any sess
   assert.equal(opened, false);
 });
 
-test("plan() forwards a plan turn that ran out of time and one that gave a no-op", async () => {
-  const outcomes = [{ parsed: false, timedOut: true }, { noopReason: "docs only", parsed: true, timedOut: false }] as const;
+test("plan() forwards a plan turn that ran out of time and one that delivered no accepted plan", async () => {
+  const outcomes = [{ timedOut: true }, { noSubmission: "no accepted submission (it stopped)", timedOut: false }] as const;
   for (const outcome of outcomes) {
     const useCase = Object.assign(new GenerateTestsUseCase(fakeAuthoringPorts()), { plan: async () => outcome });
     const adapter = new GenerationTurnsAdapter(useCase, { ...STATIC_CONTEXT});
     const result = await adapter.plan("/mirrors/org/app/e2e", undefined, "diff", { sha: "abc1234", planning: { capacity: 3, maxParallel: 2, budgetMs: 60_000 } });
     assert.equal(result.timedOut, outcome.timedOut);
-    assert.equal(result.noopReason, "noopReason" in outcome ? outcome.noopReason : undefined);
+    assert.equal(result.noSubmission, "noSubmission" in outcome ? outcome.noSubmission : undefined);
   }
 });
 

@@ -17,7 +17,8 @@ import { ASSEMBLED_ARTIFACT_NAMES, buildPrompt } from "@contexts/generation/infr
 import { ANTI_WEAKENING_RULE, EFFORT_NO_OP_CLAUSE, OBJECTIVE_QUESTION, buildContextTask } from "@contexts/generation/infrastructure/prompt-builders/task-builders";
 import { MILESTONE_OUTCOME_PHRASES } from "@contexts/generation/infrastructure/prompt-builders/generator-renderers";
 import { GENERATION_END } from "@kernel/generation-end";
-import { checkGeneratorVerdict, parseVerdict } from "@contexts/generation/application/index";
+import { readVerdict } from "@contexts/generation/application/index";
+import { generatorVerdictContract } from "@contexts/generation/domain/generator-verdict.contract";
 import { RUN_MODES } from "../persistence/types";
 
 /* The roster is an input here: window budgets resolve from the roster fixture, never the deployable agents/opencode.json. */
@@ -153,7 +154,7 @@ describe("agent prompt guard", () => {
     return [...finalOutput.matchAll(/```json\n([\s\S]*?)\n```/g)].map((m) => m[1] ?? "");
   };
   const endOfExample = (example: string) => {
-    const verdict = parseVerdict(example);
+    const verdict = readVerdict(JSON.parse(example) as Record<string, unknown>);
     return classifyGenerationEnd({
       specCount: verdict.specs.length,
       parsed: verdict.parsed,
@@ -162,12 +163,12 @@ describe("agent prompt guard", () => {
     });
   };
 
-  it("in qa-author.md the first Final output example delivers specs and every other one declares a no-op, as the real parser and validator read them", () => {
+  it("in qa-author.md the first Final output example delivers specs and every other one declares a no-op, as the real reader and the submit contract read them", () => {
     for (const rel of GENERATOR_PROMPTS) {
       const examples = finalOutputExamples(rel);
       assert.ok(examples.length >= 2, `${rel}: the Final output section carries a delivery example and a no-op example`);
       examples.forEach((example, index) => {
-        assert.equal(checkGeneratorVerdict(example).valid, true, `${rel}: example ${index + 1} passes the validator`);
+        assert.equal(generatorVerdictContract.check(JSON.parse(example)).ok, true, `${rel}: example ${index + 1} passes the submit contract`);
         assert.equal(
           endOfExample(example),
           index === 0 ? GENERATION_END.DELIVERED : GENERATION_END.DECLARED_NOOP,
@@ -204,7 +205,7 @@ describe("agent prompt guard", () => {
     } as Parameters<typeof buildContextTask>[0]);
     const example = text.trim().split("\n").at(-1) ?? "";
     assert.equal("approved" in (JSON.parse(example) as object), false);
-    assert.equal(checkGeneratorVerdict(example).valid, true);
+    assert.equal(generatorVerdictContract.check(JSON.parse(example)).ok, true);
     assert.equal(endOfExample(example), GENERATION_END.DELIVERED);
   });
 

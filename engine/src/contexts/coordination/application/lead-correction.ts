@@ -15,7 +15,6 @@ import { assembleDefs, type AssembledPrompt, type WindowFitOutcome } from "@kern
 import { LEAD_CORRECTION_SECTIONS, REFUSED_CORRECTION_SECTIONS, type CorrectionFinding, type FlowUnderCorrection } from "./coordination-sections/lead-turn-sections.ts";
 
 export type { CorrectionFinding, FlowUnderCorrection };
-import { closingJsonObject } from "@kernel/last-json-object.ts";
 import { entryRead, entryUnreadable, readEntries, readOneOf, type UnreadableEntry } from "./answer-reading.ts";
 import { endsWithSpecPath, sameSpecPath } from "@kernel/spec-path.ts";
 import type { RedactionPort } from "@kernel/ports/redaction.port.ts";
@@ -254,8 +253,9 @@ export function renderLeadCorrection(redaction: RedactionPort, flows: readonly F
 
 /*
  * The one request that sends an answer back to the lead: why each part of it was not admitted, the findings (by position) it neither
- * sent to a flow nor rebutted, the numbers that are findings, and what to answer. The lead's answer is untrusted text and a number
- * outside the list is a correctable slip, not a decision; a finding left out is a decision it has not made yet.
+ * sent to a flow nor rebutted, the numbers that are findings, and what to answer. What the reader cannot read is returned inside the
+ * turn that submitted it (`leadCorrectionContract`); this request is about the orchestrator's facts: a finding left out is a decision
+ * the lead has not made yet.
  */
 export function assembleRefusedCorrection(refused: CorrectionAdmission["refused"], findingCount: number, omitted: readonly number[] = [], origin: CorrectionOrigin = CORRECTION_ORIGIN.REVIEW): AssembledPrompt {
   return assembleDefs(REFUSED_CORRECTION_SECTIONS, { refused, findingCount, omitted: omitted.map((i) => i + 1), rebuttable: rebuttable(origin) }, { separator: "\n" });
@@ -265,7 +265,8 @@ function textOf(redaction: RedactionPort, value: unknown, max: number): string {
   return typeof value === "string" ? redaction.redact(value).trim().slice(0, max) : "";
 }
 
-export function admitLeadCorrection(redaction: RedactionPort, output: string, flows: readonly FlowUnderCorrection[], findings: readonly CorrectionFinding[], origin: CorrectionOrigin = CORRECTION_ORIGIN.REVIEW): CorrectionAdmission {
+/* Reads the lead's submitted routing: the object the correction contract accepted. No answer at all (`undefined`) is the lead's absence and unreadable is empty; any other answer is unreadable unless it is an object with a `corrections` or a `rebuttals` list. */
+export function admitLeadCorrection(redaction: RedactionPort, answer: unknown, flows: readonly FlowUnderCorrection[], findings: readonly CorrectionFinding[], origin: CorrectionOrigin = CORRECTION_ORIGIN.REVIEW): CorrectionAdmission {
   const admission: CorrectionAdmission = { readable: false, unreadable: [], orders: [], rebuttals: [], unrouted: [], refused: [] };
   const route = routesOfFindings(findings, flows);
   const owner = route.map((r) => r?.flowId);
@@ -273,8 +274,8 @@ export function admitLeadCorrection(redaction: RedactionPort, output: string, fl
   /* The flow the lead gave a finding several flows hold: the first order that names it, which replaces the default owner. */
   const given = new Map<number, string>();
   const byId = new Map(flows.map((flow) => [flow.id, flow]));
-  const closing = closingJsonObject(output);
-  const raw = closing !== undefined && (Array.isArray(closing.corrections) || Array.isArray(closing.rebuttals)) ? (closing as { corrections?: unknown; rebuttals?: unknown }) : undefined;
+  const listed = typeof answer === "object" && answer !== null ? (answer as { corrections?: unknown; rebuttals?: unknown }) : undefined;
+  const raw = listed !== undefined && (Array.isArray(listed.corrections) || Array.isArray(listed.rebuttals)) ? listed : undefined;
   const readable = raw !== undefined;
   admission.readable = readable;
   const routed = new Map<string, { action: CorrectionOrder["action"]; instruction: string; extra: Set<number> }>();
@@ -282,8 +283,9 @@ export function admitLeadCorrection(redaction: RedactionPort, output: string, fl
   const scrub = (text: string): string => redaction.redact(text);
   const numberOf = (value: unknown): number | undefined => (typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= findings.length ? value - 1 : undefined);
 
-  if (!raw) admission.unreadable.push({ where: "answer", reason: "it does not end with a JSON object with a `corrections` or `rebuttals` list" });
-  else {
+  if (!raw) {
+    if (answer !== undefined) admission.unreadable.push({ where: "answer", reason: "it is not an object with a `corrections` or `rebuttals` list" });
+  } else {
     /* Each order is read once: a flow of this pass, a revise or a replace, and finding numbers that are findings of the turn. An entry that is not that is unacted on and recorded, never read as a revise. */
     const orders = readEntries(raw.corrections, "corrections", (entry, index) => {
       if (!entry || typeof entry !== "object" || Array.isArray(entry)) return entryUnreadable("it is not an object");

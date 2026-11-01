@@ -1,14 +1,15 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { GenerateTestsUseCase, type AuthoringPorts } from "@contexts/generation/application/generate-tests.use-case.ts";
-import type { GeneratorDeliverable } from "@contexts/generation/domain/manifest-repository.ts";
 import type { ManifestEntry } from "@kernel/manifest/manifest-entry.ts";
 import type { OpencodeRunInput } from "@contexts/generation/domain/opencode-run-input.ts";
 import { AgentTimeoutError, AgentUnavailableError } from "@kernel/domain-error.ts";
 import type { AgentRole } from "@kernel/agent-role.ts";
-import type { AgentPromptOpts, OpenSessionOpts } from "@kernel/ports/agent-runtime.port.ts";
+import type { AgentPromptOpts, AgentSession, OpenSessionOpts } from "@kernel/ports/agent-runtime.port.ts";
+import { SUBMIT_TOOL, type SubmissionContract, type SubmissionReport } from "@kernel/submission.ts";
 
-const PLANNING = { capacity: 5, maxParallel: 2, budgetMs: 180_000 };
+const contract: SubmissionContract<Record<string, unknown>> = { tool: SUBMIT_TOOL.PLAN, check: (answer) => ({ ok: true, value: answer as Record<string, unknown> }) };
+const PLANNING = { capacity: 5, maxParallel: 2, budgetMs: 180_000, submit: contract };
 
 function planInput(over: Partial<OpencodeRunInput> = {}): OpencodeRunInput {
   return {
@@ -18,16 +19,22 @@ function planInput(over: Partial<OpencodeRunInput> = {}): OpencodeRunInput {
   };
 }
 
+type Turn = { output?: string; submission?: SubmissionReport } | { throws: Error };
+
 interface Seen {
   opened: Array<{ role: AgentRole; cwd: string; opts: OpenSessionOpts | undefined }>;
   prompts: Array<{ text: string; opts: AgentPromptOpts | undefined }>;
   rendered: OpencodeRunInput[];
-  parsedWith: Array<{ text: string; specDir: string | undefined }>;
   disposed: number;
 }
 
-function build(step: { output: string } | { throws: Error }, deliverable: GeneratorDeliverable): { ports: AuthoringPorts; seen: Seen } {
-  const seen: Seen = { opened: [], prompts: [], rendered: [], parsedWith: [], disposed: 0 };
+const FANOUT = { kind: "fanout", flows: [{ id: "a", objective: "x" }, { id: "b", objective: "y" }] };
+const accepted = (value: Record<string, unknown> = FANOUT, calls = 1): Turn => ({ output: "closing words", submission: { accepted: true, value, calls } });
+const missed = (end: "stopped" | "output-length" = "stopped", errors: Array<{ path: string; reason: string }> = []): Turn => ({ output: "", submission: { accepted: false, calls: errors.length, errors, end } });
+
+function build(...turns: Turn[]): { ports: AuthoringPorts; seen: Seen } {
+  const seen: Seen = { opened: [], prompts: [], rendered: [], disposed: 0 };
+  const queue = [...turns];
   const ports: AuthoringPorts = {
     runtime: {
       openSession: async (role, cwd, opts) => {
@@ -35,11 +42,13 @@ function build(step: { output: string } | { throws: Error }, deliverable: Genera
         return {
           prompt: async (text, promptOpts) => {
             seen.prompts.push({ text, opts: promptOpts });
-            if ("throws" in step) throw step.throws;
-            return { output: step.output };
+            const next = queue.shift();
+            if (next === undefined) throw new Error("no scripted turn left");
+            if ("throws" in next) throw next.throws;
+            return { output: next.output ?? "", ...(next.submission ? { submission: next.submission } : {}) };
           },
           dispose: () => { seen.disposed += 1; },
-        };
+        } satisfies AgentSession;
       },
     },
     rendering: {
@@ -49,19 +58,17 @@ function build(step: { output: string } | { throws: Error }, deliverable: Genera
       specFileForFlow: (flow) => `flows/${flow}.spec.ts`,
     },
     verdicts: {
-      parseGenerator: (text, specDir) => { seen.parsedWith.push({ text, specDir }); return deliverable; },
-      parseReview: () => ({ approved: true, findings: [], valid: true, issues: [], parsed: true }),
+      readGenerator: () => { throw new Error("a planning turn reads no free text"); },
+      readReview: () => ({ approved: true, findings: [], valid: true, issues: [], parsed: true }),
     },
     manifest: { read: async () => [], reconcile: async (_d, e) => [...e] as ManifestEntry[] },
   };
   return { ports, seen };
 }
 
-const FANOUT = { kind: "fanout", flows: [{ id: "a", objective: "x" }, { id: "b", objective: "y" }] };
-
-test("a planning turn is one prompt in one generator session bounded by the planning budget, in which the agent may not write", async () => {
-  const { ports, seen } = build({ output: '{"plan":{}}' }, { specs: [], parsed: true, plan: FANOUT });
-  await new GenerateTestsUseCase(ports).plan(planInput());
+test("a planning turn is one prompt in one lead session bounded by the planning budget, in which the agent may not write, answered through the plan contract", async () => {
+  const { ports, seen } = build(accepted());
+  const result = await new GenerateTestsUseCase(ports).plan(planInput());
   assert.equal(seen.opened.length, 1);
   assert.equal(seen.opened[0]!.role, "lead");
   assert.equal(seen.opened[0]!.cwd, "/m");
@@ -72,169 +79,140 @@ test("a planning turn is one prompt in one generator session bounded by the plan
   assert.equal(seen.prompts[0]!.opts?.withoutWrites, true);
   assert.equal(seen.prompts[0]!.opts?.timeoutMs, PLANNING.budgetMs);
   assert.equal(seen.prompts[0]!.opts?.timeLimit, "plan-budget");
-  assert.equal(seen.prompts[0]!.opts?.finalStepOnly, true);
+  assert.equal(seen.prompts[0]!.opts?.submit, contract);
+  assert.deepEqual(result.plan, FANOUT);
+  assert.equal(result.noSubmission, undefined);
+  assert.equal(result.timedOut, false);
 });
 
-test("a turn that comes back with a plan keeps its session open for the lead's next turn, read-only and bounded, and closes it once", async () => {
-  const { ports, seen } = build({ output: "the plan" }, { specs: [], parsed: true, plan: FANOUT });
+test("the prompt is the generator's own for this input, with its planning limits", async () => {
+  const { ports, seen } = build(accepted());
+  await new GenerateTestsUseCase(ports).plan(planInput());
+  assert.equal(seen.rendered[0]!.planning?.capacity, PLANNING.capacity);
+  assert.equal(seen.prompts[0]!.text, "PLAN_PROMPT");
+  assert.deepEqual(seen.opened.map((o) => o.role), ["lead"]);
+});
+
+test("a turn that delivers a plan keeps its session open for the lead's next turn, read-only and bounded, and closes it once", async () => {
+  const { ports, seen } = build(accepted(), accepted({ review: [] }));
   const result = await new GenerateTestsUseCase(ports).plan(planInput());
   assert.equal(seen.disposed, 0, "the lead's session outlives the plan");
   assert.ok(result.lead, "the session comes back with the plan");
-  const answer = await result.lead.ask("REVIEW", { timeoutMs: 45_000 });
-  assert.deepEqual(answer, { output: "the plan", timedOut: false });
+  const reviewContract: SubmissionContract<Record<string, unknown>> = { tool: SUBMIT_TOOL.FLOW_REVIEW, check: (answer) => ({ ok: true, value: answer as Record<string, unknown> }) };
+  const answer = await result.lead.askSubmitting("REVIEW", { timeoutMs: 45_000 }, reviewContract);
+  assert.deepEqual(answer, { value: { review: [] }, timedOut: false });
   assert.equal(seen.opened.length, 1, "the next turn is asked in the same session");
   assert.equal(seen.prompts[1]!.text, "REVIEW");
   assert.equal(seen.prompts[1]!.opts?.withoutWrites, true);
   assert.equal(seen.prompts[1]!.opts?.timeoutMs, 45_000);
+  assert.equal(seen.prompts[1]!.opts?.submit, reviewContract, "the turn is answered through the contract it is asked with, not the plan's");
   await result.lead.dispose();
   await result.lead.dispose();
   assert.equal(seen.disposed, 1);
 });
 
 test("a lead's next turn that runs out of its time is reported, not thrown", async () => {
-  let calls = 0;
-  const { ports } = build({ output: "the plan" }, { specs: [], parsed: true, plan: FANOUT });
-  const open = ports.runtime.openSession;
-  ports.runtime = { openSession: async (role, cwd, opts) => {
-    const session = await open(role, cwd, opts);
-    return { prompt: async (text, o) => { calls += 1; if (calls > 1) throw new AgentTimeoutError("timed out"); return session.prompt(text, o); }, dispose: session.dispose };
-  } };
+  const { ports } = build(accepted(), { throws: new AgentTimeoutError("timed out") });
   const result = await new GenerateTestsUseCase(ports).plan(planInput());
-  assert.deepEqual(await result.lead!.ask("REVIEW", { timeoutMs: 1 }), { output: "", timedOut: true });
+  assert.deepEqual(await result.lead!.askSubmitting("REVIEW", { timeoutMs: 1 }, contract), { timedOut: true });
   await result.lead!.dispose();
 });
 
-test("a turn that comes back with no readable plan keeps its session, so the lead can be asked once more for the plan in it", async () => {
-  const answers = ["I looked at the change and the pages, and what is observable on /rest", "the corrected plan"];
-  const { ports, seen } = build({ output: "" }, { specs: [], parsed: true });
-  let turn = 0;
-  ports.runtime = { openSession: async (role, cwd, opts) => {
-    seen.opened.push({ role, cwd, opts });
-    return { prompt: async (text, o) => { seen.prompts.push({ text, opts: o }); return { output: answers[turn++]! }; }, dispose: () => { seen.disposed += 1; } };
-  } };
-  ports.verdicts = { ...ports.verdicts, parseGenerator: (text) => (text === "the corrected plan" ? { specs: [], parsed: true, plan: FANOUT } : { specs: [], parsed: true }) };
+test("a plan turn cut by the output-length limit before its plan closed gets one continuation restricted to the submit tool, and its plan comes back", async () => {
+  const { ports, seen } = build(missed("output-length", [{ path: "plan", reason: "the lead delivered no accepted plan" }]), accepted(FANOUT, 1));
+  const result = await new GenerateTestsUseCase(ports).plan(planInput());
+  assert.deepEqual(result.plan, FANOUT);
+  assert.equal(result.noSubmission, undefined);
+  assert.equal(seen.prompts.length, 2);
+  assert.equal(seen.prompts[1]!.opts?.submitOnly, true);
+  assert.equal(seen.prompts[1]!.opts?.timeoutMs, PLANNING.budgetMs);
+  assert.match(seen.prompts[1]!.text, /output-length limit/);
+  assert.match(seen.prompts[1]!.text, /the lead delivered no accepted plan/);
+  assert.equal(seen.disposed, 0);
+});
+
+test("a turn with no accepted plan after its continuation says why, keeps its session, and is not a timed-out turn", async () => {
+  const { ports, seen } = build(missed("stopped", [{ path: "flows[0].objective", reason: "objective is missing" }]), missed("stopped"));
   const result = await new GenerateTestsUseCase(ports).plan(planInput());
   assert.equal("plan" in result, false);
-  assert.equal(seen.disposed, 0, "the session outlives an answer with no plan");
-  assert.ok(result.lead, "the session comes back to its holder");
-  const again = await result.lead.askForPlan("RESTATE", { timeoutMs: 30_000 });
-  assert.deepEqual(again, { plan: FANOUT, parsed: true, timedOut: false });
-  assert.equal(seen.opened.length, 1, "the plan is asked for again in the same session");
-  assert.equal(seen.prompts[1]!.opts?.withoutWrites, true);
+  assert.equal(result.timedOut, false);
+  assert.match(result.noSubmission!, /no accepted submission/);
+  assert.match(result.noSubmission!, /flows\[0\]\.objective: objective is missing/);
+  assert.equal(seen.prompts.length, 2, "exactly one continuation");
+  assert.equal(seen.disposed, 0, "the session outlives a turn with no plan");
+  assert.ok(result.lead);
   await result.lead.dispose();
   assert.equal(seen.disposed, 1);
 });
 
-test("a turn that declares a no-op keeps its session for its holder, which closes it", async () => {
-  const { ports, seen } = build({ output: "noop" }, { specs: [], parsed: true, noopReason: "nothing" });
+test("a continuation that runs out of the time its purpose is allotted leaves a typed miss, not a timed-out plan turn", async () => {
+  const { ports } = build(missed("stopped"), { throws: new AgentTimeoutError("allotment spent") });
   const result = await new GenerateTestsUseCase(ports).plan(planInput());
-  assert.equal(seen.disposed, 0);
+  assert.equal(result.timedOut, false);
+  assert.match(result.noSubmission!, /continuation ran out of its time/);
+});
+
+test("the lead is asked for its plan again through the same contract, in the same session, and a miss there is reported with its reason", async () => {
+  const amended = { kind: "fanout", flows: [{ id: "c", objective: "z" }] };
+  const { ports, seen } = build(accepted(), accepted(amended), missed("stopped"), missed("stopped"));
+  const result = await new GenerateTestsUseCase(ports).plan(planInput());
+  const again = await result.lead!.askForPlan("amend", { timeoutMs: 5_000 });
+  assert.deepEqual(again, { plan: amended, timedOut: false });
+  assert.equal(seen.opened.length, 1, "asked in the same session");
+  assert.equal(seen.prompts[1]!.text, "amend");
+  assert.equal(seen.prompts[1]!.opts?.withoutWrites, true);
+  assert.equal(seen.prompts[1]!.opts?.submit, contract);
+  const miss = await result.lead!.askForPlan("amend", { timeoutMs: 5_000 });
+  assert.equal(miss.plan, undefined);
+  assert.match(miss.noSubmission!, /no accepted submission/);
   await result.lead!.dispose();
   assert.equal(seen.disposed, 1);
 });
 
-test("a turn that runs out of its time closes its session and hands none back", async () => {
-  const { ports, seen } = build({ throws: new AgentTimeoutError("timed out") }, { specs: [], parsed: true });
+test("a turn that runs out of its planning time is reported as such, not thrown, and its session is closed", async () => {
+  const { ports, seen } = build({ throws: new AgentTimeoutError("OpenCode prompt: timed out") });
   const result = await new GenerateTestsUseCase(ports).plan(planInput());
   assert.equal(result.timedOut, true);
+  assert.equal("plan" in result, false);
   assert.equal(result.lead, undefined);
   assert.equal(seen.disposed, 1);
 });
 
-test("the prompt is the generator's own for this input, with its planning limits", async () => {
-  const { ports, seen } = build({ output: "x" }, { specs: [], parsed: true, plan: FANOUT });
-  await new GenerateTestsUseCase(ports).plan(planInput());
-  assert.equal(seen.rendered[0]!.planning?.capacity, PLANNING.capacity);
-  assert.equal(seen.prompts[0]!.text, "PLAN_PROMPT");
-});
-
-test("the plan the verdict carried comes back as it was read, for the orchestrator to judge, and the reviewer is never opened", async () => {
-  const { ports, seen } = build({ output: "the plan" }, { specs: [], parsed: true, plan: FANOUT });
-  const result = await new GenerateTestsUseCase(ports).plan(planInput());
-  assert.deepEqual(result.plan, FANOUT);
-  assert.equal(result.parsed, true);
-  assert.equal(result.timedOut, false);
-  assert.deepEqual(seen.opened.map((o) => o.role), ["lead"]);
-  assert.deepEqual(seen.parsedWith[0], { text: "the plan", specDir: "/m/e2e" });
-});
-
-test("a turn that declares a no-op instead of a plan returns the reason, and no plan", async () => {
-  const { ports } = build({ output: "noop" }, { specs: [], parsed: true, noopReason: "nothing here is worth a test" });
-  const result = await new GenerateTestsUseCase(ports).plan(planInput());
-  assert.equal(result.noopReason, "nothing here is worth a test");
-  assert.equal("plan" in result, false);
-});
-
-test("a turn that gives neither a plan nor a reason, or none that can be read, comes back without either", async () => {
-  const empty = await new GenerateTestsUseCase(build({ output: "…" }, { specs: [], parsed: true }).ports).plan(planInput());
-  assert.equal("plan" in empty, false);
-  assert.equal("noopReason" in empty, false);
-  assert.equal(empty.parsed, true);
-  const unreadable = await new GenerateTestsUseCase(build({ output: "…" }, { specs: [], parsed: false }).ports).plan(planInput());
-  assert.equal(unreadable.parsed, false);
-});
-
-test("a turn that ran out of its planning time is reported as such, not thrown, and its session is closed", async () => {
-  const { ports, seen } = build({ throws: new AgentTimeoutError("OpenCode prompt: timed out") }, { specs: [], parsed: false });
-  const result = await new GenerateTestsUseCase(ports).plan(planInput());
-  assert.equal(result.timedOut, true);
-  assert.equal("plan" in result, false);
-  assert.equal(seen.disposed, 1);
-});
-
 test("any other failure of the turn is thrown, loudly, and the session is still closed", async () => {
-  const { ports, seen } = build({ throws: new AgentUnavailableError("provider down") }, { specs: [], parsed: false });
+  const { ports, seen } = build({ throws: new AgentUnavailableError("provider down") });
   await assert.rejects(new GenerateTestsUseCase(ports).plan(planInput()), /provider down/);
   assert.equal(seen.disposed, 1);
 });
 
-test("asking for a plan of an input that carries no planning limits is a mistake, not a plan", async () => {
-  const { ports } = build({ output: "x" }, { specs: [], parsed: true });
+test("asking for a plan of an input that carries no planning limits, or no plan contract, is a mistake, not a plan", async () => {
   const { planning: _, ...withoutPlanning } = planInput();
-  await assert.rejects(new GenerateTestsUseCase(ports).plan(withoutPlanning), /planning/);
+  await assert.rejects(new GenerateTestsUseCase(build(accepted()).ports).plan(withoutPlanning), /planning/);
+  const { submit: __, ...limits } = PLANNING;
+  await assert.rejects(new GenerateTestsUseCase(build(accepted()).ports).plan(planInput({ planning: limits })), /planning\.submit/);
 });
 
 test("the cancellation of the run reaches the planning session", async () => {
-  const { ports, seen } = build({ output: "x" }, { specs: [], parsed: true, plan: FANOUT });
+  const { ports, seen } = build(accepted());
   const controller = new AbortController();
   await new GenerateTestsUseCase(ports).plan(planInput(), { signal: controller.signal });
   assert.equal(seen.opened[0]!.opts?.signal, controller.signal);
 });
 
 test("the planning session is opened for the lead role, which the roster makes read-only, with no per-prompt tool denial", async () => {
-  const { ports, seen } = build({ output: '{"plan":{}}' }, { specs: [], parsed: true, plan: FANOUT });
+  const { ports, seen } = build(accepted());
   await new GenerateTestsUseCase(ports).plan(planInput());
   assert.equal(seen.opened[0]!.role, "lead");
   assert.equal(seen.opened[0]!.opts?.descriptor?.role, "qa-lead");
   assert.equal("denyTools" in (seen.opened[0]!.opts?.descriptor ?? {}), false);
 });
 
-test("a turn that returns a plan keeps its session open and the lead's later answer is read as a planning turn", async () => {
-  const { ports, seen } = build({ output: "the answer" }, { specs: [], parsed: true });
-  const deliverables: GeneratorDeliverable[] = [{ specs: [], parsed: true, plan: FANOUT }, { specs: [], parsed: true, plan: FANOUT }, { specs: [], parsed: false }];
-  let read = 0;
-  ports.verdicts.parseGenerator = (text, specDir) => { seen.parsedWith.push({ text, specDir }); return deliverables[read++]!; };
-  const result = await new GenerateTestsUseCase(ports).plan(planInput());
-  assert.deepEqual(result.plan, FANOUT);
-  assert.equal(seen.disposed, 0, "the session outlives the request: the lead is asked again in it");
-  const second = await result.lead!.askForPlan("amend", { timeoutMs: 5_000 });
-  assert.deepEqual(second, { plan: FANOUT, parsed: true, timedOut: false });
-  assert.equal(seen.opened.length, 1, "asked in the same session");
-  assert.equal(seen.prompts[1]!.text, "amend");
-  assert.equal(seen.prompts[1]!.opts?.withoutWrites, true);
-  const unreadable = await result.lead!.askForPlan("amend", { timeoutMs: 5_000 });
-  assert.equal(unreadable.parsed, false);
-  await result.lead!.dispose();
-  assert.equal(seen.disposed, 1);
-});
-
 test("a follow-up turn of the lead hands the transport the sizes and hashes of the sections it was assembled from", async () => {
-  const { ports, seen } = build({ output: "the plan" }, { specs: [], parsed: true, plan: FANOUT });
+  const { ports, seen } = build(accepted(), accepted(), accepted());
   const result = await new GenerateTestsUseCase(ports).plan(planInput());
-  await result.lead!.ask("REVIEW", { timeoutMs: 1_000, sectionSizes: { flows: 12 }, sectionHashes: { flows: "abc" } });
+  await result.lead!.askSubmitting("REVIEW", { timeoutMs: 1_000, sectionSizes: { flows: 12 }, sectionHashes: { flows: "abc" } }, contract);
   assert.deepEqual(seen.prompts[1]!.opts?.sectionSizes, { flows: 12 });
   assert.deepEqual(seen.prompts[1]!.opts?.sectionHashes, { flows: "abc" });
-  await result.lead!.ask("PLAN AGAIN", { timeoutMs: 1_000 });
+  await result.lead!.askSubmitting("PLAN AGAIN", { timeoutMs: 1_000 }, contract);
   assert.equal(seen.prompts[2]!.opts?.sectionSizes, undefined);
   await result.lead!.dispose();
 });

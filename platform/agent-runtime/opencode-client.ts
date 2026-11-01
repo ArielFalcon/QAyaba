@@ -21,6 +21,7 @@ import { openCodeServerAuth } from "./opencode-server-auth";
 import { AGENT_BROWSER_AGENTS, GEOLOCATION_AGENTS } from "@contexts/test-execution/application/index";
 import { CODE_GRAPH_AGENTS } from "@kernel/code-graph-tools";
 import { SessionGoneError } from "@kernel/turn-end";
+import { SUBMIT_TOOLS, type SubmitTool } from "@kernel/submission";
 
 
 import {
@@ -35,11 +36,7 @@ import {
 export { activityRouter, registerRunSession, unregisterRunSession, startActivitySink };
 export type { LiveActivity };
 
-/* Re-export so control-plane importers keep resolving parseVerdict here. */
-import { parseVerdict } from "@contexts/generation/application/index";
 import { causeChain } from "./net";
-export { parseVerdict };
-
 import {
   specFileForFlow,
   buildPrompt,
@@ -533,16 +530,6 @@ export function stallMs(): number {
 
 
 /*
- * Every tool a prompt can reach, named so a per-prompt `tools` map can switch it off: OpenCode's own tools, and the
- * wildcard patterns for the MCP servers the roles are wired to (the same patterns agents/opencode.json denies per
- * role). The bare "*" is the catch-all for a tool added later; the explicit names are for a build that matches
- * names and not patterns.
- */
-export const NO_TOOLS: Readonly<Record<string, false>> = Object.fromEntries(
-  ["*", "bash", "read", "write", "edit", "patch", "glob", "grep", "list", "webfetch", "task", "todowrite", "todoread", "run_spec", "authbrowser*", "set_geolocation", "codegraph*", "serena*", "playwright*"].map((name) => [name, false as const]),
-);
-
-/*
  * Which sessions the orchestrator granted the authenticated browser: the host installs a lookup over its registry. The tools are on
  * for the authoring roles in agents/opencode.json whether or not a run granted them, so a prompt of an authoring role whose session
  * was not granted hides them with a per-prompt map instead of listing four tools the orchestrator would refuse. Until a lookup is
@@ -613,22 +600,41 @@ export function sessionToolDeny(sessionId: string): readonly string[] | undefine
   return deniedToolsBySession.get(sessionId);
 }
 
-/** The body of one OpenCode prompt. A prompt that asks for no tools carries the deny map; one that may not write is denied the file tools; one of a session the browser, or the code graph, was not granted to hides their tools; the tools its session was denied are denied it; every other prompt leaves the tools to its agent's configuration. */
-export function openCodePromptBody(args: { agent: string; text: string; model?: { providerID: string; modelID: string } | undefined; withoutTools?: boolean | undefined; withoutWrites?: boolean | undefined; hideBrowserTools?: boolean | undefined; hideGeolocationTool?: boolean | undefined; hideCodeGraphTools?: boolean | undefined; denyTools?: readonly string[] | undefined }) {
-  const tools: Record<string, false> = args.withoutTools
-    ? { ...NO_TOOLS }
-    : {
-        ...(args.hideBrowserTools ? { "authbrowser*": false as const } : {}),
-        ...(args.hideGeolocationTool ? { set_geolocation: false as const } : {}),
-        ...(args.hideCodeGraphTools ? { "codegraph*": false as const } : {}),
-        ...(args.withoutWrites ? NO_WRITE_TOOLS : {}),
-        ...Object.fromEntries((args.denyTools ?? []).map((name) => [name, false as const])),
-      };
+/** The submit tools a prompt armed with `armed` is denied: every other one, by name (a pattern would deny the armed tool as well). */
+function otherSubmitTools(armed: SubmitTool): Record<string, false> {
+  return Object.fromEntries(SUBMIT_TOOLS.filter((name) => name !== armed).map((name) => [name, false as const]));
+}
+
+const ANY_SUBMIT_TOOL = "submit_*";
+
+type PromptToolArgs = { withoutWrites?: boolean | undefined; hideBrowserTools?: boolean | undefined; hideGeolocationTool?: boolean | undefined; hideCodeGraphTools?: boolean | undefined; denyTools?: readonly string[] | undefined; submitTool?: SubmitTool | undefined; submitOnly?: boolean | undefined };
+
+/**
+ * The `tools` map of one prompt. OpenCode turns it into session permission rules appended after the agent's own, so a rule it
+ * carries wins over the agent's configuration both ways; the last rule that matches a tool decides, in key order; a key is matched
+ * as a pattern (`*`, `serena*`). The session keeps the rules of the last prompt that sent any: a prompt that sends none inherits
+ * them, a non-empty map replaces them whole. So every prompt sends a map, and the continuation that may only submit denies every
+ * tool, whatever its name, and then allows the armed one.
+ */
+function toolsOf(args: PromptToolArgs): Record<string, boolean> {
+  if (args.submitTool !== undefined && args.submitOnly) return { "*": false, [args.submitTool]: true };
+  return {
+    ...(args.hideBrowserTools ? { "authbrowser*": false } : {}),
+    ...(args.hideGeolocationTool ? { set_geolocation: false } : {}),
+    ...(args.hideCodeGraphTools ? { "codegraph*": false } : {}),
+    ...(args.withoutWrites ? NO_WRITE_TOOLS : {}),
+    ...(args.submitTool === undefined ? { [ANY_SUBMIT_TOOL]: false } : otherSubmitTools(args.submitTool)),
+    ...Object.fromEntries((args.denyTools ?? []).map((name) => [name, false as const])),
+  };
+}
+
+/** The body of one OpenCode prompt. One that may not write is denied the file tools; one of a session the browser, or the code graph, was not granted to hides their tools; the tools its session was denied are denied it; a prompt that submits an answer is denied every submit tool but its own, one that submits nothing is denied them all, and a continuation that may only submit is denied every other tool. */
+export function openCodePromptBody(args: PromptToolArgs & { agent: string; text: string; model?: { providerID: string; modelID: string } | undefined }) {
   return {
     agent: args.agent,
     parts: [{ type: "text" as const, text: args.text }],
     ...(args.model ? { model: args.model } : {}),
-    ...(Object.keys(tools).length > 0 ? { tools } : {}),
+    tools: toolsOf(args),
   };
 }
 
@@ -657,11 +663,11 @@ async function buildRawAgentTransport(): Promise<RawAgentTransport> {
       if (!id) throw new Error("OpenCode: the session returned no id");
       return { id };
     },
-    promptSession: async ({ id, cwd, agent, text, model, withoutTools, withoutWrites }): Promise<RawPromptResult> => {
+    promptSession: async ({ id, cwd, agent, text, model, withoutWrites, submitTool, submitOnly }): Promise<RawPromptResult> => {
       const res = await client.session.prompt({
         path: { id },
         query: { directory: cwd },
-        body: openCodePromptBody({ agent, text, model, withoutTools, withoutWrites, hideBrowserTools: hidesBrowserTools(agent, id), hideGeolocationTool: hidesGeolocationTool(agent, id), hideCodeGraphTools: hidesCodeGraphTools(agent, id), denyTools: sessionToolDeny(id) }),
+        body: openCodePromptBody({ agent, text, model, withoutWrites, submitTool, submitOnly, hideBrowserTools: hidesBrowserTools(agent, id), hideGeolocationTool: hidesGeolocationTool(agent, id), hideCodeGraphTools: hidesCodeGraphTools(agent, id), denyTools: sessionToolDeny(id) }),
       });
       if (res.error) throw promptFailure(res.error, res.response?.status);
       /*

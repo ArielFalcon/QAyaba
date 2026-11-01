@@ -255,17 +255,22 @@ The answer is untrusted, and the orchestrator's facts decide over it:
   A spec the sidekick wrote is taken back after every turn whatever the turn ended in (`needs-lead`, `failed`, an answer
   that could not be read): its status is its word, the bytes are what the run judges;
 - a flow the answer does not name, or an answer that runs out of its time, leaves the flows as they are;
-- an entry of the answer the reader cannot read (an action that is not `accept`, `revise`, `replace` or `drop`, a flow that is not under review, a flow answered twice) is never read as a default and never skipped in silence: it is returned as an unreadable entry (where it sits and why), the lead is asked once more in the same session, naming the entries, and what stays unreadable is recorded and not acted on (its flow gets no order); an answer that holds no review list at all is asked about the same way and, still unread, leaves the flows as they are.
+- an entry of the answer the reader cannot read (an action that is not `accept`, `revise`, `replace` or `drop`, a flow that is not under review, a flow answered twice) is never read as a default and never skipped in silence: it is refused inside the lead's `submit_flow_review` call (where it sits and why), so the lead corrects it in the same turn; a turn that ends with no accepted call gets one continuation (below), and what stays unreadable is recorded and not acted on (its flow gets no order); an answer that holds no review list at all is asked about the same way and, still unread, leaves the flows as they are.
 
-How an agent's closing JSON is read (sidekick results, the lead's plan, review and correction answers): the object that closes
-the output (`closingJsonObject`, `shared-kernel/last-json-object.ts`): its last top-level object, with nothing after it that
-opens a brace, checked against that contract. Narration and earlier objects before it never hide it, and an earlier object
-never stands in for a closing one that does not read: that answer is unreadable and asked about once. A sidekick output with no DelegationResult is a failed result marked `readMiss: unreadable`:
+How an agent's answer is delivered (sidekick results, the lead's plan, review and correction answers, RFC-0018): each role calls the submit tool
+of its contract (`submit_plan`, `submit_flow_review`, `submit_corrections`, `submit_result`; the author's `submit_specs`, the reviewer's
+`submit_review` and the proposer's `submit_profiles` are the other contracts). The tool's arguments are the answer: the orchestrator judges them
+inside the turn with the reader of the context that owns the contract and returns the path and reason of each refusal, so the model corrects it
+while it holds the context. The first accepted call is the answer; the turn's text is read for none. A turn that ends with no accepted call (the
+model stopped, or its output hit the length limit) is a typed end, never an `AgentUnavailableError`, and gets exactly one continuation in the
+same session, restricted to the submit tool, carrying the last refusal's errors and bounded by the time the run deadline allots to its purpose;
+a continuation that allotment cannot hold ends the turn as it stands. Only then does the caller's own fail-closed path apply, with the reason recorded (a plan with
+no admitted flows `no-plan`). A sidekick turn with no accepted result is a failed result marked `readMiss: unreadable`:
 still not a success, files still taken back, but recorded with failure class and `qayaba.delegation.status` `unreadable` instead of
 `failed`, so it is never counted as a failure the sidekick reported (the `sidekick_report_consistent` grader does not read it as one).
 A flow sidekick's prompt carries one closing contract, the DelegationResult block. It names no `recommendation`: nothing reads one.
 
-Every answer of the coordination crosses whole (RFC-0006), through one reader (`answer-reading.ts`): the lead's plan (flows and drops), review, correction (orders, finding numbers, rebuttals) and amendment, and the sidekick's result (`filesChanged`, `concerns`, `unresolvedQuestions`, the use-case claims, `testCorrect`). A list is walked entry by entry; an entry that is not what the contract says is an `UnreadableEntry`, never a default (a correction order whose action is not `revise` or `replace` is no longer a `revise`). An unreadable part gets one repair turn in the same session: the lead's own session for its answers (a rejected plan is the existing re-ask, now told where the plan went wrong), and, for a sidekick, one prompt with its tools off that asks only for the closing result again. The repaired answer replaces the first only when it reads better (fewer unreadable entries); what stays unreadable is recorded and not acted on: `DelegationResult.unreadableEntries`, the `qayaba.coordination.unreadable_entries` and `repair_turn` attributes of a `lead-decision` or `delegation` event, and the counts `gateSignals.coordination.review.unreadable|repairs`, `corrections.unreadable|repairs` and `unreadable { plan, delegation, repairs }`. The acceptance report keeps its own recorded defect (`acceptanceReportDefect`). The code-graph tool's `explore-answer.ts` shapes a tool's answer to the lead and reads no agent answer.
+Every answer of the coordination crosses whole (RFC-0006), through one reader (`answer-reading.ts`): the lead's plan (flows and drops), review, correction (orders, finding numbers, rebuttals) and amendment, and the sidekick's result (`filesChanged`, `concerns`, `unresolvedQuestions`, the use-case claims, `testCorrect`). A list is walked entry by entry; an entry that is not what the contract says is an `UnreadableEntry`, never a default (a correction order whose action is not `revise` or `replace` is no longer a `revise`). The wire schema of each answer lives beside its reader (`LEAD_PLAN_WIRE`, `LEAD_REVIEW_WIRE`, `LEAD_CORRECTION_WIRE`, `DELEGATION_RESULT_WIRE`) and renders to the tool's arguments (`npm run submit-contracts:gen`); an unreadable part is refused inside the call, and the continuation is the one second chance (a rejected plan is told where the plan went wrong). What stays unreadable is recorded and not acted on: `DelegationResult.unreadableEntries`, the `qayaba.coordination.unreadable_entries` and `repair_turn` attributes of a `lead-decision` or `delegation` event (`repair_turn` now says the continuation was spent), and the counts `gateSignals.coordination.review.unreadable|repairs`, `corrections.unreadable|repairs` and `unreadable { plan, delegation, repairs }` (`repairs` counts continuations). The acceptance report keeps its own recorded defect (`acceptanceReportDefect`). The code-graph tool's `explore-answer.ts` shapes a tool's answer to the lead and reads no agent answer.
 
 Every revision carries the orchestrator's facts beside the lead's instruction. A sidekick that writes nothing and says
 why (the change needs no test of its own) is a declined flow, not a failure. When every flow comes back empty, the run ends `E-NO-DECISION`; the lead does not take the change over. The review is counted in
@@ -322,10 +327,10 @@ them, and the evidence filter gives every finding it admits an id (`identifyFind
 verified findings with it. From then on a finding is named by its id, never by its text: the spec it is routed to, the number
 the lead is shown (read back to the finding's id by `admitLeadCorrection`, an unknown number an unreadable entry) and the
 rebuttal the run checks (`verifyRebuttals` withdraws only the finding whose id it names). Two findings with the same text that
-cite two specs stay two findings, each routed to its own flow. A rejection with an entry or field the engine cannot read is asked about once and then ends as a parse miss with its
+cite two specs stay two findings, each routed to its own flow. A rejection with an entry or field the engine cannot read is refused inside the `submit_review` call, continued once, and then ends as a parse miss with its
 issues recorded (`qayaba.review.issues` on the decision span), so no finding the lead is shown was filled in by the engine.
 An approval is not put at risk by what it carries beside it: `corrections` that is not a list is read as none and an entry
-the engine cannot read is set aside, the readable entries are kept, the approval stands with no repair turn, and the same
+the engine cannot read is set aside, the readable entries are kept, the approval stands with no continuation spent, and the same
 attribute records the loss.
 
 A pass whose flows delivered, with the lead's planning session, is not closed when the coordination ends: the run keeps it
@@ -360,9 +365,8 @@ findings, the run asks the lead, in the same planning session, instead of regene
    has time to carry an order out either: without the first turn each finding goes
    to its default owner (the spec it cites or names, the flow whose test ran the file, the flow whose use case holds it as a direct
    seed, plan order), without the re-ask the first answer stands, and each is recorded as a `lead-decision`. A run with no
-   deadline is bounded by `planBudgetMs` alone. The lead review's repair turn (the one asking about entries the reader could not
-   read) is held by the same rule (`leadTurnTime`): not sent when it cannot leave the flows that minimum, its first answer then
-   standing, on the record. The values come from the run's own budget, never from the app.
+   deadline is bounded by `planBudgetMs` alone. The lead review's continuation (the one that follows a turn with no accepted call) carries the first prompt's
+   limits and is cut by the deadline's allotment of its purpose, so it never outlasts the room the run has. The values come from the run's own budget, never from the app.
 4. Each flow's workspace is refreshed from the working copy (the run may have changed the spec since), then its sidekick gets the
    findings verbatim, the lead's instruction and the orchestrator's facts. Only a change made after the refresh comes back.
 5. A finding no flow took that names a spec of the suite no flow of the plan authored (a static-gate error or a failing case in a

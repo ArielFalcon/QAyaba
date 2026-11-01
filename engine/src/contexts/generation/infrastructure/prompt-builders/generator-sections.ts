@@ -1,5 +1,6 @@
 /* The sections of a generator prompt, in prompt order. Each declares when it applies and how it renders from the turn's PromptContext; buildPromptAssembled filters and renders them. Never import platform/. */
 
+import { SUBMIT_TOOL } from "@kernel/submission.ts";
 import { linkIdentity, type ImpactReach, type ServiceLink } from "@kernel/service-links.ts";
 import { sanitizeText } from "../../../../shared-infrastructure/redaction/pattern-redaction.adapter.ts";
 import { advisoryLineIds, itemId } from "@kernel/context-item-ids.ts";
@@ -77,7 +78,7 @@ function renderWorkingRules(ctx: PromptContext): SectionRender {
         ]
       : [
           `- Work in the repo's tests folder: ${input.e2eRelDir}/ (source of truth in git). Reuse and improve existing fixtures/specs; do not duplicate.`,
-          `- In your closing verdict JSON, include specMetas with {file, flow, objective, targets} for each spec. The orchestrator writes the manifest deterministically from these.`,
+          `- In your ${SUBMIT_TOOL.SPECS} call, include specMetas with {file, flow, objective, targets} for each spec. The orchestrator writes the manifest deterministically from these.`,
           `- LIVE DEV URL: ${input.baseUrl ?? "(not provided — ABORT and report infra-error: no base URL)"}`,
           `  In the SPEC files, reach the app via the PW_BASE_URL env var (the orchestrator sets it at run time).`,
           ...(planningTurn

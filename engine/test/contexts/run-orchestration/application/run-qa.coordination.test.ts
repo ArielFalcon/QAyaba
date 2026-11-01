@@ -75,7 +75,7 @@ function rig(result: () => Promise<CoordinateResult> | CoordinateResult = () => 
       plan: async (_dir, _signal, _diff, enrichment): Promise<PlanOutput> => {
         calls.push("plan");
         r.planned.push(enrichment);
-        return { plan: { kind: "lead" }, parsed: true, timedOut: false };
+        return { plan: { kind: "lead" }, timedOut: false };
       },
     }),
     review: { review: async () => ({ approved: true, findings: [], blockingCount: 0, parsed: true }) },
@@ -143,7 +143,7 @@ test("a coordinated run hands the coordinator what the run knows: its identity, 
   assert.deepEqual(input!.settings, DEFAULT_COORDINATION_SETTINGS);
   /* The planning closure asks the generation port, with the run's enrichment and the limits. */
   const planned = await input!.plan!({ capacity: 4, maxParallel: 2, budgetMs: 60_000 });
-  assert.equal(planned.parsed, true);
+  assert.equal(planned.timedOut, false);
   assert.deepEqual(r.planned[0]!.planning, { capacity: 4, maxParallel: 2, budgetMs: 60_000 });
   assert.equal(r.planned[0]!.runId, "coord-run");
   assert.ok(r.planned[0]!.closedLoop && r.planned[0]!.agentBrowser, "the plan turn is told the tool budgets like any generation");
@@ -474,7 +474,7 @@ test("a rebuttal the lead gives one finding by its number withdraws that finding
     { id: "b", objective: "b", specFile: "flows/b.spec.ts", sessionOpen: true },
   ];
   /* Finding 1 (a.spec.ts) is rebutted on a's green run; finding 2 (b.spec.ts) is neither corrected nor rebutted. */
-  const answer = JSON.stringify({ corrections: [], rebuttals: [{ finding: 1, basis: "execution", ref: "flows/a.spec.ts", reason: "a's run asserts the total in its last step" }] });
+  const answer = { corrections: [], rebuttals: [{ finding: 1, basis: "execution", ref: "flows/a.spec.ts", reason: "a's run asserts the total in its last step" }] };
   r = rig(() => flowsAB(kept.pass));
   kept = keptPass(r, (findings) => {
     const admitted = admitLeadCorrection(new PatternRedactionAdapter(), answer, under, findings, CORRECTION_ORIGIN.REVIEW);

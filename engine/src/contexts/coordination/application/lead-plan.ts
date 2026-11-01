@@ -12,8 +12,6 @@ import { LEAD_PLAN_KIND, type LeadPlanKind } from "@kernel/coordination.ts";
 import { DROP_BASES, type DropBasis } from "@kernel/drop-basis.ts";
 import { normalizeGeoLocation, resolvePlace, type GeoLocation } from "@kernel/geolocation.ts";
 import type { RedactionPort } from "@kernel/ports/redaction.port.ts";
-import { assembleDefs, type AssembledPrompt } from "@kernel/prompt-sections.ts";
-import { REJECTED_PLAN_SECTIONS } from "./coordination-sections/lead-turn-sections.ts";
 import { SIDEKICK_KIND, type SidekickKind } from "./sidekick-kinds.ts";
 import { describeUnreadable, entryRead, entryUnreadable, readEntries, type EntryRead, type UnreadableEntry } from "./answer-reading.ts";
 import { flowCapacity, MIN_BROWSER_CALLS_PER_FLOW, MIN_RUN_SPEC_CALLS_PER_FLOW, MIN_RUN_SPEC_DEV_WRITES_PER_FLOW, perFlowGrant } from "./flow-capacity.ts";
@@ -34,17 +32,17 @@ export type PlanDowngrade = (typeof PLAN_DOWNGRADE)[keyof typeof PLAN_DOWNGRADE]
 
 /* What each refusal tells the lead it got wrong, as facts; the plan contract it already holds says the shapes. */
 const DOWNGRADE_FACTS: Readonly<Record<PlanDowngrade, () => string>> = {
-  [PLAN_DOWNGRADE.NO_PLAN]: () => "the answer did not end with a plan JSON object",
+  [PLAN_DOWNGRADE.NO_PLAN]: () => "the lead delivered no accepted plan",
   [PLAN_DOWNGRADE.MALFORMED]: () => "it is not one of the plan shapes: a kind, a field or a field's type is not the contract's",
   [PLAN_DOWNGRADE.EMPTY]: () => "it is a fan-out with no flow and no use case dropped with a basis and a reason; a change that needs no test is a noop with its reason",
   [PLAN_DOWNGRADE.DUPLICATE]: () => "two of its flows have the same id",
   [PLAN_DOWNGRADE.NO_TIME]: () => "the run has too little time left for any flow",
 };
 
-/* The one request that sends a refused plan back to the lead: why it was refused (by its code and in words, and where in the plan when the reader could say), and what to answer. */
-export function assembleRejectedPlanRequest(downgrade: string, detail?: string): AssembledPrompt {
+/* What a refusal says the plan got wrong, in words, with where in the plan when the reader could say. */
+export function describePlanRefusal(downgrade: string, detail?: string): string {
   const fact = (DOWNGRADE_FACTS as Record<string, (() => string) | undefined>)[downgrade]?.() ?? "it could not be admitted";
-  return assembleDefs(REJECTED_PLAN_SECTIONS, { downgrade, fact: detail ? `${fact} (${detail})` : fact }, { separator: "\n\n" });
+  return detail ? `${fact} (${detail})` : fact;
 }
 
 export const MAX_FLOW_ID_CHARS = 48;
@@ -122,7 +120,7 @@ export type AdmittedPlan =
   /* `dropped` is set when the no-op is a plan of no flows whose every use case is dropped: the drops are checked against the run's facts like any plan's. */
   | { kind: typeof LEAD_PLAN_KIND.NOOP; reason: string; dropped?: PlanDrop[]; unreadable?: UnreadableEntry[] }
   /* `detail` says where in the plan the reader met what it could not read, when it could say. */
-  | { kind: typeof PLAN_REJECTED; downgrade: PlanDowngrade; detail?: string }
+  | { kind: typeof PLAN_REJECTED; downgrade: PlanDowngrade; detail?: string; unreadable?: readonly UnreadableEntry[] }
   /* `capacity` is the flows the run could author (absent: nothing bounds them); `notAdmitted` the flows past it, in plan order. */
   /* `unreadable` holds the entries of the plan that stands which the reader could not read (a drop with no basis, say): not acted on, recorded. */
   | { kind: typeof LEAD_PLAN_KIND.FANOUT; flows: AdmittedFlow[]; parallel: number; dropped: PlanDrop[]; capacity?: number; notAdmitted: NotAdmittedFlow[]; unreadable?: UnreadableEntry[] };
@@ -141,8 +139,8 @@ export interface PlanDrop {
   reason: string;
 }
 
-function reject(downgrade: PlanDowngrade, detail?: string): AdmittedPlan {
-  return { kind: PLAN_REJECTED, downgrade, ...(detail !== undefined ? { detail } : {}) };
+function reject(downgrade: PlanDowngrade, detail?: string, unreadable?: readonly UnreadableEntry[]): AdmittedPlan {
+  return { kind: PLAN_REJECTED, downgrade, ...(detail !== undefined ? { detail } : {}), ...(unreadable !== undefined ? { unreadable } : {}) };
 }
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
@@ -265,7 +263,7 @@ export function admitLeadPlan(raw: unknown, limits: PlanLimits, deps: PlanDeps):
   }
   /* A flow the reader cannot read refuses the plan, whole: the lead is asked once for the corrected plan, told where. */
   const read = readEntries(raw.flows, "flows", (entry) => rawFlowOf(entry, deps.places ?? {}, deps.redaction), scrub);
-  if (read.unreadable.length > 0) return reject(PLAN_DOWNGRADE.MALFORMED, describeUnreadable(read.unreadable).join("; "));
+  if (read.unreadable.length > 0) return reject(PLAN_DOWNGRADE.MALFORMED, describeUnreadable(read.unreadable).join("; "), read.unreadable);
   const flows: RawFlow[] = read.entries;
   if (new Set(flows.map((flow) => flow.id)).size !== flows.length) return reject(PLAN_DOWNGRADE.DUPLICATE);
 

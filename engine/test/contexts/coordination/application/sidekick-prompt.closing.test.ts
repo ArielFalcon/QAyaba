@@ -1,4 +1,4 @@
-/* The assembled flow brief carries exactly one closing contract: the sidekick result, never the run author's `specs` verdict. */
+/* The assembled flow brief carries exactly one way to answer: the sidekick result tool, never the run author's specs tool. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createDelegationBrief } from "@contexts/coordination/application/delegation-brief.ts";
@@ -7,7 +7,7 @@ import { PatternRedactionAdapter } from "../../../../src/shared-infrastructure/r
 
 const redaction = new PatternRedactionAdapter();
 
-test("the assembled flow brief holds one closing JSON contract and no author verdict", () => {
+test("the assembled flow brief names the result tool as the one way to answer and offers no author verdict", () => {
   const brief = createDelegationBrief({
     redaction,
     delegationId: "d1",
@@ -20,7 +20,8 @@ test("the assembled flow brief holds one closing JSON contract and no author ver
 
   const { text } = renderSidekickBrief(redaction, brief);
 
-  const closingContracts = text.match(/\{"delegationId":"d1","runId":"r1","status":/g) ?? [];
-  assert.equal(closingContracts.length, 1);
+  assert.match(text, /## Output contract\nDeliver your result by calling submit_result/);
+  assert.equal(text.match(/submit_result is the only way to answer/g)?.length, 1);
   assert.equal(/\{\s*"specs"\s*:/.test(text), false);
+  assert.equal(text.includes("submit_specs"), false, "the run author's tool is not offered to a flow's sidekick");
 });

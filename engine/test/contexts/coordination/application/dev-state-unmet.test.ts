@@ -15,12 +15,11 @@ const brief = createDelegationBrief({
 });
 
 const SUMMARY = "the spec passes run_spec; every cuisine chip is disabled on DEV";
-const answer = (acceptance: unknown): string =>
-  JSON.stringify({
-    delegationId: brief.delegationId, runId: brief.runId, status: "completed-with-concerns", summary: SUMMARY,
-    filesChanged: [{ path: "e2e/flows/cuisine.spec.ts" }], concerns: ["all cuisines are aria-disabled on DEV"], unresolvedQuestions: [],
-    acceptance,
-  });
+const answer = (acceptance: unknown): Record<string, unknown> => ({
+  status: "completed-with-concerns", summary: SUMMARY,
+  filesChanged: [{ path: "e2e/flows/cuisine.spec.ts" }], concerns: ["all cuisines are aria-disabled on DEV"], unresolvedQuestions: [],
+  acceptance,
+});
 const unmetOnDev = (criterion: number, pages: unknown = ["/search"]) => ({ criterion, status: "unmet", cause: "dev-state", pages, note: "every chip is disabled" });
 const met = (criterion: number) => ({ criterion, status: "met" });
 const ground = (over: Partial<DevStateGround> = {}): DevStateGround => ({ flowReads: ["/search"], emptyReads: [], dataRoutes: [], ...over });

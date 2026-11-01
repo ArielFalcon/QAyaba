@@ -1,9 +1,9 @@
-/* How a sidekick's answer is read: the object that closes its output, when it is shaped as a DelegationResult, checked against the brief it answers, scrubbed, and held to its writable roots. Its lists are read by the one reader of an answer (`answer-reading.ts`): an entry that cannot be read as the contract says is recorded in `unreadableEntries` and not acted on, never defaulted. An answer that cannot be read is a failed result marked `readMiss`, never an empty one and never mistaken for a failure the sidekick reported. Free-form fields are scrubbed on parse: they re-enter the lead's context. filesChanged paths are authority inputs (scope check, on-disk adoption) and stay raw; they are scrubbed only where echoed into a summary or concern. */
+/* How a sidekick's submitted result is read: the object its submit tool delivered, shaped as a DelegationResult under the brief's own identity, scrubbed, and held to its writable roots. Its lists are read by the one reader of an answer (`answer-reading.ts`): an entry that cannot be read as the contract says is returned to the sidekick inside its turn (`submittedResult`), never defaulted. A turn that delivers no accepted result is a failed result marked `readMiss`, never an empty one and never mistaken for a failure the sidekick reported. Free-form fields are scrubbed on parse: they re-enter the lead's context. filesChanged paths are authority inputs (scope check, on-disk adoption) and stay raw; they are scrubbed only where echoed into a summary or concern. */
 import type { RedactionPort } from "@kernel/ports/redaction.port.ts";
-import { closingJsonObject } from "@kernel/last-json-object.ts";
+import type { SubmissionError } from "@kernel/submission.ts";
 import { UNREADABLE_ANSWER } from "@kernel/unreadable-answer.ts";
 import type { DelegationBrief } from "./delegation-brief.ts";
-import { ANSWER_MISS, belongsToBrief, CANDIDATE_CLAIMS, type CandidateClaim, type CandidateClaimStatus, DELEGATION_STATUSES, type AnswerMiss, type DelegationResult, type DelegationStatus } from "./delegation-result.ts";
+import { ANSWER_MISS, CANDIDATE_CLAIMS, type CandidateClaim, type CandidateClaimStatus, DELEGATION_STATUSES, type DelegationResult, type DelegationStatus } from "./delegation-result.ts";
 import { entryRead, entryUnreadable, readEntries, readOneOf, type EntryRead, type UnreadableEntry } from "./answer-reading.ts";
 import { readAcceptanceReport } from "./acceptance-report.ts";
 import { applyPushback } from "./pushback.ts";
@@ -12,12 +12,9 @@ import { isPathWithinWritableRoots } from "./path-scope.ts";
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
 
-function parseDelegationResult(raw: unknown, brief: DelegationBrief, redaction: RedactionPort): DelegationResult | undefined {
+function parseDelegationResult(o: Record<string, unknown>, brief: DelegationBrief, redaction: RedactionPort): DelegationResult | undefined {
   const scrub = (text: string): string => redaction.redact(text);
-  if (!isRecord(raw)) return undefined;
-  const o = raw;
   const status = o.status;
-  if (typeof o.delegationId !== "string" || typeof o.runId !== "string") return undefined;
   if (typeof status !== "string" || !(DELEGATION_STATUSES as readonly string[]).includes(status)) return undefined;
   const files = readEntries(o.filesChanged, "filesChanged", (f): EntryRead<{ path: string }> => (isRecord(f) && typeof f.path === "string" ? entryRead({ path: f.path }) : entryUnreadable("it is not an object with a path")), scrub, { optional: true });
   const concerns = readEntries(o.concerns, "concerns", stringEntry, scrub, { optional: true });
@@ -27,8 +24,8 @@ function parseDelegationResult(raw: unknown, brief: DelegationBrief, redaction: 
   const correct = testCorrectOf(o.testCorrect, redaction);
   const unreadable = [...files.unreadable, ...concerns.unreadable, ...questions.unreadable, ...claims.unreadable, ...correct.unreadable];
   return {
-    delegationId: o.delegationId,
-    runId: o.runId,
+    delegationId: brief.delegationId,
+    runId: brief.runId,
     status: status as DelegationStatus,
     summary: typeof o.summary === "string" ? scrub(o.summary) : "",
     filesChanged: files.entries,
@@ -76,7 +73,7 @@ function testCorrectOf(value: unknown, redaction: RedactionPort): { entry?: { ca
   return { entry: { cause: cause.value, reason: redaction.redact(value.reason).trim().slice(0, MAX_CLAIM_CHARS) }, unreadable: [] };
 }
 
-function failedResult(brief: DelegationBrief, summary: string, redaction: RedactionPort, answerMiss: AnswerMiss): DelegationResult {
+function failedResult(brief: DelegationBrief, summary: string, redaction: RedactionPort): DelegationResult {
   const safe = redaction.redact(summary);
   return {
     delegationId: brief.delegationId,
@@ -96,36 +93,29 @@ function failedResult(brief: DelegationBrief, summary: string, redaction: Redact
     concerns: [safe],
     unresolvedQuestions: [],
     acceptance: [],
-    ...(answerMiss === ANSWER_MISS.UNREADABLE ? { readMiss: UNREADABLE_ANSWER, unreadableEntries: [{ where: "answer", reason: "it holds no result of the contract" }] } : {}),
-    answerMiss,
+    readMiss: UNREADABLE_ANSWER,
+    unreadableEntries: [{ where: "answer", reason: "it holds no result of the contract" }],
+    answerMiss: ANSWER_MISS.UNREADABLE,
   };
 }
 
-/* An object shaped as a delegation result (a status beside the brief's identity), whether or not its values are the contract's. */
-const isResultShaped = (o: Record<string, unknown>): boolean => "status" in o && ("delegationId" in o || "runId" in o);
-
-/*
- * The answer is what closes the output: its last object, with nothing after it that opens another. The reader never guesses which of
- * several objects is the answer, so a closing result that does not read (off the contract, not JSON, cut short) or an object of another
- * shape after it is reported unreadable and earns its one repair turn; an earlier result, which the sidekick may have revised, never
- * stands in for it.
- */
-function lastDelegationResult(output: string, brief: DelegationBrief, redaction: RedactionPort): { result?: DelegationResult; malformed: boolean } {
-  const closing = closingJsonObject(output);
-  if (!closing) return { malformed: false };
-  if (!isResultShaped(closing)) return { malformed: true };
-  const result = parseDelegationResult(closing, brief, redaction);
-  return result ? { result, malformed: false } : { malformed: true };
+/** What a turn that delivered no accepted result came to: the orchestrator's own failed result, never the sidekick's word. */
+export function unsubmittedResult(brief: DelegationBrief, reason: string, redaction: RedactionPort): DelegationResult {
+  return failedResult(brief, `the sidekick delivered no accepted result: ${reason}`, redaction);
 }
 
-/* The delegation result a sidekick's output came to. `ground` is what the orchestrator holds of the flow by its own means: with it, an unmet criterion the sidekick attributes to DEV's state is checked against it; without it, no such claim is backed. */
-export function readDelegationResult(output: string, brief: DelegationBrief, redaction: RedactionPort, ground?: DevStateGround): DelegationResult {
-  const read = lastDelegationResult(output, brief, redaction);
-  const parsed = read.result;
-  if (!parsed) return failedResult(brief, read.malformed ? "sidekick's closing result is not of the DelegationResult contract" : "sidekick output was not a valid DelegationResult", redaction, ANSWER_MISS.UNREADABLE);
-  if (!belongsToBrief(parsed, brief.delegationId, brief.runId)) {
-    return failedResult(brief, "sidekick result did not belong to this brief", redaction, ANSWER_MISS.FOREIGN_BRIEF);
-  }
+/** Where a submitted answer does not meet the result contract; empty when it does. The brief's identity is the orchestrator's: the answer carries none. */
+export function submittedResultErrors(answer: unknown, brief: DelegationBrief, redaction: RedactionPort): SubmissionError[] {
+  if (!isRecord(answer)) return [{ path: "answer", reason: "it is not an object" }];
+  const result = parseDelegationResult(answer, brief, redaction);
+  if (!result) return [{ path: "status", reason: `${JSON.stringify(answer.status)} is not one of ${DELEGATION_STATUSES.join(", ")}` }];
+  return (result.unreadableEntries ?? []).map((entry) => ({ path: entry.where, reason: entry.reason }));
+}
+
+/* The delegation result a sidekick's accepted submission came to. `ground` is what the orchestrator holds of the flow by its own means: with it, an unmet criterion the sidekick attributes to DEV's state is checked against it; without it, no such claim is backed. */
+export function readDelegationResult(answer: unknown, brief: DelegationBrief, redaction: RedactionPort, ground?: DevStateGround): DelegationResult {
+  const parsed = isRecord(answer) ? parseDelegationResult(answer, brief, redaction) : undefined;
+  if (!parsed) return failedResult(brief, "sidekick's submission is not of the DelegationResult contract", redaction);
   const illegal = parsed.filesChanged.filter((f) => !isPathWithinWritableRoots(f.path, brief.scope.writablePaths));
   if (illegal.length > 0) {
     return {

@@ -53,11 +53,9 @@ test("an exhausted note carries the step count over the limit, the write count a
 
 test("a note opens with what happened before the facts, and sets the output tail apart from them", () => {
   for (const end of [GENERATION_END.EXHAUSTED, GENERATION_END.UNDECIDED_EMPTY] as const) {
-    for (const repairExhausted of [false, true]) {
-      const note = renderGenerationNote({ end, turn: STEPS_FACTS, outputTail: OUTPUT_TAIL, repairExhausted });
-      assert.match(note, /^\S.*\(steps /, `${end} repair=${repairExhausted}`);
-      assert.match(note, /\)\.\s+\S/, `${end} repair=${repairExhausted}`);
-    }
+    const note = renderGenerationNote({ end, turn: STEPS_FACTS, outputTail: OUTPUT_TAIL });
+    assert.match(note, /^\S.*\(steps /, end);
+    assert.match(note, /\)\.\s+\S/, end);
   }
 });
 
@@ -108,22 +106,13 @@ test("a note without any turn stats still says both are unavailable", () => {
   assert.ok(note.includes(OUTPUT_TAIL));
 });
 
-test("an exhausted repair turn is named in the note, and a main-turn exhaustion does not mention a repair", () => {
-  const fromRepair = renderGenerationNote({ end: GENERATION_END.EXHAUSTED, turn: STEPS_FACTS, outputTail: "", repairExhausted: true });
-  assert.match(fromRepair, /repair/i);
-  const fromMain = renderGenerationNote({ end: GENERATION_END.EXHAUSTED, turn: STEPS_FACTS, outputTail: "", repairExhausted: false });
-  assert.doesNotMatch(fromMain, /repair/i);
-});
-
 test("an exhausted note whose turn wrote files never claims that nothing was written", () => {
   const nothingWritten = /\bno specs? (?:was |were |has been |had been )?written\b|\bnothing (?:was |had been )?written\b|\bwrote nothing\b/i;
-  for (const repairExhausted of [false, true]) {
-    for (const observationComplete of [true, false]) {
-      const turn = { ...STEPS_FACTS, writeCount: 4, observationComplete };
-      const note = renderGenerationNote({ end: GENERATION_END.EXHAUSTED, turn, outputTail: OUTPUT_TAIL, repairExhausted });
-      assert.doesNotMatch(note, nothingWritten, `repair=${repairExhausted} complete=${observationComplete}`);
-      assert.match(note, /writes:? (?:>=\s?)?4\b/, `repair=${repairExhausted} complete=${observationComplete}`);
-    }
+  for (const observationComplete of [true, false]) {
+    const turn = { ...STEPS_FACTS, writeCount: 4, observationComplete };
+    const note = renderGenerationNote({ end: GENERATION_END.EXHAUSTED, turn, outputTail: OUTPUT_TAIL });
+    assert.doesNotMatch(note, nothingWritten, `complete=${observationComplete}`);
+    assert.match(note, /writes:? (?:>=\s?)?4\b/, `complete=${observationComplete}`);
   }
 });
 
@@ -179,7 +168,6 @@ test("the largest counts still leave the tail room inside the bound", () => {
     end: GENERATION_END.UNDECIDED_EMPTY,
     turn: { maxSteps: Number.MAX_SAFE_INTEGER, stepsUsed: Number.MAX_SAFE_INTEGER, writeCount: Number.MAX_SAFE_INTEGER, observationComplete: false },
     outputTail: `${"x".repeat(GENERATION_NOTE_MAX_CHARS)} THE-END`,
-    repairExhausted: true,
   });
   assert.ok(note.length <= GENERATION_NOTE_MAX_CHARS, `${note.length} chars`);
   assert.ok(note.endsWith("THE-END"));

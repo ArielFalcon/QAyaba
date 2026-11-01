@@ -5,7 +5,7 @@ export const MAX_ACCEPTANCE_EXECUTIONS = 4;
 
 /* Each generateAndReview() costs at most CYCLES_PER_GENERATE counter ticks: 1 for the entry invocation + up to (MAX_REVIEW_ROUNDS - 1) in-loop review-round regenerations. */
 const CYCLES_PER_GENERATE = 1 + (MAX_REVIEW_ROUNDS - 1);
-/* In-session contract-repair headroom: each generateAndReview() may fire up to ~2 repair re-prompts (one generator, one reviewer) that each tick the shared counter via onRepair. */
+/* In-session continuation headroom: each generateAndReview() may fire up to ~2 submit continuations (one generator, one reviewer) that each tick the shared counter via onRepair. */
 const REPAIR_HEADROOM_PER_GENERATE = 2;
 
 /* Scope-dimensioned budget. The base backstop covers a single objective's full loop; extra objectives add one session's max cost (not the full loop — worker sessions do not go through generate→review→fix→coverage). numObjectives defaults to 1. */

@@ -8,7 +8,6 @@ import {
   buildPrompt,
   buildPromptAssembled,
   buildContextTask,
-  parseVerdict,
   specFileForFlow,
   renderArchitectureContext,
   buildReviewerPrompt,
@@ -196,136 +195,7 @@ test("buildPrompt manual mode: includes the user guidance", () => {
   assert.match(p, /contact form validation/);
 });
 
-test("parseVerdict reads the closing JSON (in a ```json block)", () => {
-  const v = parseVerdict('blah blah\n```json\n{ "approved": true, "specs": ["a.spec.ts"], "note": "" }\n```');
-  assert.equal(v.approved, true);
-  assert.deepEqual(v.specs, ["a.spec.ts"]);
-});
-
-test("parseVerdict takes the LAST valid object", () => {
-  const v = parseVerdict('{"approved": true}\nthen\n{ "approved": false, "note": "did not converge" }');
-  assert.equal(v.approved, false);
-  assert.equal(v.note, "did not converge");
-});
-
-test("parseVerdict with no verdict fails closed (approved=false) and flags the parse miss", () => {
-  const v = parseVerdict("the agent said nothing structured");
-  assert.equal(v.approved, false);
-  assert.equal(v.parsed, false); /* distinguishes a parse miss from an explicit rejection */
-});
-
-test("parseVerdict flags a successfully parsed verdict", () => {
-  assert.equal(parseVerdict('{ "approved": false, "specs": [] }').parsed, true);
-});
-
-test("parseVerdict reads the new generator contract (specs, no approved) — approval is the reviewer's job", () => {
-  /* The generator no longer self-reports `approved`: the independent reviewer is the gate.
-     The closing block is identified by its `specs` array, and a MISSING `approved` must not be
-     read as a rejection (that would fail-close every run under the new contract).
-   */
-  const v = parseVerdict(
-    'done.\n{ "specs": ["login.spec.ts"], "specMetas": [{"file":"login.spec.ts","flow":"login","objective":"valid creds reach the dashboard","targets":[]}], "note": "" }',
-  );
-  assert.equal(v.parsed, true);
-  assert.deepEqual(v.specs, ["login.spec.ts"]);
-  assert.equal(v.approved, true); /* default for the specs-only contract; the reviewer decides for real */
-  assert.equal(v.specMetas?.length, 1);
-});
-
-test("parseVerdict reads a declared no-op's reason", () => {
-  const v = parseVerdict('done.\n{"specs":[],"noop":{"reason":"The diff only renames an internal helper."}}');
-  assert.equal(v.parsed, true);
-  assert.deepEqual(v.specs, []);
-  assert.equal(v.noopReason, "The diff only renames an internal helper.");
-});
-
-test("parseVerdict trims a no-op's reason and reads a blank or missing one as no decision", () => {
-  assert.equal(parseVerdict('{"specs":[],"noop":{"reason":"  because  "}}').noopReason, "because");
-  for (const noop of ['{"reason":"   "}', "{}", "true", '"because"', '{"reason":5}']) {
-    const v = parseVerdict(`{"specs":[],"noop":${noop}}`);
-    assert.equal(v.parsed, true, noop);
-    assert.equal(v.noopReason, undefined, noop);
-  }
-});
-
-test("parseVerdict finds a closing verdict that carries only a no-op", () => {
-  const v = parseVerdict('{"noop":{"reason":"nothing to test"}}');
-  assert.equal(v.parsed, true);
-  assert.equal(v.noopReason, "nothing to test");
-});
-
-test("parseVerdict never reads `approved` as a no-op decision", () => {
-  for (const text of ['{"approved":true}', '{"approved":true,"specs":[]}']) {
-    const v = parseVerdict(text);
-    assert.equal(v.parsed, true, text);
-    assert.deepEqual(v.specs, [], text);
-    assert.equal(v.noopReason, undefined, text);
-  }
-});
-
-test("parseVerdict reads the specs and the reason of a verdict that carries both", () => {
-  const v = parseVerdict('{"specs":["a.spec.ts"],"noop":{"reason":"also nothing"}}');
-  assert.deepEqual(v.specs, ["a.spec.ts"]);
-  assert.equal(v.noopReason, "also nothing");
-});
-
-test("parseVerdict handles a verdict with a NESTED object (regression: old regex truncated it)", () => {
-  const v = parseVerdict('done.\n{"approved": true, "specs": ["a.spec.ts"], "meta": {"changeRef": {"sha": "x"}}}');
-  assert.equal(v.parsed, true);
-  assert.equal(v.approved, true);
-  assert.deepEqual(v.specs, ["a.spec.ts"]);
-});
-
-test("parseVerdict reads past a brace inside a string, and an object after the verdict leaves no verdict", () => {
-  const v = parseVerdict('{"approved": true, "note": "use the } char"}');
-  assert.equal(v.approved, true);
-  assert.equal(v.note, "use the } char");
-  assert.equal(parseVerdict('{"approved": true, "note": "use the } char"}\nlater: {"unrelated": 1}').parsed, false);
-});
-
-test("parseVerdict extracts specMetas with flow, objective, and targets", () => {
-  const v = parseVerdict(`{
-    "approved": true,
-    "specs": ["login.spec.ts", "checkout.spec.ts"],
-    "specMetas": [
-      {"file": "login.spec.ts", "flow": "login", "objective": "given valid credentials, when login, then redirect to dashboard", "targets": ["LoginComponent", "/api/auth"]},
-      {"file": "checkout.spec.ts", "flow": "checkout", "objective": "given items in cart, when checkout, then order is created", "targets": ["CheckoutPage", "createOrder"]}
-    ]
-  }`);
-  assert.equal(v.approved, true);
-  assert.equal(v.specs.length, 2);
-  assert.ok(v.specMetas);
-  assert.equal(v.specMetas!.length, 2);
-  assert.deepEqual(v.specMetas![0], {
-    file: "login.spec.ts",
-    flow: "login",
-    objective: "given valid credentials, when login, then redirect to dashboard",
-    targets: ["LoginComponent", "/api/auth"],
-  });
-});
-
-test("parseVerdict drops specMetas entries missing required fields", () => {
-  const v = parseVerdict(`{
-    "approved": true,
-    "specMetas": [
-      {"file": "ok.spec.ts", "flow": "ok", "objective": "test something", "targets": ["X"]},
-      {"file": "", "flow": "bad", "objective": "nope", "targets": []},
-      {"flow": "no-file", "objective": "nothing"},
-      "not-an-object"
-    ]
-  }`);
-  assert.ok(v.specMetas);
-  assert.equal(v.specMetas!.length, 1);
-  assert.equal(v.specMetas![0]!.file, "ok.spec.ts");
-});
-
 /* itself migrated there; LiveActivity/activityRouter/registerRunSession/unregisterRunSession/ */
-
-test("parseVerdict returns undefined specMetas when absent or empty", () => {
-  assert.equal(parseVerdict('{"approved": true, "specs": ["a.spec.ts"]}').specMetas, undefined);
-  assert.equal(parseVerdict('{"approved": true, "specMetas": "not-array"}').specMetas, undefined);
-  assert.equal(parseVerdict('{"approved": true, "specMetas": []}').specMetas, undefined);
-});
 
 test("buildPrompt surfaces reviewer corrections as the highest-priority block", () => {
   const p = buildPrompt({ ...input, reviewCorrections: ["a.spec.ts: scope the selector to the header"] });
@@ -1162,28 +1032,27 @@ test("a connection reset on the real stream client reaches the stream lifecycle 
   assert.equal(new Set(calls.map((c) => c.token)).size, 1);
 });
 
-test("openCodePromptBody: a prompt that asks for no tools carries a deny map covering the built-in tools and the MCP wildcards", () => {
-  const body = openCodePromptBody({ agent: "qa-author", text: "restate", withoutTools: true });
-  assert.equal(body.agent, "qa-author");
-  assert.deepEqual(body.parts, [{ type: "text", text: "restate" }]);
-  const tools = (body as { tools?: Record<string, boolean> }).tools;
-  assert.ok(tools, "the deny map is sent");
-  for (const name of ["bash", "read", "write", "edit", "glob", "grep", "run_spec", "serena*", "playwright*"]) assert.equal(tools[name], false, name);
-  assert.ok(Object.values(tools).every((allowed) => allowed === false), "nothing is switched on by this map");
-});
+const NO_SUBMIT_TOOLS = { "submit_*": false } as const;
 
-test("openCodePromptBody: any other prompt leaves the tools to its agent's configuration and keeps a model override", () => {
+test("openCodePromptBody: a prompt that submits nothing is denied every submit tool, leaves the rest to its agent's configuration and keeps a model override", () => {
   const model = { providerID: "p", modelID: "m" };
   const body = openCodePromptBody({ agent: "qa-reviewer", text: "judge", model });
-  assert.deepEqual(body, { agent: "qa-reviewer", parts: [{ type: "text", text: "judge" }], model });
-  assert.equal("tools" in openCodePromptBody({ agent: "a", text: "t", withoutTools: false }), false);
+  assert.deepEqual(body, { agent: "qa-reviewer", parts: [{ type: "text", text: "judge" }], model, tools: NO_SUBMIT_TOOLS });
+});
+
+test("openCodePromptBody: every prompt carries a non-empty tools map, because OpenCode keeps the last one a session was given when a prompt sends none", () => {
+  const shapes = [{}, { withoutWrites: false }, { hideBrowserTools: false }, { hideGeolocationTool: false }, { hideCodeGraphTools: false }, { denyTools: [] }, { submitTool: "submit_review" as const }, { submitTool: "submit_review" as const, submitOnly: true }];
+  for (const shape of shapes) {
+    const tools = (openCodePromptBody({ agent: "qa-reviewer", text: "t", ...shape }) as { tools?: Record<string, boolean> }).tools;
+    assert.ok(tools !== undefined && Object.keys(tools).length > 0, JSON.stringify(shape));
+  }
 });
 
 test("openCodePromptBody: a prompt that may not write is denied the file tools and the symbol edits, and keeps every other tool", () => {
   const body = openCodePromptBody({ agent: "qa-author", text: "plan", withoutWrites: true }) as { tools?: Record<string, boolean> };
   for (const tool of ["write", "edit", "patch", "replace_symbol_body", "insert_after_symbol", "insert_before_symbol"]) assert.equal(body.tools?.[tool], false, tool);
   for (const tool of ["read", "grep", "glob", "serena*", "playwright*", "*"]) assert.equal(tool in (body.tools ?? {}), false, `${tool} stays as configured`);
-  assert.equal("tools" in openCodePromptBody({ agent: "qa-author", text: "plan", withoutWrites: false }), false);
+  assert.deepEqual((openCodePromptBody({ agent: "qa-author", text: "plan", withoutWrites: false }) as { tools?: unknown }).tools, NO_SUBMIT_TOOLS);
 });
 
 test("openCodePromptBody: a prompt that may not write is denied every editing tool of the code-navigation server, bare and prefixed", () => {
@@ -1194,22 +1063,18 @@ test("openCodePromptBody: a prompt that may not write is denied every editing to
   }
 });
 
-test("openCodePromptBody: a prompt may be denied its writes and the browser at once, and a prompt without tools stays without all of them", () => {
+test("openCodePromptBody: a prompt may be denied its writes and the browser at once", () => {
   const both = (openCodePromptBody({ agent: "qa-author", text: "x", withoutWrites: true, hideBrowserTools: true }) as { tools?: Record<string, boolean> }).tools ?? {};
   assert.equal(both["authbrowser*"], false);
   assert.equal(both.write, false);
-  const none = (openCodePromptBody({ agent: "qa-author", text: "x", withoutTools: true, withoutWrites: true }) as { tools?: Record<string, boolean> }).tools ?? {};
-  assert.equal(none["*"], false);
 });
 
-test("openCodePromptBody: the tools a session was denied are denied its prompts, beside the other denials, and a prompt without tools stays without all of them", () => {
+test("openCodePromptBody: the tools a session was denied are denied its prompts, beside the other denials", () => {
   const denied = (openCodePromptBody({ agent: "qa-author", text: "x", denyTools: ["serena*", "run_spec"], withoutWrites: true }) as { tools?: Record<string, boolean> }).tools ?? {};
   assert.equal(denied["serena*"], false);
   assert.equal(denied.run_spec, false);
   assert.equal(denied.write, false);
-  assert.equal("tools" in openCodePromptBody({ agent: "qa-author", text: "x", denyTools: [] }), false);
-  const none = (openCodePromptBody({ agent: "qa-author", text: "x", withoutTools: true, denyTools: ["serena*"] }) as { tools?: Record<string, boolean> }).tools ?? {};
-  assert.equal(none["*"], false);
+  assert.deepEqual((openCodePromptBody({ agent: "qa-author", text: "x", denyTools: [] }) as { tools?: unknown }).tools, NO_SUBMIT_TOOLS);
 });
 
 test("a session's denied tools are kept per session, replaced by a later set, and forgotten when cleared", () => {
@@ -1225,12 +1090,10 @@ test("a session's denied tools are kept per session, replaced by a later set, an
 test("openCodePromptBody: a prompt of a session the run did not grant the browser hides its tools and changes nothing else", () => {
   const model = { providerID: "p", modelID: "m" };
   const hidden = openCodePromptBody({ agent: "qa-author", text: "write", model, hideBrowserTools: true });
-  assert.deepEqual((hidden as { tools?: Record<string, boolean> }).tools, { "authbrowser*": false });
+  assert.deepEqual((hidden as { tools?: Record<string, boolean> }).tools, { "authbrowser*": false, ...NO_SUBMIT_TOOLS });
   assert.equal(hidden.agent, "qa-author");
   assert.deepEqual(hidden.model, model);
-  assert.equal("tools" in openCodePromptBody({ agent: "qa-author", text: "write", hideBrowserTools: false }), false);
-  const none = (openCodePromptBody({ agent: "qa-author", text: "x", withoutTools: true, hideBrowserTools: true }) as { tools?: Record<string, boolean> }).tools;
-  assert.equal(none?.["authbrowser*"], false, "a prompt that asks for no tools still denies them, once");
+  assert.deepEqual((openCodePromptBody({ agent: "qa-author", text: "write", hideBrowserTools: false }) as { tools?: unknown }).tools, NO_SUBMIT_TOOLS);
 });
 
 test("a session is shown the browser's tools only when the orchestrator granted it, and only an authoring role is ever asked about", () => {
@@ -1250,10 +1113,10 @@ test("a session is shown the browser's tools only when the orchestrator granted 
 test("openCodePromptBody: a prompt of a session the run gave no authoring location hides the location tool and changes nothing else", () => {
   const model = { providerID: "p", modelID: "m" };
   const hidden = openCodePromptBody({ agent: "qa-author", text: "write", model, hideGeolocationTool: true });
-  assert.deepEqual((hidden as { tools?: Record<string, boolean> }).tools, { set_geolocation: false });
+  assert.deepEqual((hidden as { tools?: Record<string, boolean> }).tools, { set_geolocation: false, ...NO_SUBMIT_TOOLS });
   assert.equal(hidden.agent, "qa-author");
   assert.deepEqual(hidden.model, model);
-  assert.equal("tools" in openCodePromptBody({ agent: "qa-author", text: "write", hideGeolocationTool: false }), false);
+  assert.deepEqual((openCodePromptBody({ agent: "qa-author", text: "write", hideGeolocationTool: false }) as { tools?: unknown }).tools, NO_SUBMIT_TOOLS);
 });
 
 test("a session is shown the location tool only when its run carries an authoring location, and only an authoring role is ever asked about", () => {
@@ -1270,9 +1133,8 @@ test("a session is shown the location tool only when its run carries an authorin
   }
 });
 
-test("the lead's code-graph tools are in the deny-all map and are hidden from a lead's prompt whose session the run granted no graph", async () => {
-  const { NO_TOOLS: noTools, openCodePromptBody: body, hidesCodeGraphTools, setCodeGraphGrantLookup } = await import("./opencode-client");
-  assert.equal(noTools["codegraph*"], false);
+test("the lead's code-graph tools are hidden from a lead's prompt whose session the run granted no graph", async () => {
+  const { openCodePromptBody: body, hidesCodeGraphTools, setCodeGraphGrantLookup } = await import("./opencode-client");
   const hidden = body({ agent: "qa-lead", text: "plan", hideCodeGraphTools: true }) as { tools?: Record<string, boolean> };
   assert.equal(hidden.tools?.["codegraph*"], false);
   setCodeGraphGrantLookup((sessionId) => sessionId === "granted");
@@ -1284,6 +1146,19 @@ test("the lead's code-graph tools are in the deny-all map and are hidden from a 
     setCodeGraphGrantLookup(undefined);
   }
   assert.equal(hidesCodeGraphTools("qa-lead", "granted"), true, "nothing is granted without a lookup");
+});
+
+test("a prompt armed with a submit tool is denied every other submit tool by name and keeps its own", async () => {
+  const { openCodePromptBody: body } = await import("./opencode-client");
+  const armed = body({ agent: "qa-reviewer", text: "judge", submitTool: "submit_review" }) as { tools?: Record<string, boolean> };
+  assert.deepEqual(Object.keys(armed.tools ?? {}).sort(), ["submit_corrections", "submit_flow_review", "submit_plan", "submit_profiles", "submit_result", "submit_specs"]);
+  assert.ok(Object.values(armed.tools ?? {}).every((value) => value === false));
+});
+
+test("a continuation that may only submit denies every tool, whatever its name, and then allows the armed submit tool, last", async () => {
+  const { openCodePromptBody: body } = await import("./opencode-client");
+  const tools = (body({ agent: "qa-author", text: "submit now", submitTool: "submit_specs", submitOnly: true, hideBrowserTools: true, denyTools: ["serena*"], withoutWrites: true }) as { tools?: Record<string, boolean> }).tools ?? {};
+  assert.deepEqual(Object.entries(tools), [["*", false], ["submit_specs", true]], "OpenCode takes the last rule that matches a tool, so the allowance comes after the catch-all");
 });
 
 test("a prompt the server answers 404 is a session the runtime no longer has; any other failure is not", () => {

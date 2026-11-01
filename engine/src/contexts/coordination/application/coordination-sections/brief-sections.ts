@@ -11,7 +11,8 @@ import { SIDEKICK_CAPABILITY, type SidekickCapability } from "../sidekick-author
 import { ACCEPTANCE_STATUSES } from "../acceptance-report.ts";
 import type { DelegationBrief } from "../delegation-brief.ts";
 import type { EvidenceRef } from "../evidence-ref.ts";
-import { CANDIDATE_CLAIMS } from "../delegation-result.ts";
+import { CANDIDATE_CLAIMS, DELEGATION_STATUSES } from "../delegation-result.ts";
+import { SUBMIT_TOOL } from "@kernel/submission.ts";
 import { decisionText } from "@kernel/changed-decision.ts";
 
 export const BRIEF_DECISIONS_SECTION_ID = "decisions";
@@ -106,20 +107,19 @@ function suiteRender({ brief, scrub }: BriefPromptContext): SectionRender {
 
 const withCandidates = (brief: DelegationBrief): boolean => brief.candidates !== undefined && brief.candidates.length > 0;
 
-/* The flow turn's one closing shape: every field `readDelegationResult` accepts, one acceptance entry per numbered criterion and one candidate entry per use case of the Change section. */
+/* The flow turn's one closing shape: the result its submit tool carries, one acceptance entry per numbered criterion and one candidate entry per use case of the Change section. */
 function authorReturnShape({ brief }: BriefPromptContext): string {
   const candidates = withCandidates(brief);
   return [
     "## Output contract",
-    "End with ONLY JSON:",
-    `{"delegationId":"${brief.delegationId}","runId":"${brief.runId}","status":"completed"|"completed-with-concerns"|"blocked"|"needs-lead"|"failed","summary":"...","filesChanged":[{"path":"..."}],"acceptance":[{"criterion":1,"status":${ACCEPTANCE_STATUSES.map((st) => JSON.stringify(st)).join("|")},"note":"..."}],${candidates ? `"candidates":[{"id":"uc-...","status":${CANDIDATE_CLAIMS.map((st) => JSON.stringify(st)).join("|")},"spec":"<test title>"}],` : ""}"concerns":[],"unresolvedQuestions":[],"testCorrect":{"cause":"app"|"env","reason":"..."}}`,
+    `Deliver your result by calling ${SUBMIT_TOOL.RESULT}, as the last thing you do. Its arguments are the result: status (${DELEGATION_STATUSES.join(", ")}), summary, filesChanged, acceptance${candidates ? ", candidates" : ""}, concerns, unresolvedQuestions and testCorrect. The orchestrator checks them and answers with what to correct.`,
     "filesChanged: every file you wrote or edited, by its path; a file outside writablePaths makes the result blocked.",
-    "acceptance: one entry for every numbered acceptance criterion, by its number: met only when you checked it holds, unmet when your work does not satisfy it, unverified when you could not check it; [] when there are none. Only an unmet entry reports a failure — concerns are notes.",
-    "An unmet that DEV's state causes (DEV cannot be brought to the state the criterion needs, as pages you read in this turn show) takes `\"cause\":\"dev-state\",\"pages\":[\"/path\"]` in its entry. The orchestrator checks the pages against what its own browser and run_spec calls saw you read; an unmet without them, or that it cannot confirm, blocks the flow.",
-    ...(candidates ? ["candidates: one entry for every use case of the Change section, by its id: covered when a test of yours exercises it, not-covered when none does, blocked when you could not. It is your claim; the orchestrator's own run of the spec decides."] : []),
+    `acceptance: one entry for every numbered acceptance criterion, by its number: ${ACCEPTANCE_STATUSES.join(", ")} (met only when you checked it holds, unmet when your work does not satisfy it, unverified when you could not check it); [] when there are none. Only an unmet entry reports a failure — concerns are notes.`,
+    "An unmet that DEV's state causes (DEV cannot be brought to the state the criterion needs, as pages you read in this turn show) takes `cause` \"dev-state\" and `pages` (the paths you read) in its entry. The orchestrator checks the pages against what its own browser and run_spec calls saw you read; an unmet without them, or that it cannot confirm, blocks the flow.",
+    ...(candidates ? [`candidates: one entry for every use case of the Change section, by its id: ${CANDIDATE_CLAIMS.join(", ")} (covered when a test of yours exercises it, not-covered when none does, blocked when you could not). It is your claim; the orchestrator's own run of the spec decides.`] : []),
     "testCorrect: leave it out unless a later turn asks whether a failing test is right; the orchestrator checks the claim against its own evidence.",
-    "needs-lead is a control state, not a success. A follow-up from the lead is answered with this same shape for the same delegationId and runId.",
-    "This is the only closing JSON of your turn: no other verdict object (such as one with a `specs` list) comes with or after it.",
+    `needs-lead is a control state, not a success. A follow-up from the lead is answered with a ${SUBMIT_TOOL.RESULT} call for the same brief.`,
+    `${SUBMIT_TOOL.RESULT} is the only way to answer: words after it are not read.`,
   ].join("\n");
 }
 
@@ -223,5 +223,5 @@ export const AUTHOR_BRIEF_SECTIONS: readonly PromptSectionDef<BriefPromptContext
     render: ({ brief }) => ({ content: ["## Artifacts", ...brief.artifactRefs.map((a) => `- ${a.id}: ${a.path}`)].join("\n") }),
   }),
   toolsSection,
-  section({ id: "contract", priority: 100, stability: "run", reason: "The DelegationResult JSON the author closes with, one closing object (R17 return shape) (2d319787)", render: (ctx) => ({ content: authorReturnShape(ctx), claims: [claim.statesContract("return-shape")] }) }),
+  section({ id: "contract", priority: 100, stability: "run", reason: "The result the author delivers through its submit tool (R17 return shape) (2d319787)", render: (ctx) => ({ content: authorReturnShape(ctx), claims: [claim.statesContract("return-shape")] }) }),
 ];

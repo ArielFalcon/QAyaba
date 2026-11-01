@@ -13,12 +13,11 @@ import { assembleDefs, type AssembledPrompt, type WindowFitOutcome } from "@kern
 import { flowCovers, type AdmissionSet } from "./plan-coverage.ts";
 import { FLOW_OUTCOME } from "./flow-outcomes.ts";
 import type { RedactionPort } from "@kernel/ports/redaction.port.ts";
-import { LEAD_REVIEW_SECTIONS, UNREADABLE_ANSWER_SECTIONS, type CandidateGaps, type FailureBytes, type FlowUnderReview, type NoWritesLeft, type SidekickAnswer } from "./coordination-sections/lead-turn-sections.ts";
+import { LEAD_REVIEW_SECTIONS, type CandidateGaps, type FailureBytes, type FlowUnderReview, type NoWritesLeft, type SidekickAnswer } from "./coordination-sections/lead-turn-sections.ts";
 
 /* How the instruction that sends a spec back qualifies its last failure. */
 const FAILURE_INSTRUCTION_NOTE: Record<FailureBytes, string> = { current: "", earlier: ", seen on earlier bytes", "no-spec": ", while the flow held no spec" };
-import { closingJsonObject } from "@kernel/last-json-object.ts";
-import { describeUnreadable, entryRead, entryUnreadable, readEntries, readOneOf, type UnreadableEntry } from "./answer-reading.ts";
+import { entryRead, entryUnreadable, readEntries, readOneOf, type UnreadableEntry } from "./answer-reading.ts";
 import { sha256Hex } from "@kernel/content-hash.ts";
 
 export { type CandidateGaps, type FailureBytes, type FlowUnderReview, type NoWritesLeft, type SidekickAnswer };
@@ -115,11 +114,6 @@ export function withSpecDigests(flows: readonly FlowUnderReview[], seen: SeenSpe
   });
 }
 
-/* The one request that sends a review the reader could not read in full back to the lead: which parts it could not read, and what to answer. */
-export function assembleUnreadableReviewRequest(unreadable: readonly UnreadableEntry[]): AssembledPrompt {
-  return assembleDefs(UNREADABLE_ANSWER_SECTIONS, { unreadable: describeUnreadable(unreadable), contract: "review" }, { separator: "\n\n" });
-}
-
 export function renderLeadReview(redaction: RedactionPort, flows: readonly FlowUnderReview[], turn: { turn: number; maxTurns: number }, gaps?: CandidateGaps): string {
   return assembleLeadReview(redaction, flows, turn, gaps).text;
 }
@@ -128,7 +122,7 @@ function textOf(redaction: RedactionPort, value: unknown, max: number): string {
   return typeof value === "string" ? redaction.redact(value).trim().slice(0, max) : "";
 }
 
-const ACTIONS = Object.values(REVIEW_ACTION);
+export const REVIEW_ACTIONS = Object.values(REVIEW_ACTION);
 
 /* What the orchestrator tells a sidekick whose spec was accepted before it passed. */
 function verifyInstruction(redaction: RedactionPort, flow: FlowUnderReview): string {
@@ -136,12 +130,12 @@ function verifyInstruction(redaction: RedactionPort, flow: FlowUnderReview): str
   return `Your spec has not passed run_spec on its current bytes.${failure} Run it, make it pass without weakening an assertion, and report again.`;
 }
 
-export function admitLeadReview(redaction: RedactionPort, output: string, flows: readonly FlowUnderReview[], opts: { revisionsAllowed: boolean }): ReviewAdmission {
+/* Reads the lead's submitted review: the object the review contract accepted, or any answer, which is unreadable unless it is an object with a `review` list. */
+export function admitLeadReview(redaction: RedactionPort, answer: unknown, flows: readonly FlowUnderReview[], opts: { revisionsAllowed: boolean }): ReviewAdmission {
   const admission: ReviewAdmission = { readable: false, unreadable: [], orders: [], accepted: [], dropped: [], refused: [] };
-  const closing = closingJsonObject(output);
-  const raw = closing !== undefined && Array.isArray(closing.review) ? (closing as { review: unknown[] }) : undefined;
+  const raw = typeof answer === "object" && answer !== null && Array.isArray((answer as { review?: unknown }).review) ? (answer as { review: unknown[] }) : undefined;
   if (!raw) {
-    admission.unreadable.push({ where: "answer", reason: "it does not end with a JSON object with a `review` list" });
+    admission.unreadable.push({ where: "answer", reason: "it is not an object with a `review` list" });
     return admission;
   }
   admission.readable = true;
@@ -160,7 +154,7 @@ export function admitLeadReview(redaction: RedactionPort, output: string, flows:
     const e = entry as Record<string, unknown>;
     const flow = typeof e.flow === "string" ? byId.get(e.flow) : undefined;
     if (!flow) return entryUnreadable(`flow ${JSON.stringify(e.flow)} is not a flow under review`);
-    const action = readOneOf(e.action, ACTIONS, `flow ${flow.id}: action`);
+    const action = readOneOf(e.action, REVIEW_ACTIONS, `flow ${flow.id}: action`);
     if (!action.ok) return action;
     if (seen.has(flow.id)) return entryUnreadable(`flow ${flow.id} is answered twice; the first entry stands`);
     seen.add(flow.id);

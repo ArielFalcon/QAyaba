@@ -21,19 +21,28 @@ import { RunDeadlineExceededError } from "@kernel/run-deadline.ts";
 import { LOG_EFFECT, levelOfEffect, memoryLogger } from "@kernel/ports/logger.port.ts";
 import { installProcessLogger, resetProcessLoggerForTests } from "@kernel/ports/process-logger.ts";
 import { AgentTimeoutError } from "@kernel/domain-error.ts";
-import type { RepairPort, ReviewPort } from "@contexts/generation/application/index.ts";
-import { REPAIR_TURN_TIMEOUT_MS } from "@contexts/generation/domain/repair-turn.ts";
+import type { ReviewPort } from "@contexts/generation/application/index.ts";
+import { VerdictParserAdapter } from "@contexts/generation/infrastructure/verdict-parser.adapter.ts";
+import { readVerdict } from "@contexts/generation/domain/verdict-parse.ts";
+import { submittingRuntime } from "../../../../support/submission.ts";
 import { RunDeadlineRuntime } from "@contexts/run-orchestration/infrastructure/run-deadline-runtime.adapter.ts";
 import type { AgentPromptOpts } from "@kernel/ports/agent-runtime.port.ts";
+
+/* The text of a reviewer turn that calls its submit tool with an approval. */
+const APPROVAL = '{"approved":true,"corrections":[]}';
 
 function fakeRuntime(output: string): AgentRuntimePort {
   return {
     openSession: async () => ({
-      prompt: async () => ({ output }),
+      prompt: async () => ({ output: output === "verdict-json" ? APPROVAL : output }),
       dispose: async () => {},
     }),
   };
 }
+
+/* The reviewer delivers by submit tool: the fake runtime's text is read as the call of it, and a text with none as a turn that made no call. */
+const adapterOver = (deps: ConstructorParameters<typeof ReviewPortAdapter>[0], ctx: ConstructorParameters<typeof ReviewPortAdapter>[1], collaborators?: ConstructorParameters<typeof ReviewPortAdapter>[2]): ReviewPortAdapter =>
+  new ReviewPortAdapter({ ...deps, runtime: submittingRuntime(deps.runtime) }, ctx, collaborators);
 
 function fakeRendering(): PromptRenderingPort {
   return {
@@ -46,8 +55,8 @@ function fakeRendering(): PromptRenderingPort {
 
 function fakeVerdicts(judgment: ReviewJudgment): VerdictParserPort {
   return {
-    parseGenerator: () => ({ specs: [] }),
-    parseReview: () => judgment,
+    readGenerator: () => ({ specs: [] }),
+    readReview: () => judgment,
   };
 }
 
@@ -59,7 +68,7 @@ test("review() delegates to the reviewer session and surfaces approved/correctio
   const verdicts = fakeVerdicts({
     approved: true, findings: [], rationale: undefined, parsed: true, valid: true, issues: [],
   });
-  const adapter = new ReviewPortAdapter({ runtime, rendering, verdicts }, {
+  const adapter = adapterOver({ runtime, rendering, verdicts }, {
     diff: "", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e", appName: "app", mode: "diff",
   });
 
@@ -76,7 +85,7 @@ test("review() fail-closed invariant: a parse miss (parsed:false) is NEVER treat
     approved: true, /* even if the parser's own approved defaulted true, parsed:false must win */
     findings: [], parsed: false, valid: false, issues: ["no verdict JSON found"],
   });
-  const adapter = new ReviewPortAdapter({ runtime, rendering, verdicts }, {
+  const adapter = adapterOver({ runtime, rendering, verdicts }, {
     diff: "", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e", appName: "app", mode: "diff",
   });
 
@@ -92,7 +101,7 @@ test("review() threads blockingCount so the caller can distinguish blocking vs a
   const verdicts = fakeVerdicts({
     approved: false, findings: [{ text: "nit: rename var", severity: "advisory" as const }], blockingCount: 0, parsed: true, valid: true, issues: [],
   });
-  const adapter = new ReviewPortAdapter({ runtime, rendering, verdicts }, {
+  const adapter = adapterOver({ runtime, rendering, verdicts }, {
     diff: "", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e", appName: "app", mode: "diff",
   });
 
@@ -109,7 +118,7 @@ test("review() prefers the run's DYNAMIC diff over the static ctx.diff (Plan 7.6
     renderReviewer: (input) => { seenDiff = (input as { diff?: string }).diff; return { text: "reviewer-prompt", sectionSizes: {} }; },
   };
   const verdicts = fakeVerdicts({ approved: true, findings: [], rationale: undefined, parsed: true, valid: true, issues: [] });
-  const adapter = new ReviewPortAdapter({ runtime: fakeRuntime("verdict-json"), rendering, verdicts }, {
+  const adapter = adapterOver({ runtime: fakeRuntime("verdict-json"), rendering, verdicts }, {
     diff: "STATIC-ctx-diff", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e", appName: "app", mode: "diff",
   });
 
@@ -129,7 +138,7 @@ test("review() maps enrichment.priorCorrections onto ReviewInput.priorCorrection
     renderReviewer: (input) => { seenInput = input as { priorCorrections?: string[] }; return { text: "reviewer-prompt", sectionSizes: {} }; },
   };
   const verdicts = fakeVerdicts({ approved: true, findings: [], parsed: true, valid: true, issues: [] });
-  const adapter = new ReviewPortAdapter({ runtime: fakeRuntime("verdict-json"), rendering, verdicts }, {
+  const adapter = adapterOver({ runtime: fakeRuntime("verdict-json"), rendering, verdicts }, {
     diff: "", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e", appName: "app", mode: "diff",
   });
 
@@ -148,7 +157,7 @@ test("review() maps enrichment.domSnapshot onto ReviewInput.domSnapshot verbatim
     renderReviewer: (input) => { seenInput = input as { domSnapshot?: string }; return { text: "reviewer-prompt", sectionSizes: {} }; },
   };
   const verdicts = fakeVerdicts({ approved: true, findings: [], parsed: true, valid: true, issues: [] });
-  const adapter = new ReviewPortAdapter({ runtime: fakeRuntime("verdict-json"), rendering, verdicts }, {
+  const adapter = adapterOver({ runtime: fakeRuntime("verdict-json"), rendering, verdicts }, {
     diff: "", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e", appName: "app", mode: "diff",
   });
 
@@ -164,7 +173,7 @@ test("review() hands enrichment.changeView to the reviewer prompt, and omits it 
     renderReviewer: (input) => { seen.push((input as ReviewInput).changeView); return { text: "reviewer-prompt", sectionSizes: {} }; },
   };
   const verdicts = fakeVerdicts({ approved: true, findings: [], parsed: true, valid: true, issues: [] });
-  const adapter = new ReviewPortAdapter({ runtime: fakeRuntime("verdict-json"), rendering, verdicts }, {
+  const adapter = adapterOver({ runtime: fakeRuntime("verdict-json"), rendering, verdicts }, {
     diff: "", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e", appName: "app", mode: "diff",
   });
   const changeView: NonNullable<ReviewInput["changeView"]> = { files: [], flows: [{ specFile: "flows/a.spec.ts", candidateIds: ["uc-a"], owned: [] }], unassigned: [], hunkless: [], referenced: [] };
@@ -182,7 +191,7 @@ test("review() with absent enrichment.domSnapshot omits it from ReviewInput (nev
     renderReviewer: (input) => { seenInput = input as { domSnapshot?: string }; return { text: "reviewer-prompt", sectionSizes: {} }; },
   };
   const verdicts = fakeVerdicts({ approved: true, findings: [], parsed: true, valid: true, issues: [] });
-  const adapter = new ReviewPortAdapter({ runtime: fakeRuntime("verdict-json"), rendering, verdicts }, {
+  const adapter = adapterOver({ runtime: fakeRuntime("verdict-json"), rendering, verdicts }, {
     diff: "", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e", appName: "app", mode: "diff",
   });
 
@@ -198,7 +207,7 @@ test("review() with no enrichment argument omits priorCorrections (unchanged pro
     renderReviewer: (input) => { seenInput = input as { priorCorrections?: string[] }; return { text: "reviewer-prompt", sectionSizes: {} }; },
   };
   const verdicts = fakeVerdicts({ approved: true, findings: [], parsed: true, valid: true, issues: [] });
-  const adapter = new ReviewPortAdapter({ runtime: fakeRuntime("verdict-json"), rendering, verdicts }, {
+  const adapter = adapterOver({ runtime: fakeRuntime("verdict-json"), rendering, verdicts }, {
     diff: "", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e", appName: "app", mode: "diff",
   });
 
@@ -219,11 +228,11 @@ test("review() threads ctx.timeoutMs into openSession's opts.timeoutMs (reviewer
   const runtime: AgentRuntimePort = {
     openSession: async (_role, _cwd, opts) => {
       seenTimeoutMs = opts?.timeoutMs;
-      return { prompt: async () => ({ output: "verdict-json" }), dispose: async () => {} };
+      return { prompt: async () => ({ output: APPROVAL }), dispose: async () => {} };
     },
   };
   const verdicts = fakeVerdicts({ approved: true, findings: [], parsed: true, valid: true, issues: [] });
-  const adapter = new ReviewPortAdapter({ runtime, rendering: fakeRendering(), verdicts }, {
+  const adapter = adapterOver({ runtime, rendering: fakeRendering(), verdicts }, {
     diff: "", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e", appName: "app", mode: "diff", timeoutMs: 360_000,
   });
 
@@ -237,11 +246,11 @@ test("review() with absent ctx.timeoutMs omits it from openSession opts (backwar
   const runtime: AgentRuntimePort = {
     openSession: async (_role, _cwd, opts) => {
       sawTimeoutKey = opts !== undefined && "timeoutMs" in opts && opts.timeoutMs !== undefined;
-      return { prompt: async () => ({ output: "verdict-json" }), dispose: async () => {} };
+      return { prompt: async () => ({ output: APPROVAL }), dispose: async () => {} };
     },
   };
   const verdicts = fakeVerdicts({ approved: true, findings: [], parsed: true, valid: true, issues: [] });
-  const adapter = new ReviewPortAdapter({ runtime, rendering: fakeRendering(), verdicts }, {
+  const adapter = adapterOver({ runtime, rendering: fakeRendering(), verdicts }, {
     diff: "", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e", appName: "app", mode: "diff",
   });
 
@@ -257,7 +266,7 @@ test("review() maps a thrown openSession/prompt failure (e.g. a reviewer timeout
     },
   };
   const verdicts = fakeVerdicts({ approved: true, findings: [], parsed: true, valid: true, issues: [] });
-  const adapter = new ReviewPortAdapter({ runtime, rendering: fakeRendering(), verdicts }, {
+  const adapter = adapterOver({ runtime, rendering: fakeRendering(), verdicts }, {
     diff: "", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e", appName: "app", mode: "diff", timeoutMs: 360_000,
   });
 
@@ -277,7 +286,7 @@ test("review() maps a thrown session.prompt() failure the same fail-closed way (
     }),
   };
   const verdicts = fakeVerdicts({ approved: true, findings: [], parsed: true, valid: true, issues: [] });
-  const adapter = new ReviewPortAdapter({ runtime, rendering: fakeRendering(), verdicts }, {
+  const adapter = adapterOver({ runtime, rendering: fakeRendering(), verdicts }, {
     diff: "", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e", appName: "app", mode: "diff", timeoutMs: 360_000,
   });
 
@@ -307,7 +316,7 @@ const REVIEW_CONTEXT = { diff: "", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2
 test("review() puts the reviewer's limit from the resolver on ReviewInput.stepLimit, asking for the reviewer role and for no other", async () => {
   const seen: ReviewInput[] = [];
   const asked: StepLimitRole[] = [];
-  const adapter = new ReviewPortAdapter({ runtime: fakeRuntime("verdict-json"), rendering: renderingRecording(seen), verdicts: approving }, REVIEW_CONTEXT, {
+  const adapter = adapterOver({ runtime: fakeRuntime("verdict-json"), rendering: renderingRecording(seen), verdicts: approving }, REVIEW_CONTEXT, {
     stepLimitFor: async (role) => {
       asked.push(role);
       return role === "reviewer" ? 17 : 41;
@@ -323,8 +332,8 @@ test("review() puts the reviewer's limit from the resolver on ReviewInput.stepLi
 
 test("review() carries no limit key when there is no resolver, or when the resolver has none", async () => {
   const seen: ReviewInput[] = [];
-  const noResolver = new ReviewPortAdapter({ runtime: fakeRuntime("verdict-json"), rendering: renderingRecording(seen), verdicts: approving }, REVIEW_CONTEXT);
-  const noLimit = new ReviewPortAdapter({ runtime: fakeRuntime("verdict-json"), rendering: renderingRecording(seen), verdicts: approving }, REVIEW_CONTEXT, {
+  const noResolver = adapterOver({ runtime: fakeRuntime("verdict-json"), rendering: renderingRecording(seen), verdicts: approving }, REVIEW_CONTEXT);
+  const noLimit = adapterOver({ runtime: fakeRuntime("verdict-json"), rendering: renderingRecording(seen), verdicts: approving }, REVIEW_CONTEXT, {
     stepLimitFor: async () => undefined,
   });
 
@@ -342,7 +351,7 @@ function runtimeRecordingOptions(sent: Array<Record<string, unknown> | undefined
     openSession: async () => ({
       prompt: async (_text, opts) => {
         sent.push(opts as Record<string, unknown> | undefined);
-        return { output: "verdict-json" };
+        return { output: APPROVAL };
       },
       dispose: async () => {},
     }),
@@ -352,7 +361,7 @@ function runtimeRecordingOptions(sent: Array<Record<string, unknown> | undefined
 test("review() sends its prompt with the reviewer's limit as an option, on every review, beside the options it already carried", async () => {
   const sent: Array<Record<string, unknown> | undefined> = [];
   const rendering: PromptRenderingPort = { ...fakeRendering(), renderReviewer: () => ({ text: "reviewer-prompt", sectionSizes: { "reviewer-specs": 12 } }) };
-  const adapter = new ReviewPortAdapter({ runtime: runtimeRecordingOptions(sent), rendering, verdicts: approving }, REVIEW_CONTEXT, {
+  const adapter = adapterOver({ runtime: runtimeRecordingOptions(sent), rendering, verdicts: approving }, REVIEW_CONTEXT, {
     stepLimitFor: async (role) => (role === "reviewer" ? 17 : 41),
   });
 
@@ -365,8 +374,8 @@ test("review() sends its prompt with the reviewer's limit as an option, on every
 
 test("review() sends its prompt with no limit key when there is no resolver, or when the resolver has none", async () => {
   const sent: Array<Record<string, unknown> | undefined> = [];
-  const noResolver = new ReviewPortAdapter({ runtime: runtimeRecordingOptions(sent), rendering: fakeRendering(), verdicts: approving }, REVIEW_CONTEXT);
-  const noLimit = new ReviewPortAdapter({ runtime: runtimeRecordingOptions(sent), rendering: fakeRendering(), verdicts: approving }, REVIEW_CONTEXT, {
+  const noResolver = adapterOver({ runtime: runtimeRecordingOptions(sent), rendering: fakeRendering(), verdicts: approving }, REVIEW_CONTEXT);
+  const noLimit = adapterOver({ runtime: runtimeRecordingOptions(sent), rendering: fakeRendering(), verdicts: approving }, REVIEW_CONTEXT, {
     stepLimitFor: async () => undefined,
   });
 
@@ -379,7 +388,7 @@ test("review() sends its prompt with no limit key when there is no resolver, or 
 
 test("review() lets the run's deadline through: a reviewer turn the run's time ran out on is the run's end, not a reviewer to fail closed on", async () => {
   const runtime: AgentRuntimePort = { openSession: async () => { throw new RunDeadlineExceededError(60_000, "manual", "reviewer", "before-turn"); } };
-  const adapter = new ReviewPortAdapter({ runtime, rendering: fakeRendering(), verdicts: approving }, REVIEW_CONTEXT);
+  const adapter = adapterOver({ runtime, rendering: fakeRendering(), verdicts: approving }, REVIEW_CONTEXT);
   await assert.rejects(adapter.review("/mirrors/org/app/e2e", cases), (err: unknown) => err instanceof RunDeadlineExceededError);
 });
 
@@ -391,7 +400,7 @@ test("review() marks a reviewer whose session failed as unavailable, in either p
   const failAtOpen: AgentRuntimePort = { openSession: async () => { throw new Error("HTTP 400: model not supported"); } };
   const failAtPrompt: AgentRuntimePort = { openSession: async () => ({ prompt: async () => { throw new Error("stalled: no activity"); }, dispose: async () => {} }) };
   for (const runtime of [failAtOpen, failAtPrompt]) {
-    const result = await new ReviewPortAdapter({ runtime, rendering: fakeRendering(), verdicts: approving }, REVIEW_CTX).review("/mirrors/org/app/e2e", cases);
+    const result = await adapterOver({ runtime, rendering: fakeRendering(), verdicts: approving }, REVIEW_CTX).review("/mirrors/org/app/e2e", cases);
     assert.equal(result.unavailable, true);
     assert.equal(result.approved, false);
     assert.equal(result.parsed, false);
@@ -400,7 +409,7 @@ test("review() marks a reviewer whose session failed as unavailable, in either p
 
 test("review() marks a reviewer that returned nothing as unavailable: an empty answer judged nothing", async () => {
   for (const output of ["", "  \n "]) {
-    const result = await new ReviewPortAdapter({ runtime: fakeRuntime(output), rendering: fakeRendering(), verdicts: approving }, REVIEW_CTX).review("/mirrors/org/app/e2e", cases);
+    const result = await adapterOver({ runtime: fakeRuntime(output), rendering: fakeRendering(), verdicts: approving }, REVIEW_CTX).review("/mirrors/org/app/e2e", cases);
     assert.equal(result.unavailable, true, JSON.stringify(output));
     assert.match(result.rationale ?? "", /reviewer unavailable: the reviewer returned no output/);
   }
@@ -408,29 +417,29 @@ test("review() marks a reviewer that returned nothing as unavailable: an empty a
 
 test("review() does not mark a real rejection as unavailable, and keeps it exactly as it was", async () => {
   const rejecting = fakeVerdicts({ approved: false, findings: [{ text: "[false-positive] asserts nothing", severity: "blocking" as const }], blockingCount: 1, parsed: true, valid: true, issues: [], rationale: "asserts nothing real" });
-  const result = await new ReviewPortAdapter({ runtime: fakeRuntime("verdict-json"), rendering: fakeRendering(), verdicts: rejecting }, REVIEW_CTX).review("/mirrors/org/app/e2e", cases);
+  const result = await adapterOver({ runtime: fakeRuntime("verdict-json"), rendering: fakeRendering(), verdicts: rejecting }, REVIEW_CTX).review("/mirrors/org/app/e2e", cases);
   assert.equal("unavailable" in result, false);
   assert.deepEqual([result.approved, result.parsed, result.blockingCount, result.findings], [false, true, 1, [{ text: "[false-positive] asserts nothing", severity: "blocking" }]]);
 });
 
 test("review() does not mark an answer it could not read as unavailable: the reviewer was reached, only its verdict is a parse miss", async () => {
   const unreadable = fakeVerdicts({ approved: false, findings: [], parsed: false, valid: false, issues: ["no verdict JSON found"] });
-  const result = await new ReviewPortAdapter({ runtime: fakeRuntime("I think the tests look fine"), rendering: fakeRendering(), verdicts: unreadable }, REVIEW_CTX).review("/mirrors/org/app/e2e", cases);
+  const result = await adapterOver({ runtime: fakeRuntime("I think the tests look fine"), rendering: fakeRendering(), verdicts: unreadable }, REVIEW_CTX).review("/mirrors/org/app/e2e", cases);
   assert.equal("unavailable" in result, false);
   assert.equal(result.parsed, false);
   assert.equal(result.approved, false);
 });
 
-/* The verdict is the model's spoken answer: reasoning parts are dropped before parsing, and the turn
- * reports what it cost so the run can persist it (never read back into the verdict). */
+/* The verdict is the call of the reviewer's submit tool, and the turn reports what it cost so the run can persist it (never read back into the verdict). */
 
-test("review() asks for the final answer only (textOnly), so reasoning prose never reaches the parser", async () => {
+test("review() asks for its verdict through the reviewer's submit tool", async () => {
   const sent: Array<Record<string, unknown> | undefined> = [];
-  const adapter = new ReviewPortAdapter({ runtime: runtimeRecordingOptions(sent), rendering: fakeRendering(), verdicts: approving }, REVIEW_CONTEXT);
+  const adapter = adapterOver({ runtime: runtimeRecordingOptions(sent), rendering: fakeRendering(), verdicts: approving }, REVIEW_CONTEXT);
 
   await adapter.review("/mirrors/org/app/e2e", cases);
 
-  assert.equal(sent[0]?.textOnly, true);
+  assert.equal((sent[0]?.submit as { tool?: string } | undefined)?.tool, "submit_review");
+  assert.equal(sent[0]?.textOnly, undefined);
 });
 
 test("review() reports the turn's duration, tokens, cost and steps", async () => {
@@ -446,7 +455,7 @@ test("review() reports the turn's duration, tokens, cost and steps", async () =>
       };
     },
   };
-  const adapter = new ReviewPortAdapter({ runtime, rendering: fakeRendering(), verdicts: approving }, REVIEW_CONTEXT);
+  const adapter = adapterOver({ runtime, rendering: fakeRendering(), verdicts: approving }, REVIEW_CONTEXT);
 
   const result = await adapter.review("/mirrors/org/app/e2e", cases);
 
@@ -460,7 +469,7 @@ test("review() reports the turn's duration, tokens, cost and steps", async () =>
 });
 
 test("review() reports no fabricated token count when the runtime reports no usage", async () => {
-  const adapter = new ReviewPortAdapter({ runtime: fakeRuntime("verdict-json"), rendering: fakeRendering(), verdicts: approving }, REVIEW_CONTEXT);
+  const adapter = adapterOver({ runtime: fakeRuntime("verdict-json"), rendering: fakeRendering(), verdicts: approving }, REVIEW_CONTEXT);
 
   const result = await adapter.review("/mirrors/org/app/e2e", cases);
 
@@ -474,7 +483,7 @@ test("review() maps enrichment.specChanges onto ReviewInput.specChanges verbatim
     ...fakeRendering(),
     renderReviewer: (input) => { seenInput = input as { specChanges?: string }; return { text: "reviewer-prompt", sectionSizes: {} }; },
   };
-  const adapter = new ReviewPortAdapter({ runtime: fakeRuntime("verdict-json"), rendering, verdicts: approving }, REVIEW_CONTEXT);
+  const adapter = adapterOver({ runtime: fakeRuntime("verdict-json"), rendering, verdicts: approving }, REVIEW_CONTEXT);
 
   await adapter.review("/mirrors/org/app/e2e", cases, undefined, { specChanges: "### a.spec.ts\n- old\n+ new" });
 
@@ -486,10 +495,10 @@ test("review() opens its session for the review kind: the reviewer role, the rev
   const runtime: AgentRuntimePort = {
     openSession: async (role, _cwd, opts) => {
       opened.push({ role, agent: opts?.descriptor?.role, timeoutMs: opts?.timeoutMs });
-      return { prompt: async () => ({ output: "verdict-json" }), dispose: async () => {} };
+      return { prompt: async () => ({ output: APPROVAL }), dispose: async () => {} };
     },
   };
-  const adapter = new ReviewPortAdapter({ runtime, rendering: fakeRendering(), verdicts: approving }, { ...REVIEW_CONTEXT, timeoutMs: 7_000 });
+  const adapter = adapterOver({ runtime, rendering: fakeRendering(), verdicts: approving }, { ...REVIEW_CONTEXT, timeoutMs: 7_000 });
 
   await adapter.review("/mirrors/org/app/e2e", cases);
 
@@ -505,7 +514,7 @@ test("review() renders the run's execution evidence into the reviewer prompt, bo
     renderReviewer: (input) => { seenInput = input as { executionResult?: string }; return { text: "reviewer-prompt", sectionSizes: {} }; },
   };
   const verdicts = fakeVerdicts({ approved: true, findings: [], parsed: true, valid: true, issues: [] });
-  const adapter = new ReviewPortAdapter({ runtime: fakeRuntime("verdict-json"), rendering, verdicts }, {
+  const adapter = adapterOver({ runtime: fakeRuntime("verdict-json"), rendering, verdicts }, {
     diff: "", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e", appName: "app", mode: "diff",
   });
 
@@ -527,7 +536,7 @@ test("review() with no execution evidence omits the section entirely (never an e
     renderReviewer: (input) => { seenInput = input as { executionResult?: string }; return { text: "reviewer-prompt", sectionSizes: {} }; },
   };
   const verdicts = fakeVerdicts({ approved: true, findings: [], parsed: true, valid: true, issues: [] });
-  const adapter = new ReviewPortAdapter({ runtime: fakeRuntime("verdict-json"), rendering, verdicts }, {
+  const adapter = adapterOver({ runtime: fakeRuntime("verdict-json"), rendering, verdicts }, {
     diff: "", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e", appName: "app", mode: "diff",
   });
 
@@ -543,7 +552,7 @@ test("review() hands the reviewer prompt the arms no test ran, and none when the
     renderReviewer: (input) => { seen.push((input as { untakenArms?: unknown }).untakenArms); return { text: "reviewer-prompt", sectionSizes: {} }; },
   };
   const verdicts = fakeVerdicts({ approved: true, findings: [], parsed: true, valid: true, issues: [] });
-  const adapter = new ReviewPortAdapter({ runtime: fakeRuntime("verdict-json"), rendering, verdicts }, {
+  const adapter = adapterOver({ runtime: fakeRuntime("verdict-json"), rendering, verdicts }, {
     diff: "", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e", appName: "app", mode: "diff",
   });
   const arms = [{ file: "src/a.ts", line: 3, kind: "if", arm: "else" }];
@@ -563,7 +572,7 @@ test("review() hands on every finding as the reviewer wrote it: its text, severi
     valid: true,
     issues: [],
   });
-  const adapter = new ReviewPortAdapter({ runtime: fakeRuntime("verdict-json"), rendering: fakeRendering(), verdicts }, {
+  const adapter = adapterOver({ runtime: fakeRuntime("verdict-json"), rendering: fakeRendering(), verdicts }, {
     diff: "", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e", appName: "app", mode: "diff",
   });
 
@@ -580,39 +589,12 @@ test("a port result without findings does not compile", () => {
   assert.equal(typeof omitted, "function");
 });
 
-test("review() treats a parsed answer the parser found invalid as unreadable: one repair turn naming the issues, then a parse miss that carries them", async () => {
-  const invalid: VerdictParserPort = {
-    parseGenerator: () => ({ specs: [] }),
-    parseReview: () => ({ approved: false, findings: [], parsed: true, valid: false, issues: ["corrections.0.severity: expected one of blocking|advisory"] }),
-  };
-  const reviewer = scriptedReviewer(["{}", "{}"]);
-  const adapter = new ReviewPortAdapter({ runtime: reviewer.runtime, rendering: fakeRendering(), verdicts: invalid, repair: repairPort }, REVIEW_CONTEXT);
-
-  const result = await adapter.review("/mirrors/org/app/e2e", cases);
-
-  assert.match(reviewer.prompts[1]!.text, /corrections\.0\.severity/);
-  assert.equal(reviewer.prompts.length, 2);
-  assert.deepEqual([result.approved, result.parsed, result.findings], [false, false, []]);
-  assert.deepEqual(result.issues, ["corrections.0.severity: expected one of blocking|advisory"]);
-});
-
-/* A reviewer answer cut before its closing JSON is asked once to restate the verdict, with no tool, in the same session. */
+/* A reviewer turn that ends before its verdict is accepted is continued once, in the same session, restricted to the submit tool. */
 
 const CUT_ANSWER = '{"approved": true, "rationale": "the spec asserts the filtered list", "corrections": [';
 const RESTATED_ANSWER = '{"approved": true, "rationale": "the spec asserts the filtered list", "corrections": []}';
 
-/* The parser reads a complete verdict and misses anything else, as the real one does. */
-const verdictsByShape: VerdictParserPort = {
-  parseGenerator: () => ({ specs: [] }),
-  parseReview: (text) => text.endsWith("}")
-    ? { approved: true, findings: [], rationale: "the spec asserts the filtered list", parsed: true, valid: true, issues: [] }
-    : { approved: false, findings: [], parsed: false, valid: false, issues: ["no verdict JSON found"] },
-};
-
-const repairPort: RepairPort = {
-  checkGenerator: () => ({ valid: true, issues: [] }),
-  instruction: (kind, issues, opts) => `repair ${kind}: ${issues.join("; ")} | tail=${opts?.priorResponseTail ?? ""}`,
-};
+const realVerdicts = new VerdictParserAdapter({ readVerdict });
 
 interface ScriptedReviewer {
   runtime: AgentRuntimePort;
@@ -640,9 +622,9 @@ function scriptedReviewer(answers: Array<string | Error>): ScriptedReviewer {
   return scripted;
 }
 
-test("review() asks a reviewer whose answer was cut mid-JSON to restate the verdict, and reads the restated one", async () => {
+test("review() continues a reviewer whose turn was cut before its verdict, once, in its own session and restricted to the submit tool, and reads the verdict it then submits", async () => {
   const reviewer = scriptedReviewer([CUT_ANSWER, RESTATED_ANSWER]);
-  const adapter = new ReviewPortAdapter({ runtime: reviewer.runtime, rendering: fakeRendering(), verdicts: verdictsByShape, repair: repairPort }, REVIEW_CONTEXT);
+  const adapter = adapterOver({ runtime: reviewer.runtime, rendering: fakeRendering(), verdicts: realVerdicts }, REVIEW_CONTEXT, { stepLimitFor: async () => 9 });
 
   const result = await adapter.review("/mirrors/org/app/e2e", cases);
 
@@ -650,85 +632,79 @@ test("review() asks a reviewer whose answer was cut mid-JSON to restate the verd
   assert.equal(result.approved, true);
   assert.equal(result.rationale, "the spec asserts the filtered list");
   assert.equal("unavailable" in result, false);
-  assert.equal(reviewer.opened, 1, "the repair rides the reviewer's own session");
+  assert.equal(reviewer.opened, 1, "the continuation rides the reviewer's own session");
   assert.equal(reviewer.prompts.length, 2);
-  assert.match(reviewer.prompts[1]!.text, /^repair reviewer: /, "the instruction is the contract repair's, for the reviewer");
-  assert.ok(reviewer.prompts[1]!.text.includes(CUT_ANSWER), "the repair hands back what the reviewer already said");
-});
-
-test("review() sends the repair turn with no tool, under the repair cap, and counts its output", async () => {
-  const reviewer = scriptedReviewer([CUT_ANSWER, RESTATED_ANSWER]);
-  const adapter = new ReviewPortAdapter({ runtime: reviewer.runtime, rendering: fakeRendering(), verdicts: verdictsByShape, repair: repairPort }, REVIEW_CONTEXT, { stepLimitFor: async () => 9 });
-
-  const result = await adapter.review("/mirrors/org/app/e2e", cases);
-
-  assert.equal(reviewer.prompts[0]!.opts?.withoutTools, undefined, "the review itself keeps its tools");
-  assert.equal(reviewer.prompts[1]!.opts?.withoutTools, true);
+  assert.equal(reviewer.prompts[0]!.opts?.submitOnly, undefined, "the review itself keeps its tools");
+  assert.equal(reviewer.prompts[1]!.opts?.submitOnly, true);
   assert.equal(reviewer.prompts[1]!.opts?.isRepair, true);
-  assert.equal(reviewer.prompts[1]!.opts?.textOnly, true);
-  assert.equal(reviewer.prompts[1]!.opts?.timeoutMs, REPAIR_TURN_TIMEOUT_MS);
   assert.equal(reviewer.prompts[1]!.opts?.stepLimit, 9);
-  assert.equal(result.stats?.outputChars, CUT_ANSWER.length + RESTATED_ANSWER.length);
+  assert.match(reviewer.prompts[1]!.text, /submit_review/);
+  assert.equal(result.stats?.outputChars, RESTATED_ANSWER.length);
 });
 
-test("review() still fails closed when the repair turn is as unreadable as the first answer: one repair and no more", async () => {
-  const reviewer = scriptedReviewer([CUT_ANSWER, CUT_ANSWER, RESTATED_ANSWER]);
-  const adapter = new ReviewPortAdapter({ runtime: reviewer.runtime, rendering: fakeRendering(), verdicts: verdictsByShape, repair: repairPort }, REVIEW_CONTEXT);
+test("review() names where the verdict went wrong inside the turn, and reads the corrected one", async () => {
+  const noSeverity = '{"approved":false,"corrections":[{"text":"[false-positive] a.spec.ts: asserts nothing"}]}';
+  const corrected = '{"approved":false,"corrections":[{"text":"[false-positive] a.spec.ts: asserts nothing","severity":"blocking"}]}';
+  const reviewer = scriptedReviewer([noSeverity, corrected]);
 
-  const result = await adapter.review("/mirrors/org/app/e2e", cases);
+  const result = await adapterOver({ runtime: reviewer.runtime, rendering: fakeRendering(), verdicts: realVerdicts }, REVIEW_CONTEXT).review("/mirrors/org/app/e2e", cases);
+
+  assert.match(reviewer.prompts[1]!.text, /corrections\.0\.severity/);
+  assert.equal(result.parsed, true);
+  assert.equal(result.blockingCount, 1);
+});
+
+test("review() still fails closed when the continuation delivers no verdict either: one continuation and no more, and the reason is recorded", async () => {
+  const reviewer = scriptedReviewer([CUT_ANSWER, CUT_ANSWER, RESTATED_ANSWER]);
+
+  const result = await adapterOver({ runtime: reviewer.runtime, rendering: fakeRendering(), verdicts: realVerdicts }, REVIEW_CONTEXT).review("/mirrors/org/app/e2e", cases);
 
   assert.equal(result.parsed, false);
   assert.equal(result.approved, false);
   assert.equal("unavailable" in result, false, "the reviewer was reached: this is a parse miss, not an absence");
-  assert.equal(reviewer.prompts.length, 2, "a second repair is never sent");
+  assert.equal(reviewer.prompts.length, 2, "a second continuation is never sent");
+  assert.match(result.issues?.join("\n") ?? "", /no accepted submission/);
 });
 
-test("review() still fails closed when the repair turn outlasts its cap: the first answer stands as a parse miss", async () => {
+test("review() still fails closed when the continuation outlasts its time: a parse miss that says so", async () => {
   const reviewer = scriptedReviewer([CUT_ANSWER, new AgentTimeoutError("prompt exceeded 100ms")]);
-  const adapter = new ReviewPortAdapter({ runtime: reviewer.runtime, rendering: fakeRendering(), verdicts: verdictsByShape, repair: repairPort }, REVIEW_CONTEXT, { repairTimeoutMs: 100 });
 
-  const result = await adapter.review("/mirrors/org/app/e2e", cases);
+  const result = await adapterOver({ runtime: reviewer.runtime, rendering: fakeRendering(), verdicts: realVerdicts }, REVIEW_CONTEXT).review("/mirrors/org/app/e2e", cases);
 
-  assert.equal(reviewer.prompts[1]!.opts?.timeoutMs, 100);
   assert.equal(result.parsed, false);
   assert.equal(result.approved, false);
   assert.equal("unavailable" in result, false);
+  assert.match(result.issues?.join("\n") ?? "", /continuation ran out of its time/);
 });
 
 /* A parse miss is carried past: the run goes on without burning a round, so its line is a carried-on fault, not an end. */
-test("the line that says a reviewer answer was unreadable, or its repair outlasted its cap, is written at the level of a carried-on fault", async () => {
+test("the line that says a reviewer delivered no verdict is written at the level of a carried-on fault", async () => {
   const memory = memoryLogger();
   installProcessLogger(memory);
   try {
-    const unreadable = fakeVerdicts({ approved: false, findings: [], parsed: false, valid: false, issues: ["no verdict JSON found"] });
-    await new ReviewPortAdapter({ runtime: fakeRuntime("I think the tests look fine"), rendering: fakeRendering(), verdicts: unreadable }, REVIEW_CTX).review("/mirrors/org/app/e2e", cases);
-    const reviewer = scriptedReviewer([CUT_ANSWER, new AgentTimeoutError("prompt exceeded 100ms")]);
-    await new ReviewPortAdapter({ runtime: reviewer.runtime, rendering: fakeRendering(), verdicts: verdictsByShape, repair: repairPort }, REVIEW_CONTEXT, { repairTimeoutMs: 100 }).review("/mirrors/org/app/e2e", cases);
+    await adapterOver({ runtime: fakeRuntime("I think the tests look fine"), rendering: fakeRendering(), verdicts: approving }, REVIEW_CTX).review("/mirrors/org/app/e2e", cases);
   } finally {
     resetProcessLoggerForTests();
   }
-  const lines = memory.entries.filter((e) => /unreadable|contract-repair turn timed out/.test(e.message));
-  assert.ok(lines.length >= 2, "both lines were written");
+  const lines = memory.entries.filter((e) => /delivered no verdict/.test(e.message));
+  assert.equal(lines.length, 1);
   assert.deepEqual([...new Set(lines.map((e) => e.level))], [levelOfEffect(LOG_EFFECT.CARRIED_ON)]);
 });
 
-test("review() sends no repair turn for a readable verdict, for an empty answer, or when no repair is wired", async () => {
+test("review() asks a reviewer that submitted a readable verdict nothing more", async () => {
   const readable = scriptedReviewer([RESTATED_ANSWER]);
-  await new ReviewPortAdapter({ runtime: readable.runtime, rendering: fakeRendering(), verdicts: verdictsByShape, repair: repairPort }, REVIEW_CONTEXT).review("/mirrors/org/app/e2e", cases);
+  await adapterOver({ runtime: readable.runtime, rendering: fakeRendering(), verdicts: realVerdicts }, REVIEW_CONTEXT).review("/mirrors/org/app/e2e", cases);
   assert.equal(readable.prompts.length, 1);
-
-  const empty = scriptedReviewer(["  "]);
-  const emptyResult = await new ReviewPortAdapter({ runtime: empty.runtime, rendering: fakeRendering(), verdicts: verdictsByShape, repair: repairPort }, REVIEW_CONTEXT).review("/mirrors/org/app/e2e", cases);
-  assert.equal(empty.prompts.length, 1);
-  assert.equal(emptyResult.unavailable, true);
-
-  const unwired = scriptedReviewer([CUT_ANSWER]);
-  const unwiredResult = await new ReviewPortAdapter({ runtime: unwired.runtime, rendering: fakeRendering(), verdicts: verdictsByShape }, REVIEW_CONTEXT).review("/mirrors/org/app/e2e", cases);
-  assert.equal(unwired.prompts.length, 1);
-  assert.equal(unwiredResult.parsed, false);
 });
 
-test("review() sends no repair turn once the run's deadline has no time left: the run ends instead", async () => {
+test("review() marks a reviewer that wrote nothing and called nothing, even after its continuation, as unavailable", async () => {
+  const empty = scriptedReviewer(["  ", ""]);
+  const result = await adapterOver({ runtime: empty.runtime, rendering: fakeRendering(), verdicts: realVerdicts }, REVIEW_CONTEXT).review("/mirrors/org/app/e2e", cases);
+  assert.equal(empty.prompts.length, 2);
+  assert.equal(result.unavailable, true);
+});
+
+test("review() sends no continuation once the run's deadline has no time left: the run ends instead", async () => {
   const reviewer = scriptedReviewer([CUT_ANSWER, RESTATED_ANSWER]);
   let left = 60_000;
   const deadline = { remainingMs: () => left, allowance: () => left, describe: () => ({ label: "manual", budgetMs: 60_000 }), currentPurpose: () => "review" as const };
@@ -739,10 +715,10 @@ test("review() sends no repair turn once the run's deadline has no time left: th
       return { prompt: async (text, promptOpts) => { const out = await session.prompt(text, promptOpts); left = 0; return out; }, dispose: () => session.dispose() };
     },
   };
-  const adapter = new ReviewPortAdapter({ runtime: new RunDeadlineRuntime(spending, deadline), rendering: fakeRendering(), verdicts: verdictsByShape, repair: repairPort }, REVIEW_CONTEXT);
+  const adapter = adapterOver({ runtime: new RunDeadlineRuntime(spending, deadline), rendering: fakeRendering(), verdicts: realVerdicts }, REVIEW_CONTEXT);
 
   await assert.rejects(adapter.review("/mirrors/org/app/e2e", cases), (err: unknown) => err instanceof RunDeadlineExceededError);
-  assert.equal(reviewer.prompts.length, 1, "the repair never reached the agent");
+  assert.equal(reviewer.prompts.length, 1, "the continuation never reached the agent");
 });
 
 test("review() hands enrichment.ambientDataPins to the reviewer prompt, and omits them when the run recorded none", async () => {
@@ -752,7 +728,7 @@ test("review() hands enrichment.ambientDataPins to the reviewer prompt, and omit
     renderReviewer: (input) => { seen.push((input as ReviewInput).ambientDataPins); return { text: "reviewer-prompt", sectionSizes: {} }; },
   };
   const verdicts = fakeVerdicts({ approved: true, findings: [], parsed: true, valid: true, issues: [] });
-  const adapter = new ReviewPortAdapter({ runtime: fakeRuntime("verdict-json"), rendering, verdicts }, {
+  const adapter = adapterOver({ runtime: fakeRuntime("verdict-json"), rendering, verdicts }, {
     diff: "", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e", appName: "app", mode: "diff",
   });
   const ambientDataPins = [{ file: "flows/listing.spec.ts", test: "renders the empty listing", pages: ["/listing"] }];

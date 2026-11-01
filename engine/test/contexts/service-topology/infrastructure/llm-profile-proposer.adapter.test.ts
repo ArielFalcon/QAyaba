@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { AgentRuntimePort } from "@kernel/ports/agent-runtime.port.ts";
 import { memoryLogger, silentLogger } from "@kernel/ports/logger.port.ts";
+import { submittingRuntime } from "../../../support/submission.ts";
 import { PatternRedactionAdapter } from "../../../../src/shared-infrastructure/redaction/pattern-redaction.adapter.ts";
 import type { RepoRef } from "@contexts/service-topology/application/index.ts";
 import type { ProposerFeedback } from "@contexts/service-topology/application/index.ts";
@@ -31,25 +32,6 @@ const VALID_VERDICT_JSON = JSON.stringify({
         listenerEventCall: "convertMsgToSpecificType",
         subscriberBaseType: "DomainEventSubscriber",
         publishCall: "publishGenericMessage",
-      },
-    },
-  ],
-});
-
-/* A single malformed candidate (missing eventPattern.publishCall) degrades to
-   UNPARSEABLE_SENTINEL via the schema's per-entry .catch, so this verdict parses successfully but
-   filters down to zero candidates — not a throw, so it must NOT trigger the failure log.
- */
-const SENTINEL_ONLY_VERDICT_JSON = JSON.stringify({
-  candidates: [
-    {
-      transport: "event",
-      files: "**/*.java",
-      eventPattern: {
-        kind: "class-based-domain-events",
-        listenerBaseType: "ListenerMessageDelegate",
-        listenerEventCall: "convertMsgToSpecificType",
-        subscriberBaseType: "DomainEventSubscriber",
       },
     },
   ],
@@ -86,40 +68,42 @@ const MIXED_VERDICT_JSON = JSON.stringify({
   ],
 });
 
-function fencedJson(payload: string): string {
-  return `Some reasoning text before the answer.\n\n\`\`\`json\n${payload}\n\`\`\`\n`;
-}
-
 interface FakeRuntimeOpts {
   promptResult?: string | Error;
+  /** Each prompt of the session answers with the next one; the last repeats. */
+  replies?: string[];
   onOpen?: (role: string, cwd: string, opts?: { model?: string; timeoutMs?: number; signal?: AbortSignal }) => void;
   onPrompt?: (text: string) => void;
   openThrows?: boolean;
   disposed?: { count: number };
 }
 
+/** An agent that delivers by submit tool: each reply's JSON object is the call it makes, and a reply with none makes no call. */
 function fakeRuntime(opts: FakeRuntimeOpts): Pick<AgentRuntimePort, "openSession"> {
-  return {
+  return submittingRuntime({
     openSession: async (role, cwd, openOpts) => {
       opts.onOpen?.(role, cwd, openOpts);
       if (opts.openThrows) throw new Error("boom: open failed");
+      let prompts = 0;
       return {
         prompt: async (text) => {
           opts.onPrompt?.(text);
           if (opts.promptResult instanceof Error) throw opts.promptResult;
-          return { output: opts.promptResult ?? "" };
+          const reply = opts.replies ? opts.replies[Math.min(prompts, opts.replies.length - 1)] : opts.promptResult;
+          prompts += 1;
+          return { output: reply ?? "" };
         },
         dispose: async () => {
           if (opts.disposed) opts.disposed.count += 1;
         },
       };
     },
-  };
+  });
 }
 
 test("propose(): a well-formed verdict (1 http + 1 event) returns the correctly discriminated BoundaryProfile[]", async () => {
   const disposed = { count: 0 };
-  const runtime = fakeRuntime({ promptResult: fencedJson(VALID_VERDICT_JSON), disposed });
+  const runtime = fakeRuntime({ promptResult: VALID_VERDICT_JSON, disposed });
   const adapter = new LlmProfileProposerAdapter(runtime, silentLogger, redaction, { app: "nname" });
 
   const result = await adapter.propose(SYSTEM, FRONT);
@@ -151,67 +135,51 @@ test("propose(): fail-open — session.prompt() rejecting (timeout/transport err
   assert.deepEqual(result, []);
 });
 
-test("propose(): fail-open — garbage/unparseable text from prompt() returns []", async () => {
-  const runtime = fakeRuntime({ promptResult: "this is not json at all, sorry." });
-  const adapter = new LlmProfileProposerAdapter(runtime, silentLogger, redaction, { app: "nname" });
+test("propose(): a turn that never calls the submit tool is a fail-open empty round after exactly one continuation, and the miss is logged once", async () => {
+  const logger = memoryLogger();
+  const prompts: string[] = [];
+  const runtime = fakeRuntime({ promptResult: "this is not json at all, sorry.", onPrompt: (text) => prompts.push(text) });
+  const adapter = new LlmProfileProposerAdapter(runtime, logger, redaction, { app: "nname" });
 
   const result = await adapter.propose(SYSTEM, FRONT);
 
   assert.deepEqual(result, []);
+  assert.equal(prompts.length, 2, "the first prompt and exactly one continuation");
+  assert.match(prompts[1] ?? "", /submit_profiles/, "the continuation names the only tool that answers");
+  assert.equal(logger.entries.length, 1);
+  assert.equal(logger.entries[0]?.level, "warn");
+  assert.equal(logger.entries[0]?.fields.app, "nname");
+  assert.match(String(logger.entries[0]?.fields.reason), /no accepted submission/);
 });
 
-test("propose(): an unfenced verdict with nested objects after brace narration still parses", async () => {
-  const reply = `I will scan \`async ({ page }) => {\` call sites first.\n${VALID_VERDICT_JSON}`;
-  const adapter = new LlmProfileProposerAdapter(fakeRuntime({ promptResult: reply }), silentLogger, redaction, { app: "nname" });
-
-  const result = await adapter.propose(SYSTEM, FRONT);
-
-  assert.equal(result.length, 2);
-});
-
-test("propose(): a fenced verdict wins over an earlier quoted object", async () => {
-  const reply = `Earlier draft: {"candidates":[]}\n${fencedJson(VALID_VERDICT_JSON)}`;
-  const adapter = new LlmProfileProposerAdapter(fakeRuntime({ promptResult: reply }), silentLogger, redaction, { app: "nname" });
-
-  const result = await adapter.propose(SYSTEM, FRONT);
-
-  assert.equal(result.length, 2);
-});
-
-test("propose(): a fenced draft never stands in for the verdict that closes the reply", async () => {
-  const reply = `Draft:\n${fencedJson('{"candidates":[]}')}\nFinal:\n${VALID_VERDICT_JSON}`;
-  const adapter = new LlmProfileProposerAdapter(fakeRuntime({ promptResult: reply }), silentLogger, redaction, { app: "nname" });
-
-  const result = await adapter.propose(SYSTEM, FRONT);
-
-  assert.equal(result.length, 2);
-});
-
-test("propose(): an unfenced closing verdict that does not read yields nothing, never the earlier draft", async () => {
-  const reply = `Draft: ${VALID_VERDICT_JSON}\nRevised: ${VALID_VERDICT_JSON.slice(0, Math.floor(VALID_VERDICT_JSON.length / 2))}`;
-  const adapter = new LlmProfileProposerAdapter(fakeRuntime({ promptResult: reply }), silentLogger, redaction, { app: "nname" });
-
-  const result = await adapter.propose(SYSTEM, FRONT);
-
-  assert.equal(result.length, 0);
-});
-
-test("propose(): mixed valid/malformed candidates returns only the valid ones (sentinel filtered out)", async () => {
-  const runtime = fakeRuntime({ promptResult: fencedJson(MIXED_VERDICT_JSON) });
+test("propose(): a profile the contract cannot read is returned to the proposer with where it went wrong, and the corrected submission is the round", async () => {
+  const prompts: string[] = [];
+  const runtime = fakeRuntime({ replies: [MIXED_VERDICT_JSON, VALID_VERDICT_JSON], onPrompt: (text) => prompts.push(text) });
   const adapter = new LlmProfileProposerAdapter(runtime, silentLogger, redaction, { app: "nname" });
 
   const result = await adapter.propose(SYSTEM, FRONT);
 
+  assert.equal(prompts.length, 2);
+  assert.match(prompts[1] ?? "", /candidates\.1\.eventPattern\.publishCall/, "the continuation carries the exact path that was refused");
   assert.equal(result.length, 2);
-  assert.ok(result.every((c) => c.transport === "http"), "only the two valid http candidates should survive");
-  if (result[0]?.transport === "http") assert.equal(result[0].servicePrefixTemplate, "name-{service}-api");
-  if (result[1]?.transport === "http") assert.equal(result[1].servicePrefixTemplate, "other-{service}-api");
+  assert.deepEqual(result.map((c) => c.transport), ["http", "event"]);
+});
+
+test("propose(): a submission that is refused twice costs the round and no unreadable sibling stands in for it", async () => {
+  const logger = memoryLogger();
+  const runtime = fakeRuntime({ promptResult: MIXED_VERDICT_JSON });
+  const adapter = new LlmProfileProposerAdapter(runtime, logger, redaction, { app: "nname" });
+
+  const result = await adapter.propose(SYSTEM, FRONT);
+
+  assert.deepEqual(result, []);
+  assert.match(String(logger.entries[0]?.fields.reason), /candidates\.1\.eventPattern\.publishCall/);
 });
 
 test("propose(): opens a proposer-role session, on the model its agent declares (no pin on openSession() opts)", async () => {
   const opens: Array<{ role: string; cwd: string; model?: string; timeoutMs?: number }> = [];
   const runtime = fakeRuntime({
-    promptResult: fencedJson(VALID_VERDICT_JSON),
+    promptResult: VALID_VERDICT_JSON,
     onOpen: (role, cwd, opts) => opens.push({ role, cwd, model: opts?.model, timeoutMs: opts?.timeoutMs }),
   });
   const adapter = new LlmProfileProposerAdapter(runtime, silentLogger, redaction, { app: "nname", timeoutMs: 12345 });
@@ -241,7 +209,7 @@ test("propose(): multi-repo — session opens at the common ancestor of front + 
     { repo: "ArielFalcon/ms-name-billing", mirrorDir: "/x/mirrors/ms-name-billing" },
   ];
   const runtime = fakeRuntime({
-    promptResult: fencedJson(VALID_VERDICT_JSON),
+    promptResult: VALID_VERDICT_JSON,
     onOpen: (role, cwd) => opens.push({ role, cwd }),
   });
   const adapter = new LlmProfileProposerAdapter(runtime, silentLogger, redaction, { app: "nname" });
@@ -257,7 +225,7 @@ test("propose(): single-repo (system: []) — session opens at front.mirrorDir, 
   const opens: Array<{ role: string; cwd: string }> = [];
   const front: RepoRef = { repo: "ArielFalcon/nname-gateway", mirrorDir: "/x/mirrors/nname-gateway" };
   const runtime = fakeRuntime({
-    promptResult: fencedJson(VALID_VERDICT_JSON),
+    promptResult: VALID_VERDICT_JSON,
     onOpen: (role, cwd) => opens.push({ role, cwd }),
   });
   const adapter = new LlmProfileProposerAdapter(runtime, silentLogger, redaction, { app: "nname" });
@@ -274,7 +242,7 @@ test("propose(): LCA edge case — divergent sibling-looking dirs resolve to the
   const front: RepoRef = { repo: "ArielFalcon/front", mirrorDir: "/x/mirrors/a" };
   const system: RepoRef[] = [{ repo: "ArielFalcon/svc", mirrorDir: "/x/mirrors-other/b" }];
   const runtime = fakeRuntime({
-    promptResult: fencedJson(VALID_VERDICT_JSON),
+    promptResult: VALID_VERDICT_JSON,
     onOpen: (role, cwd) => opens.push({ role, cwd }),
   });
   const adapter = new LlmProfileProposerAdapter(runtime, silentLogger, redaction, { app: "nname" });
@@ -320,7 +288,7 @@ test("commonSessionRoot(): LCA edge case — segment-wise ancestor, not naive st
 
 test("propose(): ctx.signal is threaded straight through to openSession's opts.signal (job-timeout cancellation)", async () => {
   const opens: Array<{ signal?: AbortSignal }> = [];
-  const runtime = fakeRuntime({ promptResult: fencedJson(VALID_VERDICT_JSON), onOpen: (_role, _cwd, opts) => opens.push({ signal: opts?.signal }) });
+  const runtime = fakeRuntime({ promptResult: VALID_VERDICT_JSON, onOpen: (_role, _cwd, opts) => opens.push({ signal: opts?.signal }) });
   const controller = new AbortController();
   const adapter = new LlmProfileProposerAdapter(runtime, silentLogger, redaction, { app: "nname", signal: controller.signal });
 
@@ -332,7 +300,7 @@ test("propose(): ctx.signal is threaded straight through to openSession's opts.s
 
 test("propose(): omitting ctx.signal leaves openSession's opts.signal undefined (no signal fabricated)", async () => {
   const opens: Array<{ signal?: AbortSignal }> = [];
-  const runtime = fakeRuntime({ promptResult: fencedJson(VALID_VERDICT_JSON), onOpen: (_role, _cwd, opts) => opens.push({ signal: opts?.signal }) });
+  const runtime = fakeRuntime({ promptResult: VALID_VERDICT_JSON, onOpen: (_role, _cwd, opts) => opens.push({ signal: opts?.signal }) });
   const adapter = new LlmProfileProposerAdapter(runtime, silentLogger, redaction, { app: "nname" });
 
   await adapter.propose(SYSTEM, FRONT);
@@ -342,7 +310,7 @@ test("propose(): omitting ctx.signal leaves openSession's opts.signal undefined 
 
 test("propose(): prompt documents the http-backend transport shape and callPattern kinds", async () => {
   let capturedPrompt = "";
-  const runtime = fakeRuntime({ promptResult: fencedJson(VALID_VERDICT_JSON), onPrompt: (text) => { capturedPrompt = text; } });
+  const runtime = fakeRuntime({ promptResult: VALID_VERDICT_JSON, onPrompt: (text) => { capturedPrompt = text; } });
   const adapter = new LlmProfileProposerAdapter(runtime, silentLogger, redaction, { app: "nname" });
   await adapter.propose(SYSTEM, FRONT);
 
@@ -367,7 +335,7 @@ test("propose(): a well-formed http-backend candidate is returned as an HttpBack
       },
     ],
   });
-  const runtime = fakeRuntime({ promptResult: fencedJson(verdict) });
+  const runtime = fakeRuntime({ promptResult: verdict });
   const adapter = new LlmProfileProposerAdapter(runtime, silentLogger, redaction, { app: "nname" });
 
   const result = await adapter.propose(SYSTEM, FRONT);
@@ -382,7 +350,7 @@ test("propose(): a well-formed http-backend candidate is returned as an HttpBack
 
 test("propose(): http-backend prior-round feedback is summarized without throwing", async () => {
   let capturedPrompt = "";
-  const runtime = fakeRuntime({ promptResult: fencedJson(VALID_VERDICT_JSON), onPrompt: (text) => { capturedPrompt = text; } });
+  const runtime = fakeRuntime({ promptResult: VALID_VERDICT_JSON, onPrompt: (text) => { capturedPrompt = text; } });
   const adapter = new LlmProfileProposerAdapter(runtime, silentLogger, redaction, { app: "nname" });
   const feedback: ProposerFeedback = {
     priorCandidates: [
@@ -411,7 +379,7 @@ test("propose(): http-backend prior-round feedback is summarized without throwin
 
 test("propose(): when feedback.priorCandidates is non-empty, the prompt text references the prior round", async () => {
   let capturedPrompt = "";
-  const runtime = fakeRuntime({ promptResult: fencedJson(VALID_VERDICT_JSON), onPrompt: (text) => { capturedPrompt = text; } });
+  const runtime = fakeRuntime({ promptResult: VALID_VERDICT_JSON, onPrompt: (text) => { capturedPrompt = text; } });
   const adapter = new LlmProfileProposerAdapter(runtime, silentLogger, redaction, { app: "nname" });
 
   const feedback: ProposerFeedback = {
@@ -503,24 +471,6 @@ test("propose(): openSession() throwing before a session exists logs exactly one
   assert.match(String(logger.entries[0]?.fields.error), /boom: open failed/);
 });
 
-/* NOTE (verified against the schema module's own doc + a runtime probe): ProposerVerdictSchema
-   wraps itself in a top-level `.catch({candidates: []})`, so `.parse()` structurally NEVER throws
-   for any input shape, including `extractJson` returning null for garbage text — it degrades to
-   `{candidates: []}` inside the TRY block, not via propose()'s catch(err). This is therefore a
-   successful-round-with-zero-candidates case (same family as the sentinel-only filter below), not
-   a throw — per the "No Logging on Successful Propose" requirement it must NOT log.
- */
-test("propose(): an unparseable reply degrades to an empty verdict inside the try block (no throw) — no failure log, still returns []", async () => {
-  const logger = memoryLogger();
-  const runtime = fakeRuntime({ promptResult: "this is not json at all, sorry." });
-  const adapter = new LlmProfileProposerAdapter(runtime, logger, redaction, { app: "nname" });
-
-  const result = await adapter.propose(SYSTEM, FRONT);
-
-  assert.deepEqual(result, []);
-  assert.equal(logger.entries.length, 0, "the schema's own fail-open .catch degrades this to a successful empty round, not a throw");
-});
-
 test("propose(): a secret embedded in the thrown error's message never reaches the log (redacted)", async () => {
   const logger = memoryLogger();
   const runtime = fakeRuntime({ promptResult: new Error("401: Authorization: Bearer sk-supersecrettoken12345") });
@@ -536,7 +486,7 @@ test("propose(): a secret embedded in the thrown error's message never reaches t
 
 test("propose(): a successful round with candidates emits no failure log", async () => {
   const logger = memoryLogger();
-  const runtime = fakeRuntime({ promptResult: fencedJson(VALID_VERDICT_JSON) });
+  const runtime = fakeRuntime({ promptResult: VALID_VERDICT_JSON });
   const adapter = new LlmProfileProposerAdapter(runtime, logger, redaction, { app: "nname" });
 
   const result = await adapter.propose(SYSTEM, FRONT);
@@ -545,20 +495,20 @@ test("propose(): a successful round with candidates emits no failure log", async
   assert.equal(logger.entries.length, 0, "no warn log must be emitted on a successful round");
 });
 
-test("propose(): a successful round filtered to zero (sentinel-only) candidates emits no failure log", async () => {
+test("propose(): a round that submits no candidate is a successful empty round and emits no failure log", async () => {
   const logger = memoryLogger();
-  const runtime = fakeRuntime({ promptResult: fencedJson(SENTINEL_ONLY_VERDICT_JSON) });
+  const runtime = fakeRuntime({ promptResult: JSON.stringify({ candidates: [] }) });
   const adapter = new LlmProfileProposerAdapter(runtime, logger, redaction, { app: "nname" });
 
   const result = await adapter.propose(SYSTEM, FRONT);
 
-  assert.deepEqual(result, [], "the sentinel-only candidate must be filtered out, not treated as a throw");
-  assert.equal(logger.entries.length, 0, "no warn log must be emitted — this is a filter, not a throw");
+  assert.deepEqual(result, []);
+  assert.equal(logger.entries.length, 0, "an accepted empty list is an answer, not a miss");
 });
 
 test("propose(): the first-round prompt names the app, the front repo and every service repo with its mirror, then the transport shapes", async () => {
   let prompt = "";
-  const runtime = fakeRuntime({ promptResult: fencedJson(VALID_VERDICT_JSON), onPrompt: (text) => { prompt = text; } });
+  const runtime = fakeRuntime({ promptResult: VALID_VERDICT_JSON, onPrompt: (text) => { prompt = text; } });
   const adapter = new LlmProfileProposerAdapter(runtime, silentLogger, redaction, { app: "nname" });
 
   await adapter.propose(SYSTEM, FRONT);

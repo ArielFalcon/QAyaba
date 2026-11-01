@@ -62,7 +62,7 @@ test("the section states the limits the orchestrator holds the plan to, and the 
   for (const n of [PLANNING.capacity, PLANNING.maxParallel]) assert.ok(section.text.includes(String(n)), String(n));
   const prompt = readFileSync(join(process.cwd(), "agents", "agent", "qa-lead.md"), "utf8");
   for (const kind of Object.values(LEAD_PLAN_KIND)) assert.ok(prompt.includes(`"${kind}"`), kind);
-  for (const key of ["plan", "kind", "flows", "id", "objective", "acceptance", "routes"]) assert.ok(prompt.includes(`"${key}"`), key);
+  for (const key of ["kind", "flows", "id", "objective", "acceptance", "routes"]) assert.ok(prompt.includes(`"${key}"`), key);
 });
 
 test("the use cases the change makes testable are named with their ids, and the answer fields for them are in the lead's role prompt", () => {

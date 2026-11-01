@@ -1,6 +1,5 @@
 import type { SpecMeta } from "@kernel/qa-case.ts";
 import { readNoopKind, type NoopKind } from "@kernel/noop-kind.ts";
-import { closingJsonObject } from "@kernel/last-json-object.ts";
 
 export interface FinalVerdict {
   approved: boolean;
@@ -11,30 +10,12 @@ export interface FinalVerdict {
   noopReason?: string;
   /** The reason it gave, as the contract names it (`noop.kind`): recorded as `unspecified` when the verdict names none. Present exactly when `noopReason` is. */
   noopKind?: NoopKind;
-  /** The plan a lead emitted when its turn asked for one: the raw object, untrusted and read by the orchestrator's admission alone. Absent unless the verdict carried a `plan` object. */
-  plan?: Record<string, unknown>;
   /** The generator's typed claim that the test is correct; a claim, never evidence. Absent unless it carried a valid cause and a non-blank reason. */
   testCorrect?: { cause: "env" | "app"; reason: string };
   /** The findings the generator disputes instead of correcting, each with the basis the orchestrator must check. Absent unless it carried at least one well-formed entry. */
   rebuttals?: { finding: string; basis: "execution" | "contract"; ref: string; reason: string }[];
-  /** false when no verdict JSON was found (fail-closed). Distinguishes parse miss from rejection. */
+  /** false when no submission was accepted (fail-closed). Distinguishes a miss from a rejection. */
   parsed: boolean;
-}
-
-/* The object that closes the text when `pred` holds for it, or undefined: an earlier object never stands in for a closing one that does not read or is of another shape. */
-export function closingJsonMatching<T = Record<string, unknown>>(text: string, pred: (o: Record<string, unknown>) => boolean): T | undefined {
-  const closing = closingJsonObject(text);
-  return closing !== undefined && pred(closing) ? (closing as T) : undefined;
-}
-
-/* Discriminator: the generator's closing JSON carries a `specs` array, a `noop` decision, a `testCorrect` claim, `rebuttals`, a `plan` or a boolean `approved`. */
-export function isClosingVerdict(o: Record<string, unknown>): boolean {
-  return Array.isArray(o.specs) || "noop" in o || "testCorrect" in o || "rebuttals" in o || "plan" in o || typeof o.approved === "boolean";
-}
-
-/* A plan is an object; anything else under the key is no plan. */
-function planOf(raw: unknown): Record<string, unknown> | undefined {
-  return typeof raw === "object" && raw !== null && !Array.isArray(raw) ? (raw as Record<string, unknown>) : undefined;
 }
 
 /* The trimmed reason of a `noop` decision; undefined for anything that is not an object with a non-blank text `reason`. */
@@ -77,34 +58,29 @@ function noopOf(raw: unknown): { noopReason?: string; noopKind?: NoopKind } {
   return reason === undefined ? {} : { noopReason: reason, noopKind: readNoopKind((raw as Record<string, unknown>).kind) };
 }
 
+/* A turn that delivered no accepted submission: fail-closed, with the reason it records. Never a rejection and never a no-op. */
+export function missingVerdict(note: string): FinalVerdict {
+  return { approved: false, specs: [], note, parsed: false };
+}
+
 /*
- * The closing object of the answer, when it carries `specs`, `noop`, `testCorrect` or `approved`. A missing `approved` is
- * not a rejection (the reviewer is the gate); no parseable block — or one listing a spec that is
- * not a path string — is fail-closed with parsed:false. Whether writing no specs was a decision is
- * read from `noop.reason` or a valid `testCorrect`, never from `approved`.
+ * The generator's accepted submission. A missing `approved` is not a rejection (the reviewer is the gate). Whether writing no
+ * specs was a decision is read from `noop.reason` or a valid `testCorrect`, never from `approved`.
  */
-export function parseVerdict(text: string): FinalVerdict {
-  const o = closingJsonMatching(text, isClosingVerdict);
-  const specs: unknown[] = Array.isArray(o?.specs) ? o.specs : [];
-  if (specs.some((spec) => typeof spec !== "string")) {
-    return { approved: false, specs: [], note: "the agent's verdict lists a spec that is not a path string", parsed: false };
-  }
-  if (o) {
-    const testCorrect = testCorrectOf(o.testCorrect);
-    const rebuttals = rebuttalsOf(o.rebuttals);
-    return {
-      approved: typeof o.approved === "boolean" ? o.approved : true,
-      specs: specs as string[],
-      specMetas: parseSpecMetas(o.specMetas),
-      note: typeof o.note === "string" ? o.note : undefined,
-      ...noopOf(o.noop),
-      ...(testCorrect ? { testCorrect } : {}),
-      ...(rebuttals ? { rebuttals } : {}),
-      ...(planOf(o.plan) ? { plan: planOf(o.plan) } : {}),
-      parsed: true,
-    };
-  }
-  return { approved: false, specs: [], note: "the agent emitted no parseable verdict", parsed: false };
+export function readVerdict(o: Record<string, unknown>): FinalVerdict {
+  const specs = Array.isArray(o.specs) ? (o.specs as string[]) : [];
+  const testCorrect = testCorrectOf(o.testCorrect);
+  const rebuttals = rebuttalsOf(o.rebuttals);
+  return {
+    approved: typeof o.approved === "boolean" ? o.approved : true,
+    specs,
+    specMetas: parseSpecMetas(o.specMetas),
+    note: typeof o.note === "string" ? o.note : undefined,
+    ...noopOf(o.noop),
+    ...(testCorrect ? { testCorrect } : {}),
+    ...(rebuttals ? { rebuttals } : {}),
+    parsed: true,
+  };
 }
 
 function parseSpecMetas(raw: unknown): SpecMeta[] | undefined {

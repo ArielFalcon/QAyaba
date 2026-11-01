@@ -2,14 +2,16 @@
 import { engineLog } from "@kernel/ports/process-logger.ts";
 import { sep } from "node:path";
 import { scanSpecTree } from "../../../shared-infrastructure/spec-path-confinement.ts";
-import type { VerdictParserPort } from "../application/ports/verdict-parser.port.ts";
+import type { GeneratorDelivery, VerdictParserPort } from "../application/ports/verdict-parser.port.ts";
 import type { GeneratorDeliverable, ReviewJudgment } from "../domain/manifest-repository.ts";
 import type { SpecMeta } from "@kernel/qa-case.ts";
 import { GENERATION_NOTE_MAX_CHARS } from "../domain/generation-end.ts";
 import { sanitizeText } from "../../../shared-infrastructure/redaction/pattern-redaction.adapter.ts";
 import { redactAndBound } from "../../../shared-infrastructure/redaction/redact-and-bound.ts";
-import { boundReviewFindings, boundReviewRationale, boundReviewText, reviewAnswerIsOversized, REVIEW_CORRECTION_MAX_CHARS, REVIEW_CORRECTIONS_MAX, REVIEW_RATIONALE_MAX_CHARS, REVIEW_RESPONSE_MAX_CHARS, type ReviewFinding } from "../domain/review-output.ts";
+import { boundReviewFindings, boundReviewRationale, boundReviewText, REVIEW_CORRECTION_MAX_CHARS, REVIEW_CORRECTIONS_MAX } from "../domain/review-output.ts";
 import type { NoopKind } from "@kernel/noop-kind.ts";
+import { renderSubmissionErrors } from "@kernel/submission.ts";
+import type { ReviewerVerdict } from "../domain/verdict-validate.ts";
 
 /* Redacted at the earliest point, then cut to the note bound: the reason and the output tail end up persisted on the run, where no later stage redacts them. The reason keeps its start, the output keeps its end. */
 function forNote(text: string, keep: "start" | "end"): string {
@@ -41,8 +43,6 @@ interface ParsedVerdict {
   noopReason?: string;
   /* The kind the no-op names, `unspecified` when it names none. */
   noopKind?: NoopKind;
-  /* The plan the verdict carries, forwarded untouched: it is the orchestrator's admission that judges it. */
-  plan?: Record<string, unknown>;
   /* The generator's typed test-correct claim, forwarded after sanitizing/bounding its reason. */
   testCorrect?: { cause: "env" | "app"; reason: string };
   /* The findings the generator disputes, forwarded so the run can check each one's basis. */
@@ -50,19 +50,8 @@ interface ParsedVerdict {
   /* specMetas drives the deterministic disk-reconciled manifest upsert; parsed (above) is the #1 fail-closed invariant. Both REQUIRED here so parseGenerator can forward them — dropping them would make the use-case misclassify a parse miss and lose the manifest-upsert signal. */
   specMetas?: SpecMeta[];
 }
-interface ParsedReviewerVerdict {
-  approved: boolean;
-  findings: ReviewFinding[];
-  rationale?: string;
-  blockingCount?: number;
-  parsed?: boolean;
-  valid: boolean;
-  issues: string[];
-}
-
 export interface VerdictParsers {
-  parseVerdict(text: string): ParsedVerdict;
-  parseReviewerVerdict(text: string): ParsedReviewerVerdict;
+  readVerdict(answer: Record<string, unknown>): ParsedVerdict;
 }
 
 export class VerdictParserAdapter implements VerdictParserPort {
@@ -71,8 +60,11 @@ export class VerdictParserAdapter implements VerdictParserPort {
     private readonly listSuiteSpecs: (specDir: string) => readonly string[] = listSuiteSpecFiles,
   ) {}
 
-  parseGenerator(text: string, specDir?: string): GeneratorDeliverable {
-    const v = this.p.parseVerdict(text);
+  readGenerator(delivery: GeneratorDelivery, specDir?: string): GeneratorDeliverable {
+    const text = delivery.output;
+    const v: ParsedVerdict = delivery.answer
+      ? this.p.readVerdict(delivery.answer)
+      : { parsed: false, specs: [], note: forNote(delivery.noSubmission ?? "the agent delivered no accepted submission", "start") };
     /* The suite is listed at most once, and only when a bare name needs resolving. */
     let suite: readonly string[] | undefined;
     const suiteSpecs = (): readonly string[] => (suite ??= specDir === undefined ? [] : this.listSuiteSpecs(specDir));
@@ -96,7 +88,6 @@ export class VerdictParserAdapter implements VerdictParserPort {
       ...(v.note ? { note: v.note } : {}),
       ...(noopReason ? { noopReason, ...(v.noopKind ? { noopKind: v.noopKind } : {}) } : {}),
       ...(outputTail ? { outputTail } : {}),
-      ...(v.plan ? { plan: v.plan } : {}),
       ...(v.testCorrect && testCorrectReason ? { testCorrect: { cause: v.testCorrect.cause, reason: testCorrectReason } } : {}),
       ...(bounded.length ? { rebuttals: bounded } : {}),
       ...(v.specMetas ? { specMetas: v.specMetas.map((meta) => ({ ...meta, file: resolve(meta.file) })) } : {}),
@@ -104,29 +95,18 @@ export class VerdictParserAdapter implements VerdictParserPort {
     };
   }
 
-  parseReview(text: string): ReviewJudgment {
-    const r = this.p.parseReviewerVerdict(text);
-    /*
-     * The verdict is the JSON; everything around it is prose the record does not need. A reviewer
-     * that answers with a page of analysis still yields the same small verdict, and the caps make
-     * the answer's size independent of how much the model wrote.
-     */
-    if (reviewAnswerIsOversized(text)) {
-      engineLog.warn(
-        `[qa] WARNING: the reviewer answered ${text.length} chars (contract: ${REVIEW_RESPONSE_MAX_CHARS}) — keeping only the bounded verdict (rationale ≤ ${REVIEW_RATIONALE_MAX_CHARS} chars, ≤ ${REVIEW_CORRECTIONS_MAX} corrections)`,
-      );
-    }
+  readReview(verdict: ReviewerVerdict): ReviewJudgment {
     /* The domain cuts at a sentence; what it is given has been redacted whole first, so the cut cannot split a secret. */
     const redacted = (text: string): string => sanitizeText(text, "issue").text;
-    const rationale = boundReviewRationale(r.rationale === undefined ? undefined : redacted(r.rationale));
+    const rationale = boundReviewRationale(verdict.rationale === undefined ? undefined : redacted(verdict.rationale));
     return {
-      approved: r.approved,
-      findings: boundReviewFindings(r.findings.map((finding) => ({ ...finding, text: redacted(finding.text) }))),
+      approved: verdict.approved,
+      findings: boundReviewFindings(verdict.findings.map((finding) => ({ ...finding, text: redacted(finding.text) }))),
       ...(rationale !== undefined ? { rationale } : {}),
-      ...(r.blockingCount !== undefined ? { blockingCount: r.blockingCount } : {}),
-      ...(r.parsed !== undefined ? { parsed: r.parsed } : {}),
-      valid: r.valid,
-      issues: r.issues,
+      blockingCount: verdict.blockingCount,
+      parsed: verdict.parsed,
+      valid: verdict.valid,
+      issues: verdict.issues.map((issue) => renderSubmissionErrors([issue])),
     };
   }
 }

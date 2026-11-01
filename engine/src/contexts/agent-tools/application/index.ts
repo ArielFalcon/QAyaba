@@ -20,3 +20,4 @@ export type { CodeGraphRefusalCode, CodeGraphToolRequest } from "../domain/code-
 export { RunGeolocation } from "../domain/run-geolocation.ts";
 export type { GeolocationRefusalCode } from "../domain/run-geolocation.ts";
 export type { CodeGraphToolResponse } from "../domain/code-graph-query.ts";
+export type { SubmitRefusalCode, SubmitRequest, SubmitResponse } from "../domain/submission.ts";

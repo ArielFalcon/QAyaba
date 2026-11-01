@@ -85,8 +85,8 @@ function makeAuthoringPorts(capturedInput: { value: OpencodeRunInput | undefined
       specFileForFlow: (flow: string) => `flows/${flow}.spec.ts`,
     },
     verdicts: {
-      parseGenerator: () => ({ specs: [], parsed: true }),
-      parseReview: () => ({ approved: true, findings: [], valid: true, issues: [] }),
+      readGenerator: () => ({ specs: [], parsed: true }),
+      readReview: () => ({ approved: true, findings: [], valid: true, issues: [] }),
     },
     manifest: {
       read: async () => [],

@@ -47,8 +47,8 @@ import type { AgentConfig } from "@opencode-ai/sdk";
 import { AGENT_NAME_FOR_ROLE, capabilitiesForRole } from "./types";
 import { AGENT_BROWSER_TOOLS } from "../../engine/src/shared-kernel/agent-browser";
 import { CODE_GRAPH_AGENTS, CODE_GRAPH_TOOLS } from "../../engine/src/shared-kernel/code-graph-tools";
+import { SUBMIT_TOOL, SUBMIT_TOOLS } from "../../engine/src/shared-kernel/submission";
 import { AGENT_BROWSER_AGENTS, PROBE_REL_DIR } from "../../engine/src/contexts/test-execution/application/index";
-import { NO_TOOLS } from "./opencode-client";
 import type { AgentRole } from "./types";
 
 /* The ONLY MCP servers the agents may reach. None of these runs the orchestrator's
@@ -182,7 +182,7 @@ const BUILTIN_TOOL_KEYS = new Set([
 ]);
 
 /* Tools the repo ships itself (agents/tool/*.ts) rather than OpenCode or an MCP server: run_spec lets an authoring role ask the orchestrator to run a spec it wrote, and set_geolocation moves the run's authoring location. */
-const CUSTOM_TOOL_KEYS = new Set<string>(["run_spec", "set_geolocation", ...AGENT_BROWSER_TOOLS, ...CODE_GRAPH_TOOLS]);
+const CUSTOM_TOOL_KEYS = new Set<string>(["run_spec", "set_geolocation", ...AGENT_BROWSER_TOOLS, ...CODE_GRAPH_TOOLS, ...SUBMIT_TOOLS]);
 
 function loadRawConfig(): Record<string, unknown> {
   return JSON.parse(readFileSync(join(process.cwd(), "agents", "opencode.json"), "utf8")) as Record<string, unknown>;
@@ -933,10 +933,6 @@ test("every role granted the authenticated browser tools denies webfetch, declar
   }
 });
 
-test("a prompt that asks for no tool at all denies the browser tools too", () => {
-  for (const tool of AGENT_BROWSER_TOOLS) assert.equal(NO_TOOLS[tool] === false || NO_TOOLS["authbrowser*"] === false, true, tool);
-});
-
 test("the browser tool file exists, where the tools directory of the config puts it", () => {
   assert.ok(existsSync(join(process.cwd(), "agents", "tool", "authbrowser.ts")), "the file whose exports are the four tools exists");
   assert.ok(existsSync(join(process.cwd(), "agents", "lib", "authbrowser-client.mjs")), "and so does the client it calls through");
@@ -980,8 +976,7 @@ test("the lead carries the credential-deny read block", () => {
   assert.deepEqual(lead.permission.read, reviewer.permission?.read, "the same credential denials every reading role carries");
 });
 
-test("a prompt that asks for no tool at all denies the code-graph tools, and their tool file and client exist", () => {
-  for (const tool of CODE_GRAPH_TOOLS) assert.equal(NO_TOOLS[tool] === false || NO_TOOLS["codegraph*"] === false, true, tool);
+test("the code-graph tool file and client exist", () => {
   assert.ok(existsSync(join(process.cwd(), "agents", "tool", "codegraph.ts")));
   assert.ok(existsSync(join(process.cwd(), "agents", "lib", "codegraph-client.mjs")));
 });
@@ -993,6 +988,54 @@ test("the code-graph tool file exports exactly one tool, explore, and takes no a
   assert.deepEqual(CODE_GRAPH_TOOLS, ["codegraph_explore"]);
   const args = source.slice(source.indexOf("args:"), source.indexOf("async execute"));
   assert.deepEqual([...args.matchAll(/^\s{4}(\w+):/gm)].map((m) => m[1]), ["terms"], "the only argument is the list of terms: no project, repo, file cap or engine option");
+});
+
+/* The contract each role delivers its answer through: the lead its plan, the review of its flows and its corrections; the author a flow's result or the specs of a run's own task; the reviewer its verdict; the proposer its profiles. The assistant delivers none. */
+const SUBMIT_TOOLS_BY_AGENT: Readonly<Record<string, readonly string[]>> = {
+  "qa-lead": [SUBMIT_TOOL.PLAN, SUBMIT_TOOL.FLOW_REVIEW, SUBMIT_TOOL.CORRECTIONS],
+  "qa-author": [SUBMIT_TOOL.RESULT, SUBMIT_TOOL.SPECS],
+  "qa-reviewer": [SUBMIT_TOOL.REVIEW],
+  "qa-proposer": [SUBMIT_TOOL.PROFILES],
+};
+
+test("every submit tool is off for every agent by the global tools map and on only for the role that delivers its contract", () => {
+  const raw = loadRawConfig();
+  const globalTools = (raw.tools ?? {}) as Record<string, unknown>;
+  for (const tool of SUBMIT_TOOLS) assert.equal(globalTools[tool], false, `the global default switches ${tool} off`);
+  const { agents } = loadAgentConfig();
+  for (const [name, agent] of Object.entries(agents)) {
+    const on = SUBMIT_TOOLS.filter((tool) => agentTools(agent)[tool] === true);
+    assert.deepEqual([...on].sort(), [...(SUBMIT_TOOLS_BY_AGENT[name] ?? [])].sort(), `${name} holds exactly the submit tools of the contracts it delivers`);
+    for (const [key, value] of Object.entries(agentTools(agent))) {
+      for (const tool of SUBMIT_TOOLS) {
+        if (value === true && keyCovers(key, tool)) assert.ok((SUBMIT_TOOLS_BY_AGENT[name] ?? []).includes(tool), `${name} must not enable ${tool} (via "${key}")`);
+      }
+    }
+  }
+});
+
+test("the lead resolves its three submit tools to allow and every other submit tool to deny, and stays read-only", () => {
+  const lead = recordedAgents().find((agent) => agent.name === AGENT_NAME_FOR_ROLE.lead);
+  assert.ok(lead, "the configuration holds the lead");
+  const decision = (permission: string): string | undefined => lead.permission.filter((rule) => rule.permission === permission && rule.pattern === "*").pop()?.action;
+  for (const tool of SUBMIT_TOOLS) assert.equal(decision(tool), SUBMIT_TOOLS_BY_AGENT["qa-lead"]?.includes(tool) ? "allow" : "deny", tool);
+  assert.equal(decision("edit"), "deny");
+  assert.equal(capabilitiesForRole("lead").canWrite, false);
+});
+
+test("the submit tool file, its client, its schema converter and its contracts exist", () => {
+  for (const file of [["tool", "submit.ts"], ["lib", "submit-client.mjs"], ["lib", "submit-schema.mjs"], ["lib", "submit-contracts.json"]]) {
+    assert.ok(existsSync(join(process.cwd(), "agents", ...file)), file.join("/"));
+  }
+});
+
+test("the submit tool file exports one tool per submit tool and takes no argument the contract does not declare", () => {
+  const source = readFileSync(join(process.cwd(), "agents", "tool", "submit.ts"), "utf8");
+  const exported = [...source.matchAll(/^export\s+(?:const|function|async function)\s+(\w+)/gm)].map((m) => m[1]);
+  assert.deepEqual(exported, SUBMIT_TOOLS.map((tool) => tool.replace(/^submit_/, "")), "the runtime names each export `submit_<export>`");
+  const contracts = JSON.parse(readFileSync(join(process.cwd(), "agents", "lib", "submit-contracts.json"), "utf8")) as Record<string, unknown>;
+  assert.deepEqual(Object.keys(contracts), [...SUBMIT_TOOLS], "the arguments of every tool come from its contract");
+  assert.ok(!/\bargs:\s*\{/.test(source), "no tool declares an argument of its own");
 });
 
 test("the location tool is off for every agent by the global tools map and on for the author alone", () => {

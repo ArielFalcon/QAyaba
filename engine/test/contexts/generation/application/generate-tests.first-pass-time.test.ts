@@ -4,7 +4,8 @@ import { GenerateTestsUseCase, type AuthoringPorts } from "@contexts/generation/
 import type { ManifestEntry } from "@kernel/manifest/manifest-entry.ts";
 import type { OpencodeRunInput } from "@contexts/generation/domain/opencode-run-input.ts";
 import { AgentTimeoutError, AgentUnavailableError } from "@kernel/domain-error.ts";
-import { REPAIR_TURN_TIMEOUT_MS } from "@contexts/generation/domain/repair-turn.ts";
+import { didNotSubmit, type FakeReply } from "../../../support/submission.ts";
+import { SUBMIT_TOOL } from "@kernel/submission.ts";
 import { GENERATION_END } from "@kernel/generation-end.ts";
 import { RunDeadlineExceededError, type RunDeadlineView } from "@kernel/run-deadline.ts";
 import { RunDeadlineRuntime } from "@contexts/run-orchestration/infrastructure/run-deadline-runtime.adapter.ts";
@@ -27,7 +28,7 @@ type Step = { output: string } | { throws: Error };
 
 interface Harness {
   opened: Array<{ role: AgentRole; opts: OpenSessionOpts | undefined }>;
-  prompts: Array<{ role: AgentRole; isRepair: boolean; timeoutMs: number | undefined; timeLimit: TimeLimitSource | undefined; withoutTools: boolean }>;
+  prompts: Array<{ role: AgentRole; isRepair: boolean; submitOnly: boolean; timeoutMs: number | undefined; timeLimit: TimeLimitSource | undefined }>;
   disposed: AgentRole[];
 }
 
@@ -39,23 +40,28 @@ function baseInput(over: Partial<OpencodeRunInput> = {}): OpencodeRunInput {
   };
 }
 
-function build(
-  generatorSteps: Step[],
-  opts: { specs?: string[]; repairInvalid?: boolean; repairTimeoutMs?: number } = {},
-): { ports: AuthoringPorts; seen: Harness } {
+/* What the fake author does with a turn: "SPECS" and "NOOP" are calls to its submit tool, any other text is a turn that made none. */
+function replyFor(output: string, specs: string[]): FakeReply {
+  if (output.includes("SPECS")) return { output, submission: { accepted: true, value: { specs }, calls: 1 } };
+  if (output.includes("NOOP")) return { output, submission: { accepted: true, value: { specs: [], noop: { reason: NOOP_REASON } }, calls: 1 } };
+  return didNotSubmit(output);
+}
+
+function build(generatorSteps: Step[], opts: { specs?: string[] } = {}): { ports: AuthoringPorts; seen: Harness } {
   const seen: Harness = { opened: [], prompts: [], disposed: [] };
   const steps = [...generatorSteps];
+  const specs = opts.specs ?? ["flows/a.spec.ts"];
   const ports: AuthoringPorts = {
     runtime: {
       openSession: async (role, _cwd, sessionOpts) => {
         seen.opened.push({ role, opts: sessionOpts });
         return {
           prompt: async (_text, promptOpts) => {
-            seen.prompts.push({ role, isRepair: promptOpts?.isRepair === true, timeoutMs: promptOpts?.timeoutMs, timeLimit: promptOpts?.timeLimit, withoutTools: promptOpts?.withoutTools === true });
+            seen.prompts.push({ role, isRepair: promptOpts?.isRepair === true, submitOnly: promptOpts?.submitOnly === true, timeoutMs: promptOpts?.timeoutMs, timeLimit: promptOpts?.timeLimit });
             if (role === "reviewer") return { output: "REVIEW" };
             const step = steps.shift() ?? { output: "" };
             if ("throws" in step) throw step.throws;
-            return { output: step.output };
+            return replyFor(step.output, specs);
           },
           dispose: () => { seen.disposed.push(role); },
         };
@@ -68,17 +74,15 @@ function build(
       specFileForFlow: (flow) => `flows/${flow}.spec.ts`,
     },
     verdicts: {
-      parseGenerator: (text) =>
-        text.includes("SPECS")
-          ? { specs: opts.specs ?? ["flows/a.spec.ts"], parsed: true }
-          : text.includes("NOOP")
-            ? { specs: [], parsed: true, noopReason: NOOP_REASON }
-            : { specs: [], parsed: false },
-      parseReview: () => ({ approved: true, findings: [], valid: true, issues: [], parsed: true }),
+      readGenerator: ({ answer, noSubmission }) =>
+        answer === undefined
+          ? { specs: [], parsed: false, note: noSubmission }
+          : Array.isArray(answer.specs) && answer.specs.length > 0
+            ? { specs: answer.specs as string[], parsed: true }
+            : { specs: [], parsed: true, noopReason: NOOP_REASON },
+      readReview: () => ({ approved: true, findings: [], valid: true, issues: [], parsed: true }),
     },
     manifest: { read: async () => [], reconcile: async (_d, e) => [...e] as ManifestEntry[] },
-    ...(opts.repairTimeoutMs !== undefined ? { repairTimeoutMs: opts.repairTimeoutMs } : {}),
-    ...(opts.repairInvalid ? { repair: { checkGenerator: () => ({ valid: false, issues: ["no verdict"] }), instruction: () => "REPAIR" } } : {}),
   };
   return { ports, seen };
 }
@@ -160,57 +164,47 @@ test("a plain error that merely mentions a timeout surfaces unchanged", async ()
   await assert.rejects(new GenerateTestsUseCase(ports).author(baseInput()), /socket hang up/);
 });
 
-test("a repair prompt never gets more than its own cap, however long the main prompt took", async () => {
-  const { ports, seen } = build([{ output: "malformed" }, { output: "SPECS" }], { repairInvalid: true });
-  await new GenerateTestsUseCase(ports).author(baseInput());
-  assert.equal(seen.prompts[1]?.isRepair, true);
-  assert.equal(seen.prompts[1]?.timeoutMs, REPAIR_TURN_TIMEOUT_MS);
-  assert.equal(seen.prompts[1]?.timeLimit, "repair-cap");
-});
-
-test("a run sends its main prompt no time of its own and its repair only the repair cap", async () => {
-  const { ports, seen } = build([{ output: "malformed" }, { output: "SPECS" }], { repairInvalid: true });
-  await new GenerateTestsUseCase(ports).author(baseInput({ diff: BROAD_DIFF }));
+test("a turn that ends without a submission is continued once, restricted to the submit tool and within the bounds the first prompt had", async () => {
+  const { ports, seen } = build([{ output: "wrote the specs, did not submit" }, { output: "SPECS" }]);
+  const result = await new GenerateTestsUseCase(ports).author(baseInput({ diff: BROAD_DIFF }));
   assert.equal(seen.prompts.length, 2);
-  assert.equal(seen.prompts[0]?.timeoutMs, undefined);
-  assert.equal(seen.prompts[1]?.timeoutMs, REPAIR_TURN_TIMEOUT_MS);
-});
-
-test("the contract-repair prompt runs with no tools, and the prompt it repairs keeps its tools", async () => {
-  const { ports, seen } = build([{ output: "malformed" }, { output: "SPECS" }], { repairInvalid: true });
-  await new GenerateTestsUseCase(ports).author(baseInput({ diff: BROAD_DIFF }));
-  assert.deepEqual(seen.prompts.map((p) => p.withoutTools), [false, true]);
-});
-
-test("a repair cap the ports state replaces the default", async () => {
-  const { ports, seen } = build([{ output: "malformed" }, { output: "SPECS" }], { repairInvalid: true, repairTimeoutMs: 30_000 });
-  await new GenerateTestsUseCase(ports).author(baseInput({ diff: BROAD_DIFF }));
-  assert.equal(seen.prompts[1]?.timeoutMs, 30_000);
-});
-
-test("a repair that ran past its own cap leaves the first answer standing: specs delivered stay delivered", async () => {
-  const { ports } = build([{ output: "SPECS but malformed" }, { throws: new AgentTimeoutError("timed out") }], { repairInvalid: true });
-  const result = await new GenerateTestsUseCase(ports).author(baseInput());
+  assert.equal(seen.prompts[0]?.submitOnly, false);
+  assert.equal(seen.prompts[1]?.submitOnly, true);
+  assert.equal(seen.prompts[1]?.isRepair, true);
+  assert.equal(seen.prompts[1]?.timeoutMs, seen.prompts[0]?.timeoutMs);
   assert.equal(result.end, GENERATION_END.DELIVERED);
   assert.deepEqual(result.specs, ["flows/a.spec.ts"]);
 });
 
-test("a repair that ran past its own cap with a declared no-op keeps the no-op", async () => {
-  const { ports } = build([{ output: "NOOP malformed" }, { throws: new AgentTimeoutError("timed out") }], { repairInvalid: true });
-  const result = await new GenerateTestsUseCase(ports).author(baseInput());
-  assert.equal(result.end, GENERATION_END.DECLARED_NOOP);
-  assert.equal(result.note, NOOP_REASON);
-  assert.deepEqual(result.specs, []);
+test("a turn is asked for its submission through the submit tool of the specs contract", async () => {
+  const asked: Array<string | undefined> = [];
+  const { ports } = build([{ output: "SPECS" }]);
+  const open = ports.runtime.openSession.bind(ports.runtime);
+  ports.runtime.openSession = async (...args) => {
+    const session = await open(...args);
+    return { ...session, prompt: async (text, opts) => { asked.push(opts?.submit?.tool); return session.prompt(text, opts); } };
+  };
+  await new GenerateTestsUseCase(ports).author(baseInput());
+  assert.deepEqual(asked, [SUBMIT_TOOL.SPECS]);
 });
 
-test("a repair that ran past its own cap with no readable verdict ends the generation as no-verdict, loudly", async () => {
-  const { ports } = build([{ output: "no verdict at all" }, { throws: new AgentTimeoutError("timed out") }], { repairInvalid: true });
+test("a continuation that ran past its time leaves a no-verdict end that says so", async () => {
+  const { ports } = build([{ output: "no submission at all" }, { throws: new AgentTimeoutError("timed out") }]);
   const result = await new GenerateTestsUseCase(ports).author(baseInput());
   assert.equal(result.end, GENERATION_END.NO_VERDICT);
-  assert.match(result.note ?? "", /contract-repair turn \(tools disabled\) did not answer within 120 s/);
+  assert.equal(result.parsed, false);
+  assert.match(result.note ?? "", /continuation ran out of its time/);
 });
 
-test("a repair that fails for any reason other than time is still the integration error it is", async () => {
-  const { ports } = build([{ output: "no verdict at all" }, { throws: new AgentUnavailableError("provider rejected: out of credits") }], { repairInvalid: true });
+test("a turn that ends without a submission even after its continuation ends as no-verdict, with the reason", async () => {
+  const { ports, seen } = build([{ output: "no submission at all" }, { output: "still none" }]);
+  const result = await new GenerateTestsUseCase(ports).author(baseInput());
+  assert.equal(seen.prompts.length, 2, "one continuation only");
+  assert.equal(result.end, GENERATION_END.NO_VERDICT);
+  assert.match(result.note ?? "", /no accepted submission/);
+});
+
+test("a continuation that fails for any reason other than time is still the integration error it is", async () => {
+  const { ports } = build([{ output: "no submission at all" }, { throws: new AgentUnavailableError("provider rejected: out of credits") }]);
   await assert.rejects(new GenerateTestsUseCase(ports).author(baseInput()), AgentUnavailableError);
 });

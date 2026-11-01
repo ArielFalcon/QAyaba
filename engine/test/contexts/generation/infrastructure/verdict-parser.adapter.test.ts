@@ -5,99 +5,78 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { VerdictParserAdapter, listSuiteSpecFiles } from "@contexts/generation/infrastructure/verdict-parser.adapter.ts";
 import { GENERATION_NOTE_MAX_CHARS } from "@contexts/generation/domain/generation-end.ts";
+import type { ReviewerVerdict } from "@contexts/generation/domain/verdict-validate.ts";
 import { createRunSecretScope, withRunSecretScope } from "../../../../src/shared-kernel/run-secret-redaction.ts";
 import { REVIEW_CORRECTION_MAX_CHARS, REVIEW_RATIONALE_MAX_CHARS } from "@contexts/generation/domain/review-output.ts";
 
-test("parseReview delegates and forwards blockingCount + parsed + valid + issues (no behavior drop)", () => {
-  const adapter = new VerdictParserAdapter({
-    parseVerdict: () => ({ parsed: true, specs: ["a.spec.ts"] }) as never,
-    parseReviewerVerdict: () => ({ approved: true, findings: [], blockingCount: 0, parsed: true, valid: true, issues: [] }) as never,
-  } as never);
-  const j = adapter.parseReview("…json…");
+const reviewer = (verdict: Partial<ReviewerVerdict>): ReviewerVerdict => ({ approved: true, findings: [], blockingCount: 0, parsed: true, valid: true, issues: [], ...verdict });
+const NO_VERDICT_READER = new VerdictParserAdapter({ readVerdict: () => ({ parsed: true, specs: [] }) });
+
+test("readReview forwards approved + blockingCount + parsed + valid (no behavior drop)", () => {
+  const j = NO_VERDICT_READER.readReview(reviewer({ approved: true }));
   assert.equal(j.approved, true);
   assert.equal(j.blockingCount, 0);   /* forwarded — a port that dropped it would be undefined here */
   assert.equal(j.parsed, true);       /* forwarded — the parse-miss round-saver survives */
-  assert.equal(j.valid, true);        /* forwarded — the bounded-repair signal survives */
-  assert.deepEqual(j.issues, []);     /* forwarded — fed to repairInstruction on a contract miss */
+  assert.equal(j.valid, true);
+  assert.deepEqual(j.issues, []);
 });
 
-test("a contract-miss reviewer verdict forwards valid:false + issues (the bounded-repair re-prompt fuel)", () => {
-  const adapter = new VerdictParserAdapter({
-    parseVerdict: () => ({ parsed: true, specs: [] }) as never,
-    parseReviewerVerdict: () => ({ approved: false, findings: [], blockingCount: 0, parsed: true, valid: false, issues: ["contract failure"] }) as never,
-  } as never);
-  const j = adapter.parseReview("…malformed reviewer json…");
-  /* valid:false != a real rejection — the use-case fires ONE repairInstruction("reviewer", issues). */
-  assert.equal(j.valid, false);
-  assert.deepEqual(j.issues, ["contract failure"]); /* a port that dropped issues would be undefined — gutted-impl-proof */
+test("what the reviewer's submission set aside is forwarded as the issues the record keeps, each with where it was", () => {
+  const j = NO_VERDICT_READER.readReview(reviewer({ issues: [{ path: "corrections.1.severity", reason: "no severity" }, { path: "corrections", reason: "not a list" }] }));
+  assert.deepEqual(j.issues, ["corrections.1.severity: no severity", "corrections: not a list"]);
 });
 
-test("a parse MISS is fail-closed (approved:false, parsed:false) —", () => {
-  const adapter = new VerdictParserAdapter({
-    parseVerdict: () => ({ parsed: false, specs: [] }) as never,
-    parseReviewerVerdict: () => ({ approved: false, findings: [{ text: "no parseable verdict", severity: "blocking" }], blockingCount: 0, parsed: false, valid: false, issues: ["no reviewer verdict JSON found"] }) as never,
-  } as never);
-  const j = adapter.parseReview("garbage");
-  assert.equal(j.approved, false);
-  assert.equal(j.parsed, false);
-});
-
-test("parseGenerator delegates to parseVerdict and returns specs", () => {
-  let seenText = "";
-  const adapter = new VerdictParserAdapter({
-    parseVerdict: (text: string) => { seenText = text; return { parsed: true, approved: true, specs: ["login.spec.ts"], note: "ok" }; },
-    parseReviewerVerdict: () => ({ approved: true, findings: [], blockingCount: 0, parsed: true, valid: true, issues: [] }) as never,
-  } as never);
-  const d = adapter.parseGenerator("verdict text");
-  assert.equal(seenText, "verdict text"); /* DELEGATION: a gutted impl that ignores the injected fn FAILS this */
+test("readGenerator delegates to readVerdict and returns the specs of the accepted submission", () => {
+  let seen: Record<string, unknown> | undefined;
+  const adapter = new VerdictParserAdapter({ readVerdict: (answer) => { seen = answer; return { parsed: true, approved: true, specs: ["login.spec.ts"], note: "ok" }; } });
+  const answer = { specs: ["login.spec.ts"], note: "ok" };
+  const d = adapter.readGenerator({ answer, output: "text" });
+  assert.equal(seen, answer); /* DELEGATION: a gutted impl that ignores the injected fn FAILS this */
   assert.deepEqual(d.specs, ["login.spec.ts"]);
   assert.equal(d.note, "ok");
 });
 
-test("parseGenerator forwards parsed + specMetas (WRAP-2 fail-closed + WRAP-1 manifest upsert survive)", () => {
+test("readGenerator forwards parsed + specMetas (fail-closed + manifest upsert survive)", () => {
   const specMetas = [{ file: "login.spec.ts", flow: "login", objective: "sign in", targets: ["src/auth.ts"], sha256: "abc" }];
-  const adapter = new VerdictParserAdapter({
-    parseVerdict: () => ({ parsed: true, approved: true, specs: ["login.spec.ts"], note: "ok", specMetas }),
-    parseReviewerVerdict: () => ({ approved: true, findings: [], blockingCount: 0, parsed: true, valid: true, issues: [] }) as never,
-  } as never);
-  const d = adapter.parseGenerator("verdict text");
-  assert.equal(d.parsed, true);                 /* WRAP-2: the #1 fail-closed invariant — a port that dropped it would be undefined here */
-  assert.deepEqual(d.specMetas, specMetas);     /* WRAP-1: drives the disk-reconciled manifest upsert — gutted-impl-proof */
+  const adapter = new VerdictParserAdapter({ readVerdict: () => ({ parsed: true, approved: true, specs: ["login.spec.ts"], note: "ok", specMetas }) });
+  const d = adapter.readGenerator({ answer: {}, output: "" });
+  assert.equal(d.parsed, true);                 /* the #1 fail-closed invariant — a port that dropped it would be undefined here */
+  assert.deepEqual(d.specMetas, specMetas);     /* drives the disk-reconciled manifest upsert — gutted-impl-proof */
 });
 
-const NO_REVIEWER = () => ({ approved: true, findings: [], blockingCount: 0, parsed: true, valid: true, issues: [] }) as never;
 const SECRET = "sk-abcdefghijklmnopqrstuvwxyz1234";
 
 function adapterReading(verdict: Record<string, unknown>): VerdictParserAdapter {
-  return new VerdictParserAdapter({ parseVerdict: () => ({ parsed: true, specs: [], ...verdict }) as never, parseReviewerVerdict: NO_REVIEWER } as never);
+  return new VerdictParserAdapter({ readVerdict: () => ({ parsed: true, specs: [], ...verdict }) as never });
 }
+const delivered = { answer: {}, output: "" };
 
-test("parseGenerator forwards the generator's no-op reason", () => {
-  const d = adapterReading({ noopReason: "The diff only renames an internal helper." }).parseGenerator("verdict text");
+test("readGenerator forwards the generator's no-op reason", () => {
+  const d = adapterReading({ noopReason: "The diff only renames an internal helper." }).readGenerator(delivered);
   assert.equal(d.noopReason, "The diff only renames an internal helper.");
 });
 
-test("parseGenerator leaves the no-op reason out when the verdict gave none", () => {
-  const d = adapterReading({}).parseGenerator("verdict text");
+test("readGenerator leaves the no-op reason out when the verdict gave none", () => {
+  const d = adapterReading({}).readGenerator(delivered);
   assert.equal("noopReason" in d, false);
 });
 
-test("parseGenerator redacts secrets in the no-op reason before it leaves the adapter", () => {
-  const d = adapterReading({ noopReason: `Nothing to test; the key ${SECRET} was in the diff.` }).parseGenerator("verdict text");
+test("readGenerator redacts secrets in the no-op reason before it leaves the adapter", () => {
+  const d = adapterReading({ noopReason: `Nothing to test; the key ${SECRET} was in the diff.` }).readGenerator(delivered);
   assert.doesNotMatch(d.noopReason ?? "", /sk-abcdefghijklmnopqrstuvwxyz1234/);
   assert.match(d.noopReason ?? "", /\[REDACTED\]/);
   assert.match(d.noopReason ?? "", /^Nothing to test/);
 });
 
-test("parseGenerator bounds the no-op reason to the note bound, keeping its start", () => {
-  const d = adapterReading({ noopReason: `START ${"r".repeat(GENERATION_NOTE_MAX_CHARS * 3)}` }).parseGenerator("verdict text");
+test("readGenerator bounds the no-op reason to the note bound, keeping its start", () => {
+  const d = adapterReading({ noopReason: `START ${"r".repeat(GENERATION_NOTE_MAX_CHARS * 3)}` }).readGenerator(delivered);
   assert.ok((d.noopReason ?? "").length <= GENERATION_NOTE_MAX_CHARS);
   assert.ok((d.noopReason ?? "").startsWith("START"));
 });
 
-test("parseGenerator forwards the end of the output, redacted, and bounded to the note bound", () => {
-  const text = `HEAD ${"lorem ".repeat(GENERATION_NOTE_MAX_CHARS)} key ${SECRET} THE-END`;
-  const d = adapterReading({}).parseGenerator(text);
+test("readGenerator forwards the end of the output, redacted, and bounded to the note bound", () => {
+  const output = `HEAD ${"lorem ".repeat(GENERATION_NOTE_MAX_CHARS)} key ${SECRET} THE-END`;
+  const d = adapterReading({}).readGenerator({ answer: {}, output });
   const tail = d.outputTail ?? "";
   assert.ok(tail.length <= GENERATION_NOTE_MAX_CHARS, `${tail.length} chars`);
   assert.ok(tail.endsWith("THE-END"));
@@ -106,22 +85,21 @@ test("parseGenerator forwards the end of the output, redacted, and bounded to th
   assert.match(tail, /\[REDACTED\]/);
 });
 
-test("parseGenerator forwards a short output whole and no tail for an empty one", () => {
-  assert.equal(adapterReading({}).parseGenerator("short output").outputTail, "short output");
+test("readGenerator forwards a short output whole and no tail for an empty one", () => {
+  assert.equal(adapterReading({}).readGenerator({ answer: {}, output: "short output" }).outputTail, "short output");
   for (const blank of ["", "  \n "]) {
-    assert.equal("outputTail" in adapterReading({}).parseGenerator(blank), false, JSON.stringify(blank));
+    assert.equal("outputTail" in adapterReading({}).readGenerator({ answer: {}, output: blank }), false, JSON.stringify(blank));
   }
 });
 
-test("parseGenerator on a parse MISS is fail-closed (parsed:false, specs ?? [] = [])", () => {
-  const adapter = new VerdictParserAdapter({
-    /* parse miss: no verdict JSON found → parsed:false and specs absent (the ?? [] default must apply) */
-    parseVerdict: () => ({ parsed: false }) as never,
-    parseReviewerVerdict: () => ({ approved: false, findings: [], blockingCount: 0, parsed: false, valid: false, issues: [] }) as never,
-  } as never);
-  const d = adapter.parseGenerator("garbage");
-  assert.equal(d.parsed, false);     /* a parse miss is NOT a deliberate no-op — the use-case branches on this */
-  assert.deepEqual(d.specs, []);     /* undefined specs default to [] (fail-closed, never undefined) */
+test("readGenerator on a turn that delivered no submission is fail-closed (parsed:false, no specs) and carries the reason, redacted and bounded", () => {
+  const adapter = new VerdictParserAdapter({ readVerdict: () => { throw new Error("no accepted submission is ever read"); } });
+  const d = adapter.readGenerator({ noSubmission: `no accepted submission; key ${SECRET} ${"x".repeat(GENERATION_NOTE_MAX_CHARS)}`, output: "prose" });
+  assert.equal(d.parsed, false);     /* a miss is NOT a deliberate no-op — the use-case branches on this */
+  assert.deepEqual(d.specs, []);
+  assert.doesNotMatch(d.note ?? "", /sk-abcdefghijklmnopqrstuvwxyz1234/);
+  assert.ok((d.note ?? "").length <= GENERATION_NOTE_MAX_CHARS);
+  assert.match(d.note ?? "", /^no accepted submission/);
 });
 
 /* A suite on disk (the e2e/ spec dir) holding the given suite-relative files, under the OS temp dir. */
@@ -137,15 +115,14 @@ function suiteWith(files: string[]): string {
 /* The generator reported `specs`, each with a specMetas entry naming the same file. */
 function reporting(specs: string[]): VerdictParserAdapter {
   return new VerdictParserAdapter({
-    parseVerdict: () => ({ parsed: true, approved: true, specs, specMetas: specs.map((file) => ({ file, flow: `flow-${file}`, objective: "o", targets: [] })) }),
-    parseReviewerVerdict: () => ({ approved: true, findings: [], blockingCount: 0, parsed: true, valid: true, issues: [] }),
+    readVerdict: () => ({ parsed: true, approved: true, specs, specMetas: specs.map((file) => ({ file, flow: `flow-${file}`, objective: "o", targets: [] })) }),
   });
 }
 
 function reportedPaths(specs: string[], suite: string[] | undefined): { specs: string[]; metaFiles: (string | undefined)[] } {
   const specDir = suite ? suiteWith(suite) : undefined;
   try {
-    const d = reporting(specs).parseGenerator("verdict text", specDir);
+    const d = reporting(specs).readGenerator(delivered, specDir);
     return { specs: d.specs, metaFiles: (d.specMetas ?? []).map((m) => m.file) };
   } finally {
     if (specDir) rmSync(specDir, { recursive: true, force: true });
@@ -201,42 +178,17 @@ test("the suite listing looks at no more than the cap of entries it is given, so
   }
 });
 
-test("and carries none when it read none", () => {
-  const plan = { kind: "fanout", flows: [{ id: "a", objective: "x" }] };
-  const withPlan = new VerdictParserAdapter({
-    parseVerdict: () => ({ parsed: true, approved: true, specs: [], plan }),
-    parseReviewerVerdict: () => ({ approved: true, findings: [], blockingCount: 0, parsed: true, valid: true, issues: [] }) as never,
-  } as never);
-  assert.deepEqual(withPlan.parseGenerator("planned").plan, plan);
-  const without = new VerdictParserAdapter({
-    parseVerdict: () => ({ parsed: true, approved: true, specs: ["a.spec.ts"] }),
-    parseReviewerVerdict: () => ({ approved: true, findings: [], blockingCount: 0, parsed: true, valid: true, issues: [] }) as never,
-  } as never);
-  assert.equal("plan" in without.parseGenerator("written"), false);
-});
+/* The reviewer's verdict is a verdict, not a report: whatever it wrote in the fields, the record keeps approval preserved, a one/two-sentence rationale and a handful of corrections. */
 
-
-/* The reviewer's answer is a verdict, not a report. A model that writes a page of prose around its
- * JSON (the live run's second review: 49 KB) must leave the same bounded verdict the record keeps:
- * approval preserved, one/two-sentence rationale, a handful of corrections. */
-
-test("a 49 KB reviewer answer is parsed to a bounded verdict, never stored whole", () => {
-  const prose = "The spec under review asserts the empty state while the page clearly shows results. ".repeat(560);
-  const text = `${prose}\n{"approved":false,"rationale":"${"r".repeat(900)}","corrections":[${Array.from({ length: 9 }, (_, i) => `"${`[false-positive] spec: correction ${i} ${"c".repeat(500)}`}"`).join(",")}]}`;
-  const adapter = new VerdictParserAdapter({
-    parseVerdict: () => ({ parsed: true, specs: [] }) as never,
-    parseReviewerVerdict: (t: string) => ({
-      approved: t.includes('"approved":false') ? false : true,
+test("a reviewer verdict with a long rationale and many long corrections is bounded, never stored whole", () => {
+  const j = NO_VERDICT_READER.readReview(
+    reviewer({
+      approved: false,
       rationale: "r".repeat(900),
       findings: Array.from({ length: 9 }, (_, i) => ({ text: `[false-positive] spec: correction ${i} ${"c".repeat(500)}`, severity: "blocking" as const })),
       blockingCount: 9,
-      parsed: true,
-      valid: true,
-      issues: [],
-    }) as never,
-  } as never);
-
-  const j = adapter.parseReview(text);
+    }),
+  );
 
   assert.equal(j.approved, false, "the verdict itself is untouched");
   assert.ok((j.rationale ?? "").length <= 320, `rationale capped, got ${j.rationale?.length}`);
@@ -246,42 +198,23 @@ test("a 49 KB reviewer answer is parsed to a bounded verdict, never stored whole
 });
 
 test("an approval keeps its rationale, bounded, and is not turned into a rejection by the caps", () => {
-  const adapter = new VerdictParserAdapter({
-    parseVerdict: () => ({ parsed: true, specs: [] }) as never,
-    parseReviewerVerdict: () => ({
-      approved: true,
-      rationale: `${"The discount is asserted end to end. ".repeat(40)}`,
-      findings: [],
-      blockingCount: 0,
-      parsed: true,
-      valid: true,
-      issues: [],
-    }) as never,
-  } as never);
-
-  const j = adapter.parseReview("approved");
+  const j = NO_VERDICT_READER.readReview(reviewer({ approved: true, rationale: `${"The discount is asserted end to end. ".repeat(40)}` }));
   assert.equal(j.approved, true);
   assert.ok((j.rationale ?? "").length <= 320);
   assert.match(j.rationale ?? "", /discount/);
 });
 
 test("a blocking finding moved ahead of an advisory one keeps its own severity and citation", () => {
-  const adapter = new VerdictParserAdapter({
-    parseVerdict: () => ({ parsed: true, specs: [] }) as never,
-    parseReviewerVerdict: () => ({
+  const j = NO_VERDICT_READER.readReview(
+    reviewer({
       approved: false,
       findings: [
         { text: "[missing-case] the empty search is not tested", severity: "advisory", citation: { kind: "arm", ref: "src/search.ts:12" } },
         { text: "[false-positive] b.spec.ts asserts nothing", severity: "blocking", citation: { kind: "execution", ref: "b.spec.ts" } },
       ],
       blockingCount: 1,
-      parsed: true,
-      valid: true,
-      issues: [],
-    }) as never,
-  } as never);
-
-  const j = adapter.parseReview("…json…");
+    }),
+  );
 
   assert.deepEqual(j.findings, [
     { text: "[false-positive] b.spec.ts asserts nothing", severity: "blocking", citation: { kind: "execution", ref: "b.spec.ts" } },
@@ -293,13 +226,11 @@ test("a run secret of several words straddling the cap of the reviewer's rationa
   const passphrase = "tangerine staple orbit nine";
   const filler = "the page header renders before the data arrives and ";
   const text = (cap: number): string => `${filler.repeat(Math.ceil(cap / filler.length)).slice(0, cap - 20)}${passphrase} and then more words`;
-  const adapter = new VerdictParserAdapter({
-    parseVerdict: () => ({ parsed: true, specs: [] }) as never,
-    parseReviewerVerdict: () => ({ approved: false, findings: [{ text: text(REVIEW_CORRECTION_MAX_CHARS), severity: "blocking" }], rationale: text(REVIEW_RATIONALE_MAX_CHARS), parsed: true, valid: true, issues: [] }) as never,
-  } as never);
   const scope = createRunSecretScope();
   scope.addAccountSecrets([passphrase]);
-  const judgment = withRunSecretScope(scope, () => adapter.parseReview("…json…"));
+  const judgment = withRunSecretScope(scope, () =>
+    NO_VERDICT_READER.readReview(reviewer({ approved: false, findings: [{ text: text(REVIEW_CORRECTION_MAX_CHARS), severity: "blocking" }], rationale: text(REVIEW_RATIONALE_MAX_CHARS) })),
+  );
   assert.ok(!(judgment.rationale ?? "").includes("tangerine"), judgment.rationale);
   assert.ok(!(judgment.findings[0]?.text ?? "").includes("tangerine"), judgment.findings[0]?.text);
 });

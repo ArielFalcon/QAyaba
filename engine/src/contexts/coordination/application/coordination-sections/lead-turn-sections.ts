@@ -4,6 +4,7 @@
  */
 import { candidateLine, type UseCaseCandidate } from "@kernel/use-case-candidate.ts";
 import { WINDOW_FIT_REASON, type PromptSectionDef, type SectionDegradation } from "@kernel/prompt-sections.ts";
+import { SUBMIT_TOOL } from "@kernel/submission.ts";
 import { NOT_SHOWN } from "@contexts/generation/application/index.ts";
 import type { FlowOutcome } from "../flow-outcomes.ts";
 
@@ -360,30 +361,6 @@ export const LEAD_CORRECTION_SECTIONS: readonly PromptSectionDef<CorrectionPromp
   }),
 ];
 
-/* ── rejected plan ── */
-
-export interface RejectedPlanPromptContext {
-  /* The refusal's code and what it says the plan got wrong, in words. */
-  downgrade: string;
-  fact: string;
-}
-
-/* The one request that sends a refused plan back to the lead: why it was refused (by its code and in words), and what to answer. */
-export const REJECTED_PLAN_SECTIONS: readonly PromptSectionDef<RejectedPlanPromptContext>[] = [
-  section({
-    id: "rejected-plan",
-    priority: 10, stability: "run", reason: "A refused plan is sent back to the lead once, with the reason (59937113)",
-    applies: () => true,
-    render: ({ downgrade, fact }) => ({
-      content: [
-        "## Your plan was not admitted",
-        `The orchestrator refused the plan (${downgrade}): ${fact}.`,
-        "Answer with ONLY the corrected plan JSON object, in one of the shapes of the plan contract. This is the only other plan turn of this run.",
-      ].join("\n"),
-    }),
-  }),
-];
-
 /* ── refused correction ── */
 
 export interface RefusedCorrectionPromptContext {
@@ -429,33 +406,7 @@ export const REFUSED_CORRECTION_SECTIONS: readonly PromptSectionDef<RefusedCorre
     render: ({ findingCount }) => ({
       content: [
         `The findings are numbered 1..${findingCount}, each number is one finding, and an order names the findings its flow is to take by those numbers.`,
-        "Answer with ONLY the corrected JSON object of the correction contract, complete (repeat every order and rebuttal you still hold). This is the only other correction turn for these findings.",
-      ].join("\n"),
-    }),
-  }),
-];
-
-/* ── unreadable review ── */
-
-export interface UnreadableAnswerPromptContext {
-  /* The parts of the answer the reader could not read, as lines: where each sits and why. */
-  unreadable: readonly string[];
-  /* The contract the corrected answer is held to, by the name of its JSON object. */
-  contract: string;
-}
-
-/* The one request that sends an answer the reader could not read in full back to the lead: which parts, and what to answer. */
-export const UNREADABLE_ANSWER_SECTIONS: readonly PromptSectionDef<UnreadableAnswerPromptContext>[] = [
-  section({
-    id: "unreadable-answer",
-    priority: 10, stability: "run", reason: "A review entry the reader could not read was skipped in silence, so its flow got no order (refactor review 2026-10-30, R4)",
-    applies: ({ unreadable }) => unreadable.length > 0,
-    render: ({ unreadable, contract }) => ({
-      content: [
-        "## Your answer was not read in full",
-        "The orchestrator could not read these parts of your answer, and acts on none of them:",
-        ...unreadable.map((line) => `- ${line}`),
-        `Answer with ONLY the corrected ${contract} JSON object of the ${contract} contract, complete (repeat every decision you still hold). This is the only other ${contract} turn for this answer.`,
+        `Answer with ${SUBMIT_TOOL.CORRECTIONS}, complete (repeat every order and rebuttal you still hold). This is the only other correction turn for these findings.`,
       ].join("\n"),
     }),
   }),

@@ -11,7 +11,9 @@ import { assembleLeadCorrection, assembleRefusedCorrection } from "@contexts/coo
 import { AUTHOR_BRIEF_SECTIONS } from "@contexts/coordination/application/coordination-sections/brief-sections.ts";
 import { COORDINATION_PROMPTS } from "@contexts/coordination/application/coordination-sections/index.ts";
 import { FLOW_OUTCOME } from "@contexts/coordination/application/flow-outcomes.ts";
+import { DELEGATION_RESULT_WIRE } from "@contexts/coordination/application/delegation-result.contract.ts";
 import { assembleDefs } from "@kernel/prompt-sections.ts";
+import { SUBMIT_TOOL } from "@kernel/submission.ts";
 
 const redaction = new PatternRedactionAdapter();
 
@@ -118,12 +120,14 @@ test("a brief names a tool as granted only when its grants hold it, and the lint
   assert.deepEqual(lintCell(briefCell(prompt, { tools: ["authbrowser"], writes: true })).map((f) => f.part), ["tool:set_geolocation"]);
 });
 
-test("the flow turn's closing shape is stated once and names every field the flow reader accepts", () => {
+test("the flow turn's closing shape is stated once, names the submit tool and every field its contract accepts, and none of the brief's identity", () => {
   const { text } = renderSidekickBrief(redaction, authorBrief());
-  assert.equal(text.split('"delegationId"').length, 2);
-  for (const field of ["delegationId", "runId", "status", "summary", "filesChanged", "acceptance", "concerns", "unresolvedQuestions", "testCorrect"]) assert.ok(text.includes(`"${field}"`), field);
+  assert.equal(text.split("## Output contract").length, 2);
+  assert.ok(text.includes(SUBMIT_TOOL.RESULT));
+  for (const field of Object.keys(DELEGATION_RESULT_WIRE.shape).filter((name) => name !== "candidates")) assert.ok(text.includes(field), field);
+  assert.doesNotMatch(text.slice(text.indexOf("## Output contract")), /delegationId|runId|ONLY JSON/);
   const withCandidates = createDelegationBrief({ redaction, delegationId: "d4", runId: "r1", objective: "o", task: "t", scope: { readablePaths: ["."], writablePaths: [], allowedCommands: [] }, candidates: [{ id: "uc-1", entry: "page /x", tier: "direct", evidence: [], symbols: [], expectedFrom: [{ kind: "diff", ref: "x" }] }] });
-  assert.ok(renderSidekickBrief(redaction, withCandidates).text.includes('"candidates"'));
+  assert.ok(renderSidekickBrief(redaction, withCandidates).text.includes("candidates"));
 });
 
 test("the registry names every coordination prompt and each of its sections once", () => {
@@ -131,5 +135,5 @@ test("the registry names every coordination prompt and each of its sections once
     const ids = defs.map((def) => def.id);
     assert.equal(new Set(ids).size, ids.length, `${name}: duplicate section id`);
   }
-  assert.deepEqual(Object.keys(COORDINATION_PROMPTS).sort(), ["flow-author-brief", "lead-answer-unreadable", "lead-correction", "lead-correction-refused", "lead-feedback", "lead-plan-rejected", "lead-replan", "lead-review"]);
+  assert.deepEqual(Object.keys(COORDINATION_PROMPTS).sort(), ["flow-author-brief", "lead-correction", "lead-correction-refused", "lead-feedback", "lead-replan", "lead-review"]);
 });

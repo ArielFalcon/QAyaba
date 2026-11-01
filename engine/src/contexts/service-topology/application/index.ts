@@ -21,3 +21,4 @@ export { serializeBoundary, spliceBoundariesBlock } from "./write-boundaries.ts"
 export { stageServiceContext, serviceContextDir } from "./stage-service-context.ts";
 export type { OmittedEntry, ServiceContextManifest, StageServiceContextInput, StagedServiceContext } from "./stage-service-context.ts";
 export type { ServiceFileRead, ServiceGitRead, ServiceContextStagingPort } from "./ports/service-context-staging.port.ts";
+export { PROPOSER_PROFILES_WIRE } from "./proposer-profiles.contract.ts";

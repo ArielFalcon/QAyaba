@@ -1,19 +1,15 @@
 {
   "cells": {
     "flow-author-brief/full": {
-      "bytes": 3993,
+      "bytes": 3877,
       "directives": 5
     },
     "flow-author-brief/plain": {
-      "bytes": 2172,
+      "bytes": 2108,
       "directives": 2
     },
-    "lead-answer-unreadable/review": {
-      "bytes": 379,
-      "directives": 0
-    },
     "lead-correction-refused/plain": {
-      "bytes": 472,
+      "bytes": 433,
       "directives": 0
     },
     "lead-correction/coverage": {
@@ -44,10 +40,6 @@
       "bytes": 128,
       "directives": 0
     },
-    "lead-plan-rejected/malformed": {
-      "bytes": 305,
-      "directives": 0
-    },
     "lead-replan/flows-past-capacity-and-oversize": {
       "bytes": 934,
       "directives": 1
@@ -70,16 +62,13 @@
     }
   },
   "staticLayers": {
-    "qa-author": 24600,
-    "qa-lead": 15021
+    "qa-author": 24625,
+    "qa-lead": 15007
   },
   "lastIncrease": {
-    "reason": "integrated units: the brief states its grants, time and closing shape and the coverage correction states its contract",
+    "reason": "RFC-0018 merged with the prompt context root-cause units: the author's role layer names the submit_specs and submit_result calls where main's layer said closing JSON (+25 bytes over main's 24600)",
     "budgets": [
-      "flow-author-brief/full:bytes",
-      "flow-author-brief/plain:bytes",
-      "lead-correction/coverage:bytes",
-      "lead-correction/coverage:directives"
+      "static:qa-author"
     ]
   }
 }

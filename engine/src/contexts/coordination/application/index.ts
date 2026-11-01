@@ -39,11 +39,10 @@ export {
 } from "./delegation-failure-class.ts";
 export { authorTask } from "./author-task.ts";
 export { assembleSidekickBrief, renderSidekickBrief } from "./sidekick-prompt.ts";
-export { assembleLeadReview, assembleUnreadableReviewRequest } from "./lead-review.ts";
+export { assembleLeadReview } from "./lead-review.ts";
 export { assembleReplanRequest } from "./plan-coverage.ts";
 export { assembleSidekickFeedback } from "./sidekick-executor.ts";
 export { assembleLeadCorrection, assembleRefusedCorrection } from "./lead-correction.ts";
-export { assembleRejectedPlanRequest } from "./lead-plan.ts";
 export { COORDINATION_PROMPTS } from "./coordination-sections/index.ts";
 export {
   AUTHOR_TARGET,
@@ -91,3 +90,7 @@ export { LeadSidekicks } from "./lead-sidekicks.ts";
 export type { CoordinateResult, CoordinatedPass, FlowCandidates } from "./lead-sidekicks.ts";
 
 export { authorTargetOf, dispatchAuthor, type AuthorRequest, type RunAuthorTarget } from "./author-dispatch.ts";
+export { LEAD_PLAN_WIRE } from "./lead-plan.contract.ts";
+export { LEAD_REVIEW_WIRE } from "./lead-review.contract.ts";
+export { LEAD_CORRECTION_WIRE } from "./lead-correction.contract.ts";
+export { DELEGATION_RESULT_WIRE } from "./delegation-result.contract.ts";

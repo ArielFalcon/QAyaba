@@ -54,8 +54,6 @@ export type GenerationNoteInput =
       turn?: GenerationTurnFacts;
       /** The end of the agent's output, already sanitized. */
       outputTail: string;
-      /** Whether the repair turn (not the main one) ran out of steps. */
-      repairExhausted?: boolean;
     };
 
 type NoteWithoutSpecs = Exclude<GenerationNoteInput, { end: typeof GENERATION_END.DECLARED_NOOP }>;
@@ -74,11 +72,9 @@ function writesFact(turn: GenerationTurnFacts | undefined): string {
 
 function leadFor(input: NoteWithoutSpecs): string {
   if (input.end === GENERATION_END.UNDECIDED_EMPTY) {
-    return "The generator returned no specs and no no-op decision, even after one repair";
+    return "The generator returned no specs and no no-op decision, even after one continuation";
   }
-  return input.repairExhausted
-    ? "Step budget exhausted in the repair turn with no spec reported"
-    : "Step budget exhausted with no spec reported";
+  return "Step budget exhausted with no spec reported";
 }
 
 /**

@@ -12,6 +12,8 @@ import { appSuiteStoreDir, createRunEngineFactory, engineAgentDeps, buildEngineR
 import { AppConfig } from "./config-loader";
 import { ChangeSet } from "@contexts/change-analysis/application/index";
 import { CodeGraphToolRegistry } from "@contexts/agent-tools/infrastructure/code-graph-tool-registry";
+import { SubmissionRegistry } from "@contexts/agent-tools/infrastructure/submission-registry";
+import { AGENT_NAME_FOR_ROLE } from "../agent-runtime/types";
 import { createRunSecretScope, withRunSecretScope } from "../../engine/src/shared-kernel/run-secret-redaction";
 import { JobQueue } from "../entrypoints/queue";
 import { enqueueTrackedRun } from "../entrypoints/runner";
@@ -101,7 +103,7 @@ test("buildEngineRootDeps maps an e2e AppConfig into a complete EngineRootDeps",
   assert.equal(config.diff, "", "static diff is always empty — the adapters resolve the REAL per-run diff dynamically");
   assert.ok(config.vcs, "vcs collaborator must be wired");
   assert.ok(config.generationUseCase, "generationUseCase collaborator must be wired");
-  assert.match(config.reviewRuntime.repair?.instruction("reviewer", ["no verdict"]) ?? "", /reviewer verdict/, "the reviewer shares the author's contract repair");
+  assert.ok(config.reviewRuntime.verdicts, "the reviewer reads its verdict through the verdict parser");
   assert.ok(config.validationStrategies.e2e, "e2e validation (static gate) collaborator must be wired");
   assert.ok(config.executionStrategies.e2e, "e2e execution strategy must be wired");
   assert.ok(config.setupCollaborators?.e2e, "SetupPort e2e collaborator must be wired");
@@ -696,21 +698,6 @@ test("buildEngineRootDeps — a cross-repo (service-triggered) run never request
   assert.equal(getHistory().contexts.isContextStale(app.name), true);
 });
 
-/* GenerateTestsUseCase.AuthoringPorts.repair must be wired so a malformed verdict gets one
-   bounded re-prompt instead of the fail-closed gate firing immediately. This test asserts the
-   composed use-case's `repair` port is non-undefined; a companion integration test below drives a
-   malformed generator verdict through the REAL wrapped checkGeneratorVerdict/repairInstruction.
- */
-test("buildEngineRootDeps wires a non-undefined RepairPort into GenerateTestsUseCase (the bounded contract-repair was dormant on the production path before this fix)", () => {
-  const app = cfg("factory-repair");
-  const config = buildEngineRootDeps(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
-  /* AuthoringPorts.repair is a private constructor field on GenerateTestsUseCase — reach into it
-     structurally (same class, no public accessor exists) to confirm the factory actually supplied it.
-   */
-  const ports = (config.generationUseCase as unknown as { ports: { repair?: unknown } }).ports;
-  assert.ok(ports.repair, "AuthoringPorts.repair must be wired (was dormant/undefined before this fix)");
-});
-
 test("buildEngineRootDeps reads the run-level time budgets from the environment it is given and a mistyped value stops the composition", () => {
   const build = (env: Record<string, string>) => buildEngineRootDeps(cfg("factory-run-budget"), { getAgentDeps: stubAgentDeps, env }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.ok(build({}).runDeadline, "the deadline is wired into the composition");
@@ -778,45 +765,32 @@ test("until the use case arms the run's deadline, the composed engine's agent tu
   assert.equal(opened, 1);
 });
 
-test("the composed RepairPort drives GenerateTestsUseCase's generator-contract-check branch end-to-end: a malformed verdict text triggers exactly one repair via the real wrapped checkGeneratorVerdict", async () => {
-  const app = cfg("factory-repair-e2e");
-
-  let promptCount = 0;
-  const capturedRepairPrompts: string[] = [];
-  /* Stub AgentDeps.open so the composed real runtime adapter drives the use-case without a live
-     OpenCode process — mirrors this factory's own construction contract (AgentRuntimeAdapter's
-     `open` closure calls deps.getAgentDeps().open(...) lazily, only when generate() actually runs).
-   */
+test("the composed engine takes the generator's specs from its submit_specs call, and continues a turn that ended without one exactly once, restricted to that tool", async () => {
+  const app = cfg("factory-submit-e2e");
+  const submissionRegistry = new SubmissionRegistry({ redact: (text) => text });
+  const prompts: Array<{ text: string; submitOnly: boolean; tool: string | undefined }> = [];
   const fakeAgentDeps: AgentDeps = {
     open: async () => ({
       id: "fake-session",
-      prompt: async (text: string) => {
-        promptCount++;
-        if (promptCount === 1) {
-          /* Malformed generator output: no closing verdict JSON with a `specs` array at all —
-             checkGeneratorVerdict (engine/src/contexts/generation/domain/verdict-validate.ts) must reject this.
-           */
-          return "I wrote the tests but forgot to emit the closing JSON verdict.";
-        }
-        /* The bounded repair turn: capture what the repair instruction actually said, then emit a
-           valid verdict so the use-case can complete.
-         */
-        capturedRepairPrompts.push(text);
-        return '{"specs":["flows/repaired.spec.ts"]}';
+      prompt: async (text: string, opts?: { submit?: { tool: string }; submitOnly?: boolean }) => {
+        prompts.push({ text, submitOnly: opts?.submitOnly === true, tool: opts?.submit?.tool });
+        if (prompts.length === 1) return "I wrote the tests but forgot to call the tool.";
+        submissionRegistry.find("fake-session")?.call({
+          sessionId: "fake-session",
+          agent: AGENT_NAME_FOR_ROLE.author,
+          tool: "submit_specs",
+          answer: { specs: ["flows/submitted.spec.ts"] },
+        });
+        return "";
       },
       dispose: async () => {},
     }),
   };
-  const repairApp = buildEngineRootDeps(
-    app,
-    { getAgentDeps: () => fakeAgentDeps },
-    "qa-bot-abc1234-run1",
-    { mode: "diff" },
-  );
+  const composed = buildEngineRootDeps(app, { getAgentDeps: () => fakeAgentDeps, submissionRegistry }, "qa-bot-abc1234-run1", { mode: "diff" });
 
-  const result = await repairApp.generationUseCase.author({
+  const result = await composed.generationUseCase.author({
     repo: app.repo,
-    sha: "shaRepair1",
+    sha: "shaSubmit1",
     diff: "d",
     mirrorDir: "/m",
     e2eRelDir: "e2e",
@@ -825,19 +799,12 @@ test("the composed RepairPort drives GenerateTestsUseCase's generator-contract-c
     appName: app.name,
   });
 
-  assert.equal(promptCount, 2, "exactly one initial prompt + one bounded repair re-prompt");
-  assert.equal(capturedRepairPrompts.length, 1, "the repair instruction fired exactly once");
-  assert.match(
-    capturedRepairPrompts[0] ?? "",
-    /no closing verdict JSON found/,
-    "the repair instruction names the real checkGeneratorVerdict issue text",
-  );
-  assert.match(
-    capturedRepairPrompts[0] ?? "",
-    /I wrote the tests but forgot to emit the closing JSON verdict\./,
-    "the repair instruction embeds the agent's own prior-turn output (priorResponseTail)",
-  );
-  assert.deepEqual(result.specs, ["flows/repaired.spec.ts"], "repaired specs reached the final result");
+  assert.deepEqual(prompts.map((prompt) => ({ submitOnly: prompt.submitOnly, tool: prompt.tool })), [
+    { submitOnly: false, tool: "submit_specs" },
+    { submitOnly: true, tool: "submit_specs" },
+  ]);
+  assert.match(prompts[1]?.text ?? "", /submit_specs/, "the continuation names the only tool that answers");
+  assert.deepEqual(result.specs, ["flows/submitted.spec.ts"], "the submitted specs reached the final result");
 });
 
 /* baseUrl, testIdAttribute, mode/guidance, and publish flags must thread through the factory.
@@ -1647,12 +1614,17 @@ async function generateThroughTransport(
   parts: Array<{ type: string; text?: string }>,
   tracker: { take: () => import("@contexts/generation/application/index").TurnCallMetrics | null },
   maxSteps: number,
+  submits?: unknown,
 ): Promise<{ result: Awaited<ReturnType<ReturnType<typeof buildEngineRootDeps>["generationUseCase"]["author"]>>; persisted: import("@contexts/generation/infrastructure/agent-transport-policy").AgentTurnEvent[] }> {
   const persisted: import("@contexts/generation/infrastructure/agent-transport-policy").AgentTurnEvent[] = [];
+  const submissionRegistry = new SubmissionRegistry({ redact: (text) => text });
   const base = createAgentDeps(
     {
       createSession: async () => ({ id: `factory-stats-session-${Math.random().toString(36).slice(2)}` }),
-      promptSession: async () => ({ parts }),
+      promptSession: async (call) => {
+        if (submits !== undefined && call.submitTool) submissionRegistry.find(call.id)?.call({ sessionId: call.id, agent: call.agent, tool: call.submitTool, answer: submits });
+        return { parts };
+      },
       abortSession: async () => {},
       deleteSession: async () => {},
     },
@@ -1667,6 +1639,7 @@ async function generateThroughTransport(
   const config = buildEngineRootDeps(
     cfg("factory-turn-stats"),
     {
+      submissionRegistry,
       getAgentDeps: () =>
         withUsageSink(
           withStallWatchdog(withSessionRegistration(base, { register: registerRunSession, unregister: unregisterRunSession }), { stallMs: 180_000 }),
@@ -1726,14 +1699,14 @@ test("a generation's stats and the turn persisted for it carry the same values, 
   assert.equal(result.turn.exhausted, true);
 });
 
-test("a generation that ran out of steps ends exhausted and is never sent a repair, through the whole wrapper chain", async () => {
+test("a generation that ran out of steps ends exhausted and is never sent a continuation, through the whole wrapper chain", async () => {
   const { result, persisted } = await generateThroughTransport(
     [{ type: "step-start" }, { type: "text", text: "Maximum steps for this agent have been reached." }],
     { take: () => CALL_METRICS },
     30,
   );
   assert.equal(result.end, "exhausted");
-  assert.equal(persisted.filter((t) => t.isRepair).length, 0, "the exhausted session was not asked to re-emit its verdict");
+  assert.equal(persisted.filter((t) => t.isRepair).length, 0, "the exhausted session was not asked to submit again");
   assert.match(result.note ?? "", /30\/30/);
 });
 
@@ -1744,6 +1717,7 @@ test("a generation that ran out of steps ends exhausted and is never sent a repa
  */
 async function generateOnAHungTransport(t: TestContext, diff: string, advanceMs: number): Promise<{ error: unknown; persisted: import("@contexts/generation/infrastructure/agent-transport-policy").AgentTurnEvent[] }> {
   const persisted: import("@contexts/generation/infrastructure/agent-transport-policy").AgentTurnEvent[] = [];
+  const submissionRegistry = new SubmissionRegistry({ redact: (text) => text });
   let prompting = false;
   const base = createAgentDeps(
     {
@@ -1757,7 +1731,7 @@ async function generateOnAHungTransport(t: TestContext, diff: string, advanceMs:
   const config = buildEngineRootDeps(
     cfg("factory-time-budget"),
     /* Without the stall watchdog: its inactivity timer would fire on the virtual clock long before the budget, and a hung transport is not what it is under test for. */
-    { getAgentDeps: () => withUsageSink(withSessionRegistration(base, { register: registerRunSession, unregister: unregisterRunSession })) },
+    { submissionRegistry, getAgentDeps: () => withUsageSink(withSessionRegistration(base, { register: registerRunSession, unregister: unregisterRunSession })) },
     "qa-bot-abc1234-runTime",
     { mode: "diff" },
   );
@@ -1794,17 +1768,18 @@ test("a tiny diff's generator turn on a transport that never answers is stopped 
   assert.equal(persisted.filter((t) => t.ended === "timeout").length, 1, "the cut-off turn is recorded as a timeout");
 });
 
-test("only the final step's text is read as the generator's verdict, through the whole wrapper chain", async () => {
+test("the specs an agent submits are the generator's verdict whatever its turn's text says, and the reasoning that recalls hitting max steps is not the turn's ending, through the whole wrapper chain", async () => {
   const { result } = await generateThroughTransport(
     [
       { type: "step-start" },
       { type: "text", text: '{"specs":["flows/earlier.spec.ts"]}' },
       { type: "step-start" },
       { type: "reasoning", text: "the previous turn hit max steps" },
-      { type: "text", text: '{"specs":["flows/final.spec.ts"]}' },
+      { type: "text", text: "done" },
     ],
     { take: () => ({ ...CALL_METRICS, stepsUsed: 2 }) },
     30,
+    { specs: ["flows/final.spec.ts"] },
   );
   assert.deepEqual(result.specs, ["flows/final.spec.ts"]);
   assert.equal(result.end, "delivered");

@@ -6,7 +6,9 @@ import type { AgentPromptOpts, OpenSessionOpts } from "@kernel/ports/agent-runti
 import type { AgentRole } from "@kernel/agent-role.ts";
 import { AgentTimeoutError } from "@kernel/domain-error.ts";
 import { RunDeadlineExceededError } from "@kernel/run-deadline.ts";
+import { SUBMIT_TOOL } from "@kernel/submission.ts";
 import { SessionGoneError } from "@kernel/turn-end.ts";
+import { didNotSubmit, submittedBy, type FakeReply } from "../../../support/submission.ts";
 import { PatternRedactionAdapter } from "../../../../src/shared-infrastructure/redaction/pattern-redaction.adapter.ts";
 
 const redaction = new PatternRedactionAdapter();
@@ -19,14 +21,14 @@ const brief = createDelegationBrief({ redaction,
   scope: { readablePaths: ["."], writablePaths: ["e2e/flows/cart.spec.ts"], allowedCommands: [] },
 });
 
-const RESULT = JSON.stringify({ delegationId: "run-1-flow-cart", runId: "run-1", status: "completed", summary: "done", filesChanged: [{ path: "e2e/flows/cart.spec.ts" }], evidence: [], acceptance: [], concerns: [], unresolvedQuestions: [] });
+const RESULT = { status: "completed", summary: "done", filesChanged: [{ path: "e2e/flows/cart.spec.ts" }], acceptance: [], concerns: [], unresolvedQuestions: [] };
 
 function executor(opened: Array<{ role: AgentRole; cwd: string; opts: OpenSessionOpts | undefined }>) {
   return new SidekickExecutor({ redaction,
     runtime: {
       openSession: async (role, cwd, opts) => {
         opened.push({ role, cwd, opts });
-        return { prompt: async () => ({ output: RESULT }), dispose: async () => {} };
+        return { prompt: async (_text: string, opts?: AgentPromptOpts) => submittedBy(RESULT, opts), dispose: async () => {} };
       },
     },
   });
@@ -59,7 +61,7 @@ test("an open sidekick session answers a follow-up in the same session, read as 
     runtime: {
       openSession: async () => {
         opened += 1;
-        return { prompt: async (text: string) => { prompts.push(text); return { output: RESULT }; }, dispose: async () => { disposed += 1; } };
+        return { prompt: async (text: string, opts?: AgentPromptOpts) => { prompts.push(text); return submittedBy(RESULT, opts); }, dispose: async () => { disposed += 1; } };
       },
     },
   });
@@ -89,10 +91,10 @@ function stoppedFirstTurn(error: unknown, calls: { disposed: number; prompts: nu
   return new SidekickExecutor({ redaction,
     runtime: {
       openSession: async () => ({
-        prompt: async () => {
+        prompt: async (_text: string, opts?: AgentPromptOpts) => {
           calls.prompts += 1;
           if (calls.prompts === 1) throw error;
-          return { output: RESULT };
+          return submittedBy(RESULT, opts);
         },
         dispose: async () => { calls.disposed += 1; },
       }),
@@ -143,10 +145,10 @@ function askFaulting(error: unknown, calls: { disposed: number; prompts: number 
   return new SidekickExecutor({ redaction,
     runtime: {
       openSession: async () => ({
-        prompt: async () => {
+        prompt: async (_text: string, opts?: AgentPromptOpts) => {
           calls.prompts += 1;
           if (calls.prompts === 2) throw error;
-          return { output: RESULT };
+          return submittedBy(RESULT, opts);
         },
         dispose: async () => { calls.disposed += 1; },
       }),
@@ -200,7 +202,7 @@ test("the run's own deadline in a follow-up ends the run: it is thrown, not type
 test("the lead's feedback is a registered section: the follow-up and the first prompt carry its sizes and hashes beside the brief's", async () => {
   const seen: Array<{ text: string; opts: AgentPromptOpts | undefined }> = [];
   const sidekick = new SidekickExecutor({ redaction,
-    runtime: { openSession: async () => ({ prompt: async (text: string, opts?: AgentPromptOpts) => { seen.push({ text, opts }); return { output: RESULT }; }, dispose: async () => {} }) },
+    runtime: { openSession: async () => ({ prompt: async (text: string, opts?: AgentPromptOpts) => { seen.push({ text, opts }); return submittedBy(RESULT, opts); }, dispose: async () => {} }) },
   });
   const session = await sidekick.open(brief, { cwd: "/m", kind: "author", feedback: "Assert the total row." });
   assert.ok(seen[0]!.text.includes("## Feedback from lead\nAssert the total row."));
@@ -213,82 +215,83 @@ test("the lead's feedback is a registered section: the follow-up and the first p
   await session.dispose();
 });
 
-const FOUND_NOTHING = "I wrote the spec and ran it; it passes. No JSON from me.";
+type Reply = (opts: AgentPromptOpts | undefined) => FakeReply;
+const submits = (answer: unknown): Reply => (opts) => submittedBy(answer, opts);
+const silent: Reply = () => didNotSubmit();
+const calling = () => ({ prompts: [] as Array<{ text: string; opts: AgentPromptOpts | undefined }>, opened: 0, disposed: 0 });
 
-function repairing(outputs: string[], calls: { prompts: Array<{ text: string; opts: AgentPromptOpts | undefined }>; opened: number; disposed: number }) {
+function continuing(replies: Reply[], calls: ReturnType<typeof calling>) {
   return new SidekickExecutor({ redaction,
     runtime: {
       openSession: async () => {
         calls.opened += 1;
-        return { prompt: async (text: string, opts?: AgentPromptOpts) => { calls.prompts.push({ text, opts }); return { output: outputs[Math.min(calls.prompts.length - 1, outputs.length - 1)]! }; }, dispose: async () => { calls.disposed += 1; } };
+        return { prompt: async (text: string, opts?: AgentPromptOpts) => { calls.prompts.push({ text, opts }); return replies[Math.min(calls.prompts.length - 1, replies.length - 1)]!(opts); }, dispose: async () => { calls.disposed += 1; } };
       },
     },
   });
 }
 
-test("an answer that holds no result is asked about once, in the same session with the tools off, and the restated result is the sidekick's answer", async () => {
-  const calls = { prompts: [] as Array<{ text: string; opts: AgentPromptOpts | undefined }>, opened: 0, disposed: 0 };
-  const session = await repairing([FOUND_NOTHING, RESULT], calls).open(brief, { cwd: "/w", kind: "author" });
+test("a turn that ends without a submitted result is continued once, in the same session and restricted to the submit tool, and the result it then submits is the sidekick's answer", async () => {
+  const calls = calling();
+  const session = await continuing([silent, submits(RESULT)], calls).open(brief, { cwd: "/w", kind: "author" });
   assert.equal(calls.opened, 1, "the same session");
-  assert.equal(calls.prompts.length, 2, "the brief and one repair turn");
-  assert.equal(calls.prompts[1]!.opts?.withoutTools, true);
+  assert.equal(calls.prompts.length, 2, "the brief and one continuation");
+  assert.equal(calls.prompts[0]!.opts?.submit?.tool, SUBMIT_TOOL.RESULT);
+  assert.equal(calls.prompts[1]!.opts?.submitOnly, true);
   assert.equal(calls.prompts[1]!.opts?.isRepair, true);
-  assert.match(calls.prompts[1]!.text, /could not read/i);
-  assert.match(calls.prompts[1]!.text, /delegationId=run-1-flow-cart/, "it restates the contract");
+  assert.match(calls.prompts[1]!.text, /submit_result/);
   assert.equal(session.first.status, "completed");
   assert.equal(session.first.readMiss, undefined);
   assert.equal(session.first.repaired, true);
   await session.dispose();
 });
 
-test("an answer still unreadable after the repair turn is the failed unreadable result it was, asked about once only", async () => {
-  const calls = { prompts: [] as Array<{ text: string; opts: AgentPromptOpts | undefined }>, opened: 0, disposed: 0 };
-  const session = await repairing([FOUND_NOTHING], calls).open(brief, { cwd: "/w", kind: "author" });
-  assert.equal(calls.prompts.length, 2, "never a second repair");
+test("a turn that still delivers no result after its continuation is the failed unreadable result it was, continued once only", async () => {
+  const calls = calling();
+  const session = await continuing([silent], calls).open(brief, { cwd: "/w", kind: "author" });
+  assert.equal(calls.prompts.length, 2, "never a second continuation");
   assert.equal(session.first.status, "failed");
   assert.equal(session.first.readMiss, "unreadable");
   assert.equal(session.first.repaired, true);
   await session.dispose();
 });
 
-test("a result with an entry it cannot read is asked about once, and the repaired result replaces it only when it reads better", async () => {
-  const flawed = JSON.stringify({ ...JSON.parse(RESULT), filesChanged: [{ path: "e2e/flows/cart.spec.ts" }, "x"] });
-  const calls = { prompts: [] as Array<{ text: string; opts: AgentPromptOpts | undefined }>, opened: 0, disposed: 0 };
-  const better = await repairing([flawed, RESULT], calls).open(brief, { cwd: "/w", kind: "author" });
-  assert.match(calls.prompts[1]!.text, /filesChanged\[1\]/, "the repair names where the entry sits");
+test("a result with an entry the engine cannot read is refused inside the turn, and the continuation names where, so the result it submits reads whole", async () => {
+  const flawed = { ...RESULT, filesChanged: [{ path: "e2e/flows/cart.spec.ts" }, "x"] };
+  const calls = calling();
+  const better = await continuing([submits(flawed), submits(RESULT)], calls).open(brief, { cwd: "/w", kind: "author" });
+  assert.match(calls.prompts[1]!.text, /filesChanged\[1\]/, "the continuation names where the entry sits");
   assert.equal(better.first.unreadableEntries, undefined);
-  const same = { prompts: [] as Array<{ text: string; opts: AgentPromptOpts | undefined }>, opened: 0, disposed: 0 };
-  const stays = await repairing([flawed], same).open(brief, { cwd: "/w", kind: "author" });
+  assert.equal(better.first.status, "completed");
+  const same = calling();
+  const stays = await continuing([submits(flawed)], same).open(brief, { cwd: "/w", kind: "author" });
   assert.equal(same.prompts.length, 2);
-  assert.deepEqual(stays.first.unreadableEntries?.map((u) => u.where), ["filesChanged[1]"], "the entry that stays unreadable is recorded");
+  assert.equal(stays.first.readMiss, "unreadable", "a result that never reads whole is not acted on");
 });
 
-test("an answer that reads whole is not asked about again, and nor is an answer with nothing in it", async () => {
-  const whole = { prompts: [] as Array<{ text: string; opts: AgentPromptOpts | undefined }>, opened: 0, disposed: 0 };
-  await repairing([RESULT], whole).open(brief, { cwd: "/w", kind: "author" });
+test("a result that reads whole is submitted once and not continued", async () => {
+  const whole = calling();
+  const session = await continuing([submits(RESULT)], whole).open(brief, { cwd: "/w", kind: "author" });
   assert.equal(whole.prompts.length, 1);
-  const empty = { prompts: [] as Array<{ text: string; opts: AgentPromptOpts | undefined }>, opened: 0, disposed: 0 };
-  const session = await repairing(["   "], empty).open(brief, { cwd: "/w", kind: "author" });
-  assert.equal(empty.prompts.length, 1, "an answer with nothing in it is the sidekick's absence, not a result to repair");
-  assert.equal(session.first.readMiss, "unreadable");
+  assert.equal(session.first.repaired, undefined);
 });
 
-test("a session the runtime said was gone during the repair turn is not asked again: the next turn ends session-gone without a prompt", async () => {
-  const calls = { prompts: 0, disposed: 0 };
-  const session = await new SidekickExecutor({ redaction,
-    runtime: {
-      openSession: async () => ({
-        prompt: async () => {
-          calls.prompts += 1;
-          if (calls.prompts === 2) throw new SessionGoneError("session ses_1 not found");
-          return { output: FOUND_NOTHING };
-        },
-        dispose: async () => { calls.disposed += 1; },
-      }),
-    },
-  }).open(brief, { cwd: "/w", kind: "author" });
-  assert.equal(calls.disposed, 1, "the repair turn met a session the runtime no longer holds, which is ended");
+test("a continuation that runs out of its time leaves the miss of the turn it continued", async () => {
+  const calls = calling();
+  const timedOut: Reply = () => { throw new AgentTimeoutError("OpenCode prompt: timed out after 30000ms"); };
+  const session = await continuing([silent, timedOut], calls).open(brief, { cwd: "/w", kind: "author" });
+  assert.equal(calls.prompts.length, 2);
+  assert.equal(session.first.readMiss, "unreadable");
+  assert.equal(session.first.turnEnd, undefined, "the first turn answered; only its result is missing");
+});
+
+test("a session the runtime said was gone during the continuation is ended, and the next turn ends session-gone without a prompt", async () => {
+  const calls = calling();
+  const gone: Reply = () => { throw new SessionGoneError("session ses_1 not found"); };
+  const session = await continuing([silent, gone], calls).open(brief, { cwd: "/w", kind: "author", keepUnanswered: true });
+  assert.equal(calls.disposed, 1, "the continuation met a session the runtime no longer holds, which is ended");
+  assert.equal(session.first.turnEnd?.kind, "session-gone");
   const next = await session.ask("Assert the total.");
   assert.equal(next.turnEnd?.kind, "session-gone");
-  assert.equal(calls.prompts, 2, "no prompt is sent to a session that is gone");
+  assert.equal(calls.prompts.length, 2, "no prompt is sent to a session that is gone");
 });

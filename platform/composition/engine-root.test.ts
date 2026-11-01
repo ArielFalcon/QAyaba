@@ -82,7 +82,7 @@ function fakeConfig(overrides: Partial<EngineRootDeps> = {}): EngineRootDeps {
     reviewRuntime: {
       runtime: { openSession: async () => ({ prompt: async () => ({ output: "{}" }), dispose: async () => {} }) },
       rendering: { renderReviewer: () => ({ text: "", sectionSizes: {} }) },
-      verdicts: { parseReview: () => ({ approved: true, findings: [], parsed: true, valid: true, issues: [] }) },
+      verdicts: { readReview: () => ({ approved: true, findings: [], parsed: true, valid: true, issues: [] }) },
     },
     validationStrategies: {
       e2e: { validateAll: async () => ({ ok: true, errors: [], infra: false, diagnostics: [], untypedErrors: [] }) },
@@ -486,7 +486,7 @@ test("buildEngine threads cfg.reviewTimeoutMs onto ReviewPortAdapter's openSessi
         },
       },
       rendering: { renderReviewer: () => ({ text: "", sectionSizes: {} }) },
-      verdicts: { parseReview: () => ({ approved: true, findings: [], parsed: true, valid: true, issues: [] }) },
+      verdicts: { readReview: () => ({ approved: true, findings: [], parsed: true, valid: true, issues: [] }) },
     },
   });
   const port = buildEngine(cfg);
@@ -516,7 +516,7 @@ test("buildEngine with absent cfg.reviewTimeoutMs omits timeoutMs from ReviewPor
         },
       },
       rendering: { renderReviewer: () => ({ text: "", sectionSizes: {} }) },
-      verdicts: { parseReview: () => ({ approved: true, findings: [], parsed: true, valid: true, issues: [] }) },
+      verdicts: { readReview: () => ({ approved: true, findings: [], parsed: true, valid: true, issues: [] }) },
     },
   });
   const port = buildEngine(cfg);
@@ -534,23 +534,22 @@ test("buildEngine with absent cfg.reviewTimeoutMs omits timeoutMs from ReviewPor
   assert.equal(sawTimeoutKey, false, "absent cfg.reviewTimeoutMs must not fabricate a timeout the composition layer never configured");
 });
 
-test("buildEngine hands cfg.reviewRuntime.repair to the reviewer: an answer with no readable verdict is asked for again once, with no tool", async () => {
-  const prompts: Array<{ withoutTools?: boolean }> = [];
+test("buildEngine asks the reviewer for its verdict through the reviewer's submit tool, and continues a turn that submitted none once", async () => {
+  const prompts: Array<{ tool?: string; submitOnly: boolean }> = [];
   const cfg = fakeConfig({
     needsReview: true,
     reviewRuntime: {
       runtime: {
         openSession: async () => ({
-          prompt: async (_text: string, opts?: { withoutTools?: boolean }) => {
-            prompts.push({ ...(opts?.withoutTools !== undefined ? { withoutTools: opts.withoutTools } : {}) });
-            return { output: prompts.length === 1 ? "cut {" : "{}" };
+          prompt: async (_text: string, opts?: { submit?: { tool: string }; submitOnly?: boolean }) => {
+            prompts.push({ ...(opts?.submit ? { tool: opts.submit.tool } : {}), submitOnly: opts?.submitOnly === true });
+            return { output: "I think the tests look fine" };
           },
           dispose: async () => {},
         }),
       },
       rendering: { renderReviewer: () => ({ text: "", sectionSizes: {} }) },
-      verdicts: { parseReview: (text: string) => ({ approved: true, findings: [], parsed: text === "{}", valid: true, issues: [] }) },
-      repair: { checkGenerator: () => ({ valid: true, issues: [] }), instruction: () => "restate the verdict" },
+      verdicts: { readReview: () => ({ approved: true, findings: [], parsed: true, valid: true, issues: [] }) },
     },
   });
   const port = buildEngine(cfg);
@@ -562,10 +561,10 @@ test("buildEngine hands cfg.reviewRuntime.repair to the reviewer: an answer with
     source: "manual",
     mode: "diff",
     target: "e2e",
-    runId: "engine-root-review-repair",
+    runId: "engine-root-review-submission",
   });
 
-  assert.deepEqual(prompts.map((prompt) => prompt.withoutTools === true), [false, true], "the cfg's repair reached the reviewer's adapter");
+  assert.deepEqual(prompts, [{ tool: "submit_review", submitOnly: false }, { tool: "submit_review", submitOnly: true }]);
 });
 
 test("buildEngine surfaces infra-error when a wired setup collaborator throws", async () => {

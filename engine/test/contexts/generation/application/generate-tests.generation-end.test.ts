@@ -2,6 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { GenerateTestsUseCase, type AuthoringPorts, type GenerationResult } from "@contexts/generation/application/generate-tests.use-case.ts";
 import type { GeneratorDeliverable } from "@contexts/generation/domain/manifest-repository.ts";
+import type { GeneratorDelivery } from "@contexts/generation/application/ports/verdict-parser.port.ts";
+import { submittingRuntime } from "../../../support/submission.ts";
 import type { ManifestEntry } from "@kernel/manifest/manifest-entry.ts";
 import { GENERATION_NOTE_MAX_CHARS } from "@contexts/generation/domain/generation-end.ts";
 import { GENERATION_END } from "@kernel/generation-end.ts";
@@ -22,33 +24,27 @@ const EMPTY_VERDICT = '{"specs":[]}';
 const NOOP_VERDICT = '{"specs":[],"noop":{"reason":"the diff only renames an internal helper"}}';
 
 /** A stand-in for the verdict parser that reads the compact verdicts of these tests. */
-function parseGenerator(text: string): GeneratorDeliverable {
-  try {
-    const verdict = JSON.parse(text) as { specs?: string[]; noop?: { reason?: string; kind?: NoopKind } };
-    return {
-      specs: verdict.specs ?? [],
-      parsed: true,
-      ...(verdict.noop?.reason ? { noopReason: verdict.noop.reason, noopKind: verdict.noop.kind ?? NOOP_KIND.UNSPECIFIED } : {}),
-      outputTail: text,
-    };
-  } catch {
-    return { specs: [], parsed: false, note: "the agent emitted no parseable verdict", outputTail: text };
-  }
+function readGenerator({ answer, noSubmission, output }: GeneratorDelivery): GeneratorDeliverable {
+  if (answer === undefined) return { specs: [], parsed: false, note: noSubmission, outputTail: output };
+  const verdict = answer as { specs?: string[]; noop?: { reason?: string; kind?: NoopKind } };
+  return {
+    specs: verdict.specs ?? [],
+    parsed: true,
+    ...(verdict.noop?.reason ? { noopReason: verdict.noop.reason, noopKind: verdict.noop.kind ?? NOOP_KIND.UNSPECIFIED } : {}),
+    outputTail: output,
+  };
 }
 
 interface Run {
   result: GenerationResult;
   prompts: Array<{ text: string; opts: AgentPromptOpts | undefined }>;
-  repairsChecked: string[];
 }
 
-async function generate(turns: Turn[], options: { valid?: (text: string) => boolean; noRepair?: boolean } = {}): Promise<Run> {
+async function generate(turns: Turn[]): Promise<Run> {
   const prompts: Run["prompts"] = [];
-  const repairsChecked: string[] = [];
-  const valid = options.valid ?? ((text: string) => parseGenerator(text).parsed === true && (parseGenerator(text).specs.length > 0 || !!parseGenerator(text).noopReason));
   let turnIndex = 0;
   const ports: AuthoringPorts = {
-    runtime: {
+    runtime: submittingRuntime({
       openSession: async () => ({
         prompt: async (text, opts) => {
           prompts.push({ text, opts });
@@ -58,7 +54,7 @@ async function generate(turns: Turn[], options: { valid?: (text: string) => bool
         },
         dispose: () => {},
       }),
-    },
+    }),
     rendering: {
       render: () => "",
       renderMain: () => ({ text: "MAIN PROMPT", sectionSizes: {} }),
@@ -66,21 +62,10 @@ async function generate(turns: Turn[], options: { valid?: (text: string) => bool
       specFileForFlow: (flow) => `flows/${flow}.spec.ts`,
     },
     verdicts: {
-      parseGenerator,
-      parseReview: () => ({ approved: true, findings: [], valid: true, issues: [] }),
+      readGenerator,
+      readReview: () => ({ approved: true, findings: [], valid: true, issues: [] }),
     },
     manifest: { read: async () => [], reconcile: async (_d, e) => [...e] as ManifestEntry[] },
-    ...(options.noRepair
-      ? {}
-      : {
-          repair: {
-            checkGenerator: (text: string) => {
-              repairsChecked.push(text);
-              return valid(text) ? { valid: true, issues: [] } : { valid: false, issues: ["no decision"] };
-            },
-            instruction: () => "REPAIR PROMPT",
-          },
-        }),
   };
   const result = await new GenerateTestsUseCase(ports).author({
     repo: "org/demo",
@@ -92,7 +77,7 @@ async function generate(turns: Turn[], options: { valid?: (text: string) => bool
     mode: "diff",
     appName: "a",
   });
-  return { result, prompts, repairsChecked };
+  return { result, prompts };
 }
 
 test("a generation that wrote specs ends delivered and forwards its main turn's stats", async () => {
@@ -105,11 +90,10 @@ test("a generation that wrote specs ends delivered and forwards its main turn's 
   assert.equal(prompts.length, 1);
 });
 
-test("an exhausted main turn with no specs ends exhausted and is never sent a repair", async () => {
-  const { result, prompts, repairsChecked } = await generate([{ output: "Maximum steps for this agent have been reached.", stats: EXHAUSTED }]);
+test("an exhausted main turn with no specs ends exhausted and is never continued", async () => {
+  const { result, prompts } = await generate([{ output: "Maximum steps for this agent have been reached.", stats: EXHAUSTED }]);
   assert.equal(result.end, GENERATION_END.EXHAUSTED);
-  assert.equal(prompts.length, 1, "the session that ran out of steps is not asked to re-emit a verdict");
-  assert.equal(repairsChecked.length, 0);
+  assert.equal(prompts.length, 1, "the session that ran out of steps is not asked to submit again");
 });
 
 test("an exhausted generation's note carries what it measured and the end of its output", async () => {
@@ -134,24 +118,24 @@ test("an exhausted main turn that still delivered specs continues: exhaustion is
   assert.equal(result.turn?.exhausted, true, "recorded on the stats, with no failure");
 });
 
-test("an exhausted main turn whose verdict cannot be read is still not sent a repair", async () => {
+test("an exhausted main turn that submitted nothing is still not continued", async () => {
   const { prompts, result } = await generate([{ output: "no json at all", stats: EXHAUSTED }]);
   assert.equal(prompts.length, 1);
   assert.equal(result.end, GENERATION_END.EXHAUSTED);
 });
 
-test("an empty verdict with no decision gets exactly one repair, and a repair that still decides nothing ends undecided", async () => {
+test("an empty verdict with no decision gets exactly one continuation, and a continuation that still decides nothing ends undecided", async () => {
   const { result, prompts } = await generate([
     { output: EMPTY_VERDICT, stats: FINISHED },
     { output: EMPTY_VERDICT, stats: FINISHED },
   ]);
-  assert.equal(prompts.length, 2, "one turn and one repair, never a second repair");
+  assert.equal(prompts.length, 2, "one turn and one continuation, never a second one");
   assert.equal(prompts[1]!.opts?.isRepair, true);
   assert.equal(result.end, GENERATION_END.UNDECIDED_EMPTY);
   assert.ok((result.note ?? "").length > 0);
 });
 
-test("an empty verdict whose repair declares a no-op ends as a declared no-op with the reason as its note", async () => {
+test("an empty verdict whose continuation declares a no-op ends as a declared no-op with the reason as its note", async () => {
   const { result, prompts } = await generate([
     { output: EMPTY_VERDICT, stats: FINISHED },
     { output: NOOP_VERDICT, stats: FINISHED },
@@ -173,25 +157,13 @@ test("a generation that is no declared no-op reports no kind", async () => {
   assert.equal("noopKind" in (await generate([{ output: EMPTY_VERDICT, stats: FINISHED }, { output: EMPTY_VERDICT, stats: FINISHED }])).result, false);
 });
 
-test("a no-op declared at once needs no repair", async () => {
+test("a no-op declared at once needs no continuation", async () => {
   const { result, prompts } = await generate([{ output: NOOP_VERDICT, stats: FINISHED }]);
   assert.equal(prompts.length, 1);
   assert.equal(result.end, GENERATION_END.DECLARED_NOOP);
 });
 
-test("a repair turn that ran out of steps ends the generation exhausted, keeps the main turn's stats, and says so in the note", async () => {
-  const { result, prompts } = await generate([
-    { output: EMPTY_VERDICT, stats: FINISHED },
-    { output: "cut off in the repair", stats: EXHAUSTED },
-  ]);
-  assert.equal(prompts.length, 2);
-  assert.equal(result.end, GENERATION_END.EXHAUSTED);
-  assert.equal(result.turn?.stepsUsed, FINISHED.stepsUsed, "the stats forwarded are the generation's main turn");
-  assert.equal(result.turn?.exhausted, false);
-  assert.match(result.note ?? "", /repair/i);
-});
-
-test("a final step with no text reads as no verdict and gets one repair", async () => {
+test("a final step with no text reads as no submission and gets one continuation", async () => {
   const { result, prompts } = await generate([
     { output: "", stats: FINISHED },
     { output: SPEC_VERDICT, stats: FINISHED },
@@ -200,7 +172,7 @@ test("a final step with no text reads as no verdict and gets one repair", async 
   assert.equal(result.end, GENERATION_END.DELIVERED);
 });
 
-test("an output that stays unreadable after its one repair ends without a verdict, keeping the parser's note", async () => {
+test("an output that stays without a submission after its one continuation ends without a verdict, saying why", async () => {
   const { result, prompts } = await generate([
     { output: "prose only", stats: FINISHED },
     { output: "more prose", stats: FINISHED },
@@ -208,23 +180,12 @@ test("an output that stays unreadable after its one repair ends without a verdic
   assert.equal(prompts.length, 2);
   assert.equal(result.end, GENERATION_END.NO_VERDICT);
   assert.equal(result.parsed, false);
-  assert.equal(result.note, "the agent emitted no parseable verdict");
+  assert.match(result.note ?? "", /no accepted submission/);
 });
 
-test("with no repair port an empty verdict is classified as it stands", async () => {
-  const { result, prompts } = await generate([{ output: EMPTY_VERDICT, stats: FINISHED }], { noRepair: true });
-  assert.equal(prompts.length, 1);
-  assert.equal(result.end, GENERATION_END.UNDECIDED_EMPTY);
-});
-
-test("the generator's main and repair prompts ask for the final step's text only", async () => {
-  const { prompts } = await generate([
-    { output: EMPTY_VERDICT, stats: FINISHED },
-    { output: NOOP_VERDICT, stats: FINISHED },
-  ]);
-  assert.equal(prompts[0]!.opts?.finalStepOnly, true);
-  assert.equal(prompts[1]!.opts?.finalStepOnly, true);
-  assert.equal(prompts[1]!.opts?.isRepair, true);
+test("a generation asks for its verdict through the submit tool", async () => {
+  const { prompts } = await generate([{ output: SPEC_VERDICT, stats: FINISHED }]);
+  assert.equal(prompts[0]!.opts?.submit?.tool, "submit_specs");
 });
 
 test("a runtime that cannot measure a turn leaves the generation's stats out, and its exhaustion unknown", async () => {

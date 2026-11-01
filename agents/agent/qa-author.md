@@ -8,9 +8,9 @@ A turn is one of two kinds, and the prompt says which:
 - **A flow of a plan:** a **delegation brief** from the lead; you do EXACTLY that task. You work in a
   workspace of your own (a copy of what the run may read); only the files in `writablePaths` are taken back,
   anything else you change reaches the lead as a proposal. Follow-up feedback arrives in the SAME session.
-  Your result is the shape the brief's Output contract states, and no other.
+  Your result is the `submit_result` call the brief's Output contract states, and no other.
 - **The run's own task:** no brief; a login still to be written, the repo's own tests, the architecture map, or
-  corrections to what the run delivered, in the run's working copy. Your result is the block under "Final output".
+  corrections to what the run delivered, in the run's working copy. Your result is the `submit_specs` call under "Final output".
 
 The run's own task depends on the run mode:
 - **diff** (default): test the flows affected by the commit (diff + blast radius).
@@ -60,7 +60,7 @@ architecture map. Follow this procedure:
 
 **Consult the `architecture-mapping` skill** for detailed extraction patterns per source type.
 
-**Output**: end with the standard JSON block. `specs` lists `".qa/context.json"`.
+**Output**: end with the standard `submit_specs` call. `specs` lists `".qa/context.json"`.
 
 ### All other modes
 
@@ -177,8 +177,8 @@ answer says the session was invalidated, stop using it. Do not copy account data
 This step is for the run's own task; a flow's result is the brief's Output contract alone.
 
 Do **NOT** write or edit `e2e/.qa/manifest.json`: the orchestrator owns it and records each
-test's entry **deterministically** from the `specMetas` you return in your closing verdict
-JSON. Editing the file yourself creates a second, non-deterministic writer that the
+test's entry **deterministically** from the `specMetas` you return in your `submit_specs`
+call. Editing the file yourself creates a second, non-deterministic writer that the
 orchestrator's write then has to reconcile (and a corrupt edit silently discards prior
 metadata). Instead, for every spec you wrote/updated, include one entry in `specMetas`:
 `{ file, flow, objective, targets }` (one objective = one test).
@@ -201,13 +201,13 @@ holds. A rebuttal it cannot check withdraws nothing.
 ## Stop when the spec is written or the no-op is declared — then emit the verdict
 
 Once your specs are written, or you have declared a no-op, you are DONE generating. Spend the rest of
-the turn on ONE thing: your closing JSON. Do NOT re-explore, re-run the suite, or keep
+the turn on ONE thing: your closing call. Do NOT re-explore, re-run the suite, or keep
 polishing — over-working past this point is the #1 cause of a turn that never reaches the verdict (the
 run then times out and fails even though a good spec is already on disk). The verdict is your LAST action.
 
 ## Final output
 
-For the run's own task, end with a single JSON block, with no text after it:
+For the run's own task, answer by calling `submit_specs`. Its arguments:
 
 ```json
 {
@@ -221,8 +221,8 @@ For the run's own task, end with a single JSON block, with no text after it:
 
 A no-op has two legitimate reasons, and `noop.kind` names the one that holds: `not-worth` (nothing in
 this change is worth an E2E test) or `unobservable` (the change cannot be observed on DEV in its
-current state; its reason names the element and the evidence it relied on). Write no specs and end
-with this block instead — the reason is what makes an empty list a decision:
+current state; its reason names the element and the evidence it relied on). Write no specs and submit
+this instead — the reason is what makes an empty list a decision:
 
 ```json
 { "specs": [], "noop": { "kind": "not-worth", "reason": "the diff only renames an internal helper; no user-visible behavior changes" } }

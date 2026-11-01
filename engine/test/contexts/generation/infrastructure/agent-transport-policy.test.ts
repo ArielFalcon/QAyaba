@@ -3,6 +3,7 @@
    POLICY (circuit-breaker gating, fallback retry, stall-watchdog decoration, session registration,
    turn/usage telemetry) that now lives in agent-transport-policy.ts, decoupled from the SDK.
  */
+import { isAgentOutputLengthError } from "@kernel/domain-error.ts";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { StalledAgentError, isInfraError } from "@kernel/domain-error.ts";
@@ -470,36 +471,6 @@ test("createAgentDeps: a prompt's own time limit bounds that prompt, under the s
   const session = await deps.open("qa-author", "/tmp", { timeoutMs: 5000 });
   await assert.rejects(() => session.prompt("do the thing", { timeoutMs: 5 }), /timed out after 5ms/);
   await session.dispose();
-});
-
-test("createAgentDeps: a prompt that asks for no tools reaches the transport as such, on the primary attempt and on the fallback retry", async () => {
-  resetCircuit();
-  const seen: Array<boolean | undefined> = [];
-  const raw = makeRawTransport({
-    createSession: async () => ({ id: "sess-no-tools" }),
-    promptSession: async (args) => {
-      seen.push(args.withoutTools);
-      if (seen.length === 1) throw new Error("ECONNRESET transient network fault");
-      return { parts: [{ type: "text", text: "restated" }] };
-    },
-  });
-  const deps = createAgentDeps(raw, { defaultPromptTimeoutMs: 5000, getFallbackModel: () => "opencode-go/fallback-model" });
-  const session = await deps.open("qa-author", "/tmp");
-  await session.prompt("restate your verdict", { withoutTools: true });
-  assert.deepEqual(seen, [true, true]);
-});
-
-test("createAgentDeps: a prompt that does not ask for it never carries the no-tools flag", async () => {
-  resetCircuit();
-  let flag: unknown = "unset";
-  const raw = makeRawTransport({
-    createSession: async () => ({ id: "sess-tools" }),
-    promptSession: async (args) => { flag = "withoutTools" in args ? args.withoutTools : "absent"; return { parts: [{ type: "text", text: "x" }] }; },
-  });
-  const deps = createAgentDeps(raw, { defaultPromptTimeoutMs: 5000, getFallbackModel: () => undefined });
-  const session = await deps.open("qa-author", "/tmp");
-  await session.prompt("write the spec");
-  assert.equal(flag, "absent");
 });
 
 test("createAgentDeps: a prompt that may not write reaches the transport as such, on the primary attempt and on the fallback retry, and one that may does not carry the flag", async () => {
@@ -1276,35 +1247,6 @@ test("createAgentDeps: a failing stats callback is logged and leaves the prompt 
   assert.match(errors[0]!, /callback exploded/);
 });
 
-const STEPPED_PARTS = [
-  { type: "step-start" },
-  { type: "reasoning", text: "thinking about hit max steps. " },
-  { type: "text", text: "first step text. " },
-  { type: "step-start" },
-  { type: "text", text: '{"specs":[]}' },
-];
-
-test("createAgentDeps: finalStepOnly returns the text of the last step alone, and the persisted output is unchanged", async () => {
-  const { returned, persisted } = await promptWithStats(STEPPED_PARTS, {}, { finalStepOnly: true });
-  assert.equal(returned, '{"specs":[]}');
-  assert.equal(persisted[0]!.outputText, "thinking about hit max steps. first step text. {\"specs\":[]}");
-});
-
-test("createAgentDeps: without finalStepOnly the whole turn's text is returned", async () => {
-  const { returned } = await promptWithStats(STEPPED_PARTS, {}, undefined);
-  assert.equal(returned, "thinking about hit max steps. first step text. {\"specs\":[]}");
-});
-
-test("createAgentDeps: finalStepOnly on a turn whose final step wrote no text returns nothing, not an earlier step's text", async () => {
-  const { returned, persisted } = await promptWithStats(
-    [{ type: "step-start" }, { type: "text", text: '{"specs":["a.spec.ts"]}' }, { type: "step-start" }, { type: "tool" }],
-    {},
-    { finalStepOnly: true },
-  );
-  assert.equal(returned, "");
-  assert.match(persisted[0]!.outputText, /a\.spec\.ts/, "the persisted output still holds the whole turn");
-});
-
 /* A prompt that states the step limit its runtime enforces passes it as an option, and the turn it starts is classified against that number: the figure a prompt states and the one its turn is judged by are one. A prompt that states none keeps the agent's configured limit. */
 
 test("createAgentDeps: a turn whose prompt stated its limit is classified against that limit, not against the configured one", async () => {
@@ -1659,4 +1601,33 @@ test("withSessionRegistration binds a session that has a run, and none without a
   await wrapped.open("qa-assistant", "/m", { descriptor: { runId: "run-7", role: "qa-assistant" } });
   await wrapped.open("qa-author", "/m");
   assert.deepEqual(bound, ["sess-x"]);
+});
+
+test("createAgentDeps: the submit tool a prompt answers with reaches the transport, alone when the prompt asks for no other tool, and a prompt without one carries neither", async () => {
+  resetCircuit();
+  const seen: Array<{ submitTool: unknown; submitOnly: unknown }> = [];
+  const raw = makeRawTransport({
+    createSession: async () => ({ id: "sess-submit" }),
+    promptSession: async (args) => { seen.push({ submitTool: "submitTool" in args ? args.submitTool : "absent", submitOnly: "submitOnly" in args ? args.submitOnly : "absent" }); return { parts: [{ type: "text", text: "x" }] }; },
+  });
+  const deps = createAgentDeps(raw, { defaultPromptTimeoutMs: 5000, getFallbackModel: () => undefined });
+  const session = await deps.open("qa-lead", "/tmp");
+  const contract = { tool: "submit_plan" as const, check: () => ({ ok: true as const, value: 1 }) };
+  await session.prompt("plan", { submit: contract });
+  await session.prompt("again", { submit: contract, submitOnly: true });
+  await session.prompt("write the specs");
+  assert.deepEqual(seen, [{ submitTool: "submit_plan", submitOnly: "absent" }, { submitTool: "submit_plan", submitOnly: true }, { submitTool: "absent", submitOnly: "absent" }]);
+});
+
+test("createAgentDeps: a turn the model's output-length limit cut is an unavailable agent that a submitting caller can tell from the rest", async () => {
+  resetCircuit();
+  const raw = makeRawTransport({
+    createSession: async () => ({ id: "sess-cut" }),
+    promptSession: async () => ({ agentError: { name: "MessageOutputLengthError" }, parts: [] }),
+  });
+  const deps = createAgentDeps(raw, { defaultPromptTimeoutMs: 5000, getFallbackModel: () => undefined });
+  const session = await deps.open("qa-lead", "/tmp");
+  const err = await session.prompt("plan").then(() => undefined, (e: unknown) => e);
+  assert.ok(isAgentOutputLengthError(err));
+  assert.ok(isInfraError(err));
 });

@@ -58,8 +58,7 @@ export class GenerationTurnsAdapter implements LeadPort, AuthorPort {
     const planned = await this.useCase.plan(input, { ...(signal ? { signal } : {}) });
     return {
       ...(planned.plan ? { plan: planned.plan } : {}),
-      ...(planned.noopReason ? { noopReason: planned.noopReason } : {}),
-      parsed: planned.parsed,
+      ...(planned.noSubmission !== undefined ? { noSubmission: planned.noSubmission } : {}),
       timedOut: planned.timedOut,
       ...(planned.turn ? { turn: planned.turn } : {}),
       ...(planned.lead ? { lead: planned.lead } : {}),

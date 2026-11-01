@@ -4,6 +4,7 @@ import type { AgentRole } from "@kernel/agent-role.ts";
 import type { TimeLimitSource } from "@kernel/turn-limit.ts";
 import type { SectionMeta } from "@kernel/telemetry/section-meta.ts";
 import type { ContextFit } from "@kernel/context-budget.ts";
+import type { SubmissionContract, SubmissionReport } from "@kernel/submission.ts";
 
 /* One prompt attempt's usage, as the runtime's transport reports it. The counts are the ones the
  * provider returned; `cost` is the SDK's own (0 when the model's rate is unknown). */
@@ -49,10 +50,12 @@ export interface AgentTurnStats {
 }
 
 export interface AgentPromptOpts {
+  /** The prompt's answer is one call of this contract's submit tool, judged by the contract inside the turn; the result carries `submission`. A runtime with no submission port refuses the prompt. */
+  submit?: SubmissionContract<unknown>;
+  /** With `submit`: the submit tool is the only tool the prompt may use. For the one continuation of a turn that delivered no submission. */
+  submitOnly?: boolean;
   /** Return only the model's text, without its reasoning. */
   textOnly?: boolean;
-  /** Return only the text of the agent's final step: what it concluded with, not what it said or recalled on the way. */
-  finalStepOnly?: boolean;
   round?: number;
   isRepair?: boolean;
   sectionSizes?: Record<string, number> | null;
@@ -64,8 +67,6 @@ export interface AgentPromptOpts {
   stepLimit?: number;
   /** The longest this prompt may run, in milliseconds. Absent: the session's own limit stands. A caller bounding several prompts by one budget hands each only what is left of it. */
   timeoutMs?: number;
-  /** The agent may answer from the conversation alone: no tool (read, write, shell, MCP) is available to this prompt. For a turn that only restates something already said, such as a verdict's contract repair. A runtime with no per-prompt control over tools ignores it. */
-  withoutTools?: boolean;
   /** The agent may read and look things up but may not write or edit a file in this prompt: for a turn whose only product is its answer (a plan). A runtime with no per-prompt control over tools ignores it. */
   withoutWrites?: boolean;
   /** Which limit `timeoutMs` is (a tier's budget, a repair cap, the run's deadline). Only a name for the trace: it changes no behaviour. Absent: a `timeoutMs` is a prompt budget of unstated origin. */
@@ -83,7 +84,8 @@ export interface AgentPromptOpts {
 }
 
 export interface AgentSession {
-  prompt(text: string, opts?: AgentPromptOpts): Promise<{ output: string }>;
+  /** `submission` is present exactly when the prompt asked for one (`opts.submit`). */
+  prompt(text: string, opts?: AgentPromptOpts): Promise<{ output: string; submission?: SubmissionReport }>;
   dispose(): Promise<void> | void;
 }
 export interface OpenSessionOpts {

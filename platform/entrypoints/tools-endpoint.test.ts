@@ -1,4 +1,4 @@
-import { test } from "node:test";
+import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { ClosedLoopRegistry } from "@contexts/agent-tools/infrastructure/closed-loop-registry";
 import { RunSpecCapability } from "@contexts/test-execution/application/index";
@@ -8,8 +8,10 @@ import { AgentBrowserCapability, type AgentBrowserRefusalCode } from "@contexts/
 import type { AgentBrowserRequest, AgentBrowserResponse } from "@contexts/test-execution/application/index";
 import { GeolocationRegistry } from "@contexts/agent-tools/infrastructure/geolocation-registry";
 import { RunGeolocation } from "@contexts/agent-tools/application/index";
+import { SubmissionRegistry } from "@contexts/agent-tools/infrastructure/submission-registry";
+import { SUBMIT_TOOL } from "@kernel/submission";
 import net from "node:net";
-import { AUTHBROWSER_PATH, CODEGRAPH_PATH, GEOLOCATION_PATH, MIN_TOOLS_TOKEN_CHARS, createToolsServer, createToolsRateLimiter, handleToolsRequest, resolveToolsListenHost, resolveToolsToken, type ToolsRequest } from "./tools-endpoint";
+import { AUTHBROWSER_PATH, CODEGRAPH_PATH, GEOLOCATION_PATH, MAX_SUBMIT_BODY_BYTES, MAX_TOOLS_BODY_BYTES, SUBMIT_PATH, MIN_TOOLS_TOKEN_CHARS, createToolsServer, createToolsRateLimiter, handleToolsRequest, resolveToolsListenHost, resolveToolsToken, type ToolsRequest } from "./tools-endpoint";
 
 const TOKEN = "service-token-for-tests-0123456789abcdef";
 
@@ -448,4 +450,59 @@ test("each code-graph refusal has its own status, and a fault inside a call says
   const res = await handleToolsRequest(graphRequest({ sessionID: "ses-lead", agent: "qa-lead", action: "explore", terms: ["a.b"] }), { token: TOKEN, registry: liveRegistry(), codeGraphs: registry });
   assert.equal(res.status, 500);
   assert.ok(!JSON.stringify(res.body).includes("codegraph.db"));
+});
+
+describe("the submit endpoint", () => {
+  const submitRequest = (over: Partial<ToolsRequest> = {}, body: Record<string, unknown> = {}): ToolsRequest => ({
+    method: "POST",
+    path: SUBMIT_PATH,
+    authorization: `Bearer ${TOKEN}`,
+    body: JSON.stringify({ sessionID: "ses-1", agent: "qa-lead", tool: SUBMIT_TOOL.PLAN, answer: { flows: ["a"] }, ...body }),
+    ...over,
+  });
+  const armed = () => {
+    const submissions = new SubmissionRegistry({ redact: (text) => text });
+    const slot = submissions.arm("ses-1", "qa-lead", { tool: SUBMIT_TOOL.PLAN, check: (answer) => (Array.isArray((answer as { flows?: unknown }).flows) ? { ok: true, value: answer } : { ok: false, errors: [{ path: "flows", reason: "it is not a list" }] }) });
+    return { submissions, slot };
+  };
+  const handleSubmit = (req: ToolsRequest, submissions?: SubmissionRegistry) => handleToolsRequest(req, { token: TOKEN, registry: liveRegistry(), ...(submissions ? { submissions } : {}) });
+
+  test("a call without the service token is refused before the answer is read", async () => {
+    const { submissions } = armed();
+    assert.equal((await handleSubmit(submitRequest({ authorization: "Bearer wrong" }), submissions)).status, 401);
+  });
+
+  test("an answer the contract rejects comes back as 422 with the errors, and the corrected one is accepted for the same session", async () => {
+    const { submissions, slot } = armed();
+    const rejected = await handleSubmit(submitRequest({}, { answer: { flows: "no" } }), submissions);
+    assert.equal(rejected.status, 422);
+    assert.deepEqual((rejected.body as { errors: unknown }).errors, [{ path: "flows", reason: "it is not a list" }]);
+    const accepted = await handleSubmit(submitRequest(), submissions);
+    assert.equal(accepted.status, 200);
+    assert.equal(slot.report("stopped").accepted, true);
+  });
+
+  test("a session no prompt armed, another role and another contract's tool are forbidden", async () => {
+    const { submissions } = armed();
+    assert.equal((await handleSubmit(submitRequest({}, { sessionID: "ses-other" }), submissions)).status, 403);
+    assert.equal((await handleSubmit(submitRequest({}, { agent: "qa-author" }), submissions)).status, 403);
+    assert.equal((await handleSubmit(submitRequest({}, { tool: SUBMIT_TOOL.REVIEW }), submissions)).status, 403);
+    assert.equal((await handleSubmit(submitRequest()) ).status, 403);
+  });
+
+  test("a whole answer fits where a tool call does not, within its own bound", async () => {
+    const { submissions } = armed();
+    const large = { flows: ["x".repeat(20 * 1024)] };
+    assert.ok(Buffer.byteLength(JSON.stringify(large)) > MAX_TOOLS_BODY_BYTES);
+    assert.equal((await handleSubmit(submitRequest({}, { answer: large }), submissions)).status, 200);
+    const huge = { flows: ["x".repeat(MAX_SUBMIT_BODY_BYTES)] };
+    assert.equal((await handleSubmit(submitRequest({}, { answer: huge }), submissions)).status, 400);
+  });
+
+  test("an envelope that is not a bounded JSON call is a bad request", async () => {
+    const { submissions } = armed();
+    for (const body of ["", "not json", "[]", JSON.stringify({ sessionID: "ses-1", agent: "qa-lead" }), JSON.stringify({ sessionID: "ses-1", agent: "qa-lead", tool: 4, answer: {} })]) {
+      assert.equal((await handleSubmit(submitRequest({ body }), submissions)).status, 400, body.slice(0, 30));
+    }
+  });
 });

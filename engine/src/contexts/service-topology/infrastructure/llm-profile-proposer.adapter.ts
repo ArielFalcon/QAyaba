@@ -6,26 +6,12 @@ import type { RedactionPort } from "@kernel/ports/redaction.port.ts";
 import type { ProfileProposerPort } from "../application/ports/profile-proposer.port.ts";
 import type { BoundaryProfile, RepoRef } from "../domain/index.ts";
 import type { ProposerFeedback } from "../domain/profile-score.ts";
-import { closingJsonObject } from "@kernel/last-json-object.ts";
-import { ProposerVerdictSchema, UNPARSEABLE_SENTINEL, type SchemaCandidate } from "../application/proposer-verdict.schema.ts";
+import { describeNoSubmission } from "@kernel/submission.ts";
+import { submitTurn } from "@kernel/submit-turn.ts";
+import { proposerProfilesContract } from "../application/proposer-profiles.contract.ts";
 
 /* Default per-session timeout when the caller doesn't override it via ctx.timeoutMs. */
 const DEFAULT_PROPOSER_TIMEOUT_MS = 5 * 60 * 1000;
-
-/* A candidate degrades to this sentinel on a per-entry schema parse failure (see
- *  ProposerVerdictSchema); filter it before returning so a malformed sibling never poisons an
- *  otherwise-valid round. */
-function isUnparseableSentinel(candidate: SchemaCandidate): boolean {
-  return candidate.transport === "http" && candidate.frontFiles === UNPARSEABLE_SENTINEL.frontFiles;
-}
-
-/* Extracts the JSON payload of an LLM's free-form reply: the object that closes it, when it carries `candidates` (the kernel
- *  scanner: narration braces never hide it, a closing fence does not count, and an earlier draft, fenced or not, never stands in
- *  for it). Returns null when the reply does not close with one; the caller degrades that to a fail-open empty verdict. */
-function extractJson(text: string): unknown {
-  const closing = closingJsonObject(text);
-  return closing !== undefined && "candidates" in closing ? closing : null;
-}
 
 /* Assembles the doc block spelling out both transport shapes with exact field names, so the
  *  proposer's output stays schema-accurate even without live access to this repo's source. */
@@ -136,16 +122,20 @@ export class LlmProfileProposerAdapter implements ProfileProposerPort {
         ...(this.ctx.signal ? { signal: this.ctx.signal } : {}),
       });
       try {
-        const { output: text } = await session.prompt(assemblePrompt(system, front, this.ctx.app, feedback));
-        const parsed = ProposerVerdictSchema.parse(extractJson(text));
-        return parsed.candidates.filter((c) => !isUnparseableSentinel(c));
+        const delivery = await submitTurn(session, assemblePrompt(system, front, this.ctx.app, feedback), {}, proposerProfilesContract);
+        if (delivery.submitted) return [...delivery.value];
+        this.logger.warn("onboarding proposer delivered no profiles (fail-open, returning no candidates)", {
+          app: this.ctx.app,
+          reason: this.redaction.redactError(new Error(describeNoSubmission(delivery))),
+        });
+        return [];
       } finally {
         await Promise.resolve(session.dispose()).catch(() => {});
       }
     } catch (err) {
       /*
        * Fail-open by contract (ProfileProposerPort doc): any throw — open() failure, prompt()
-       * rejection/timeout, unparseable text — degrades to an empty round, never propagates.
+       * rejection/timeout — degrades to an empty round, never propagates.
        * Instrumented (do NOT silently swallow): emit exactly one structured warn with the redacted
        * real error + the context needed to identify the actual throw. The redaction port's redactError reads only
        * err.message and scrubs it — it never serializes structured SDK bodies or the stack (no new leak surface).

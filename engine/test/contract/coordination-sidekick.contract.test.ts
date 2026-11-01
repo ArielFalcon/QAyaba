@@ -15,6 +15,7 @@ import {
 import type { AgentRuntimePort, AgentSession } from "@kernel/ports/agent-runtime.port.ts";
 import type { AgentRole } from "@kernel/agent-role.ts";
 import { PatternRedactionAdapter } from "../../src/shared-infrastructure/redaction/pattern-redaction.adapter.ts";
+import { submittedBy } from "../support/submission.ts";
 
 const redaction = new PatternRedactionAdapter();
 
@@ -91,10 +92,9 @@ test("SidekickExecutor opens sidekick session, prompts, disposes, and parses Del
   const prompts: string[] = [];
   let disposed = false;
   const session: AgentSession = {
-    async prompt(text) {
+    async prompt(text, opts) {
       prompts.push(text);
-      return {
-        output: JSON.stringify({
+      return submittedBy({
           delegationId: "d1",
           runId: "r1",
           status: "completed",
@@ -104,8 +104,7 @@ test("SidekickExecutor opens sidekick session, prompts, disposes, and parses Del
           concerns: [],
           unresolvedQuestions: [],
           acceptance: [{ criterion: 1, status: "met" }],
-        }),
-      };
+        }, opts);
     },
     async dispose() {
       disposed = true;
@@ -136,9 +135,8 @@ test("SidekickExecutor opens sidekick session, prompts, disposes, and parses Del
 test("SidekickExecutor redacts secrets in DelegationResult summary, concerns and questions, and keeps no evidence of the sidekick's", async () => {
   const secret = "token: ghs_supersecretvalue";
   const session: AgentSession = {
-    async prompt() {
-      return {
-        output: JSON.stringify({
+    async prompt(_text, opts) {
+      return submittedBy({
           delegationId: "d1",
           runId: "r1",
           status: "completed-with-concerns",
@@ -155,8 +153,7 @@ test("SidekickExecutor redacts secrets in DelegationResult summary, concerns and
           ],
           concerns: [`selector near ${secret}`],
           unresolvedQuestions: [`why is ${secret} in the page?`],
-        }),
-      };
+        }, opts);
     },
     async dispose() {},
   };
@@ -179,10 +176,9 @@ test("SidekickExecutor redacts secrets in DelegationResult summary, concerns and
 test("a retry with feedback is one prompt that carries the brief and the feedback, since its session is a fresh one", async () => {
   const prompts: string[] = [];
   const session: AgentSession = {
-    async prompt(text) {
+    async prompt(text, opts) {
       prompts.push(text);
-      return {
-        output: JSON.stringify({
+      return submittedBy({
           delegationId: "d1",
           runId: "r1",
           status: "completed-with-concerns",
@@ -191,8 +187,7 @@ test("a retry with feedback is one prompt that carries the brief and the feedbac
           evidence: [],
           concerns: ["selector fragile"],
           unresolvedQuestions: [],
-        }),
-      };
+        }, opts);
     },
     async dispose() {},
   };
@@ -213,37 +208,10 @@ test("a retry with feedback is one prompt that carries the brief and the feedbac
   assert.equal(result.status, "completed-with-concerns");
 });
 
-test("SidekickExecutor rejects a result for a foreign brief as failed", async () => {
-  const session: AgentSession = {
-    async prompt() {
-      return {
-        output: JSON.stringify({
-          delegationId: "OTHER",
-          runId: "r1",
-          status: "completed",
-          summary: "spoof",
-          filesChanged: [],
-          evidence: [],
-          concerns: [],
-          unresolvedQuestions: [],
-        }),
-      };
-    },
-    async dispose() {},
-  };
-  const executor = new SidekickExecutor({ redaction,
-    runtime: { openSession: async () => session },
-    render: (brief) => renderSidekickBrief(redaction, brief),
-  });
-  const result = await executor.execute(brief(), { cwd: "/tmp", kind: "author" });
-  assert.equal(result.status, "failed");
-});
-
 test("SidekickExecutor marks write outside writablePaths as blocked", async () => {
   const session: AgentSession = {
-    async prompt() {
-      return {
-        output: JSON.stringify({
+    async prompt(_text, opts) {
+      return submittedBy({
           delegationId: "d1",
           runId: "r1",
           status: "completed",
@@ -252,8 +220,7 @@ test("SidekickExecutor marks write outside writablePaths as blocked", async () =
           evidence: [],
           concerns: [],
           unresolvedQuestions: [],
-        }),
-      };
+        }, opts);
     },
     async dispose() {},
   };
@@ -280,9 +247,8 @@ test("SidekickExecutor adopts long camelCase and digit-bearing spec paths it wro
       writeFileSync(join(mirror, path), "test('x', async () => {});\n");
     }
     const session: AgentSession = {
-      async prompt() {
-        return {
-          output: JSON.stringify({
+      async prompt(_text, opts) {
+        return submittedBy({
             delegationId: "d1",
             runId: "r1",
             status: "completed-with-concerns",
@@ -291,8 +257,7 @@ test("SidekickExecutor adopts long camelCase and digit-bearing spec paths it wro
             evidence: [],
             concerns: ["login form echoed token: ghs_supersecretvalue in the DOM"],
             unresolvedQuestions: [],
-          }),
-        };
+          }, opts);
       },
       async dispose() {},
     };
@@ -329,8 +294,8 @@ async function executeWith(fields: Record<string, unknown>, criteria: readonly s
     ...fields,
   };
   const session: AgentSession = {
-    async prompt() {
-      return { output: JSON.stringify(answer) };
+    async prompt(_text, opts) {
+      return submittedBy(answer, opts);
     },
     async dispose() {},
   };
@@ -487,7 +452,7 @@ test("a report entry's note is scrubbed before it re-enters the lead context", a
 });
 
 test("the brief numbers each acceptance criterion and asks for a report of every status by that number", () => {
-  const { text } = renderSidekickBrief(redaction, 
+  const { text } = renderSidekickBrief(redaction,
     createDelegationBrief({ redaction,
       delegationId: "d1",
       runId: "r1",
@@ -499,19 +464,11 @@ test("the brief numbers each acceptance criterion and asks for a report of every
   );
   assert.match(text, /^1\. Failing cases pass on re-execute$/m);
   assert.match(text, /^2\. No writes outside scope$/m);
-  const example = /^\{"delegationId":.*\}$/m.exec(text)?.[0];
-  assert.ok(example, "the brief carries the output example");
-  /* The example writes each enum as its alternatives ("met"|"unmet"); read those as arrays. */
-  const parsed = JSON.parse(example.replace(/"[^"]*"(?:\|"[^"]*")+/g, (alts) => `[${alts.split("|").join(",")}]`)) as {
-    acceptance?: { criterion: unknown; status: string[] }[];
-  };
-  const acceptance = parsed.acceptance ?? [];
-  assert.ok(acceptance.length > 0, "the example carries an acceptance report");
-  for (const { criterion, status } of acceptance) {
-    assert.deepEqual([...status].sort(), [...ACCEPTANCE_STATUSES].sort(), "the example names every status the executor reads");
-    for (const one of status) {
-      assert.equal(readAcceptanceReport(redaction, [{ criterion, status: one }], acceptance.length).defect, undefined, one);
-    }
+  const named = /^acceptance: one entry for every numbered acceptance criterion, by its number: (.*?) \(/m.exec(text)?.[1];
+  assert.ok(named, "the brief asks for an acceptance report");
+  assert.deepEqual(named.split(", ").sort(), [...ACCEPTANCE_STATUSES].sort(), "the brief names every status the executor reads");
+  for (const status of named.split(", ")) {
+    assert.equal(readAcceptanceReport(redaction, [{ criterion: 1, status }], 1).defect, undefined, status);
   }
 });
 

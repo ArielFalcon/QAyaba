@@ -8,6 +8,7 @@ import type { ReviewInput } from "@contexts/generation/domain/generation-input.t
 import type { SpecRoot } from "../../../../src/shared-infrastructure/spec-path-confinement.ts";
 import { PromptRenderingAdapter } from "@contexts/generation/infrastructure/prompt-rendering.adapter.ts";
 import { VerdictParserAdapter } from "@contexts/generation/infrastructure/verdict-parser.adapter.ts";
+import { submittingRuntime } from "../../../support/submission.ts";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -16,6 +17,9 @@ import {
   buildReviewerPromptAssembled,
   specFileForFlow,
 } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
+
+/* The fake author delivers by writing the JSON its text holds as the call of its submit tool. */
+const submitting = (ports: AuthoringPorts): AuthoringPorts => ({ ...ports, runtime: submittingRuntime(ports.runtime) });
 
 /* The roster is an input here: window budgets resolve from the roster fixture, never the deployable agents/opencode.json. */
 
@@ -42,8 +46,8 @@ test("renders → opens session → parses deliverable → reconciles manifest (
       specFileForFlow: (flow) => `flows/${flow}.spec.ts`,
     },
     verdicts: {
-      parseGenerator: (_text) => { calls.push("parse"); return { specs: ["flows/login.spec.ts"], parsed: true }; },
-      parseReview: () => ({ approved: true, findings: [], valid: true, issues: [] }),
+      readGenerator: () => { calls.push("parse"); return { specs: ["flows/login.spec.ts"], parsed: true }; },
+      readReview: () => ({ approved: true, findings: [], valid: true, issues: [] }),
     },
     manifest: {
       read: async () => [],
@@ -51,7 +55,7 @@ test("renders → opens session → parses deliverable → reconciles manifest (
     },
   };
 
-  const useCase = new GenerateTestsUseCase(ports);
+  const useCase = new GenerateTestsUseCase(submitting(ports));
   const out = await useCase.author({
     repo: "org/demo",
     sha: "abc",
@@ -90,8 +94,8 @@ test("the files the rendered prompt already carries are handed to the session wi
       specFileForFlow: (flow) => `flows/${flow}.spec.ts`,
     },
     verdicts: {
-      parseGenerator: () => ({ specs: ["flows/login.spec.ts"], parsed: true }),
-      parseReview: () => ({ approved: true, findings: [], valid: true, issues: [] }),
+      readGenerator: () => ({ specs: ["flows/login.spec.ts"], parsed: true }),
+      readReview: () => ({ approved: true, findings: [], valid: true, issues: [] }),
     },
     manifest: { read: async () => [], reconcile: async (_d, e) => [...e] as ManifestEntry[] },
   });
@@ -100,28 +104,22 @@ test("the files the rendered prompt already carries are handed to the session wi
     mode: "diff", appName: "a",
   };
 
-  await new GenerateTestsUseCase(build(["e2e/.qa/context.json"])).author(input);
-  await new GenerateTestsUseCase(build(undefined)).author(input);
+  await new GenerateTestsUseCase(submitting(build(["e2e/.qa/context.json"]))).author(input);
+  await new GenerateTestsUseCase(submitting(build(undefined))).author(input);
 
   assert.deepEqual(seenOpts[0]?.providedPaths, ["e2e/.qa/context.json"]);
   assert.equal(seenOpts[0]?.sectionSizes !== undefined, true, "the section sizes still travel with it");
   assert.equal("providedPaths" in (seenOpts[1] ?? {}), false);
 });
 
-test("fires exactly ONE bounded repair when checkGenerator returns valid:false", async () => {
-  const promptTexts: string[] = [];
-  let sessionPromptCount = 0;
-
+test("a verdict the contract refuses is continued ONCE, restricted to the submit tool and told where it went wrong", async () => {
+  const seen: Array<{ text: string; submitOnly: boolean }> = [];
   const ports: AuthoringPorts = {
     runtime: {
       openSession: async () => ({
-        prompt: async (text: string) => {
-          promptTexts.push(text);
-          sessionPromptCount++;
-          if (sessionPromptCount === 1) {
-            return { output: '{"note":"oops — forgot specs"}' };
-          }
-          return { output: '{"specs":["flows/repair.spec.ts"]}' };
+        prompt: async (text: string, opts) => {
+          seen.push({ text, submitOnly: opts?.submitOnly === true });
+          return { output: seen.length === 1 ? '{"note":"oops — forgot specs"}' : '{"specs":["flows/repair.spec.ts"]}' };
         },
         dispose: () => {},
       }),
@@ -133,28 +131,16 @@ test("fires exactly ONE bounded repair when checkGenerator returns valid:false",
       specFileForFlow: (flow) => `flows/${flow}.spec.ts`,
     },
     verdicts: {
-      parseGenerator: (text) => {
-        if (text.includes('"specs"')) return { specs: ["flows/repair.spec.ts"], parsed: true };
-        return { specs: [], parsed: true }; /* contract miss — no specs key, but JSON present */
-      },
-      parseReview: () => ({ approved: true, findings: [], valid: true, issues: [] }),
+      readGenerator: ({ answer }) => ({ specs: (answer?.specs as string[] | undefined) ?? [], parsed: answer !== undefined }),
+      readReview: () => ({ approved: true, findings: [], valid: true, issues: [] }),
     },
     manifest: {
       read: async () => [],
       reconcile: async (_d, e) => [...e] as ManifestEntry[],
     },
-    repair: {
-      checkGenerator: (text) => {
-        if (text.includes('"specs"')) return { valid: true, issues: [] };
-        return { valid: false, issues: ["no closing verdict JSON found (expected a block with a `specs` array)"] };
-      },
-      instruction: (_kind, issues) => `REPAIR generator: ${issues.join(";")}`,
-    },
   };
 
-  let repairCount = 0;
-  const useCase = new GenerateTestsUseCase(ports);
-  const out = await useCase.author({
+  const out = await new GenerateTestsUseCase(submitting(ports)).author({
     repo: "r",
     sha: "s",
     diff: "d",
@@ -163,14 +149,13 @@ test("fires exactly ONE bounded repair when checkGenerator returns valid:false",
     namespace: "ns",
     mode: "diff",
     appName: "a",
-  }, { onRepair: () => { repairCount++; } });
+  });
 
-  assert.equal(sessionPromptCount, 2, "exactly two prompt calls: initial + one bounded repair");
-  assert.equal(repairCount, 1, "onRepair notified exactly once");
-  /* The repair prompt must reference the contract issues */
-  const repairPrompt = promptTexts[1] ?? "";
-  assert.match(repairPrompt, /REPAIR generator/, "repair prompt fired for the generator");
-  assert.deepEqual(out.specs, ["flows/repair.spec.ts"], "repaired specs in result");
+  assert.equal(seen.length, 2, "exactly two prompt calls: the turn and one continuation");
+  assert.equal(seen[1]?.submitOnly, true);
+  assert.match(seen[1]?.text ?? "", /submit_specs/);
+  assert.match(seen[1]?.text ?? "", /noop/, "the continuation names the field the contract found missing");
+  assert.deepEqual(out.specs, ["flows/repair.spec.ts"], "the specs the continuation submitted are the result");
 });
 
 /* Fail-closed: parse miss without review.
@@ -190,8 +175,8 @@ test("parse miss → empty specs (fail-closed, no phantom spec names)", async ()
       specFileForFlow: (flow) => `flows/${flow}.spec.ts`,
     },
     verdicts: {
-      parseGenerator: () => ({ specs: [], parsed: false }),
-      parseReview: () => ({ approved: true, findings: [], valid: true, issues: [] }),
+      readGenerator: () => ({ specs: [], parsed: false }),
+      readReview: () => ({ approved: true, findings: [], valid: true, issues: [] }),
     },
     manifest: {
       read: async () => [],
@@ -199,7 +184,7 @@ test("parse miss → empty specs (fail-closed, no phantom spec names)", async ()
     },
   };
 
-  const useCase = new GenerateTestsUseCase(ports);
+  const useCase = new GenerateTestsUseCase(submitting(ports));
   const out = await useCase.author({
     repo: "r",
     sha: "s",
@@ -235,8 +220,8 @@ test("manifest.reconcile is called with [] when the deliverable carries specs bu
       specFileForFlow: (flow) => `flows/${flow}.spec.ts`,
     },
     verdicts: {
-      parseGenerator: () => ({ specs: ["flows/checkout.spec.ts"], parsed: true }),
-      parseReview: () => ({ approved: true, findings: [], valid: true, issues: [] }),
+      readGenerator: () => ({ specs: ["flows/checkout.spec.ts"], parsed: true }),
+      readReview: () => ({ approved: true, findings: [], valid: true, issues: [] }),
     },
     manifest: {
       read: async () => [],
@@ -247,7 +232,7 @@ test("manifest.reconcile is called with [] when the deliverable carries specs bu
     },
   };
 
-  const useCase = new GenerateTestsUseCase(ports);
+  const useCase = new GenerateTestsUseCase(submitting(ports));
   const out = await useCase.author({
     repo: "r",
     sha: "s",
@@ -281,8 +266,8 @@ test("manifest.reconcile receives the run's spec root: the mirror, and the spec 
       specFileForFlow: (flow) => `flows/${flow}.spec.ts`,
     },
     verdicts: {
-      parseGenerator: () => ({ specs: ["flows/checkout.spec.ts"], parsed: true }),
-      parseReview: () => ({ approved: true, findings: [], valid: true, issues: [] }),
+      readGenerator: () => ({ specs: ["flows/checkout.spec.ts"], parsed: true }),
+      readReview: () => ({ approved: true, findings: [], valid: true, issues: [] }),
     },
     manifest: {
       read: async () => [],
@@ -292,7 +277,7 @@ test("manifest.reconcile receives the run's spec root: the mirror, and the spec 
       },
     },
   };
-  const useCase = new GenerateTestsUseCase(ports);
+  const useCase = new GenerateTestsUseCase(submitting(ports));
 
   for (const [mirrorDir, e2eRelDir] of [["/m", "e2e"], ["/work/app", "tests"]] as const) {
     await useCase.author({ repo: "r", sha: "s", diff: "d", mirrorDir, e2eRelDir, namespace: "ns", mode: "diff", appName: "a" });
@@ -333,12 +318,12 @@ test("manifest entries are built from specMetas with objective/flow/targets + ch
       specFileForFlow: (flow) => `flows/${flow}.spec.ts`,
     },
     verdicts: {
-      parseGenerator: () => ({
+      readGenerator: () => ({
         specs: ["flows/checkout.spec.ts"],
         parsed: true,
         specMetas: [{ file: "flows/checkout.spec.ts", flow: "checkout", objective: "user can checkout", targets: ["CheckoutService.pay"] }],
       }),
-      parseReview: () => ({ approved: true, findings: [], valid: true, issues: [] }),
+      readReview: () => ({ approved: true, findings: [], valid: true, issues: [] }),
     },
     manifest: {
       read: async () => [],
@@ -349,7 +334,7 @@ test("manifest entries are built from specMetas with objective/flow/targets + ch
     },
   };
 
-  const useCase = new GenerateTestsUseCase(ports);
+  const useCase = new GenerateTestsUseCase(submitting(ports));
   await useCase.author({
     repo: "r",
     sha: "abc1234",
@@ -389,12 +374,12 @@ test("manifest entry changeRef.type falls back to 'unknown' when input.intent is
       specFileForFlow: (flow) => `flows/${flow}.spec.ts`,
     },
     verdicts: {
-      parseGenerator: () => ({
+      readGenerator: () => ({
         specs: ["flows/login.spec.ts"],
         parsed: true,
         specMetas: [{ file: "flows/login.spec.ts", flow: "login", objective: "user can log in", targets: ["AuthService.login"] }],
       }),
-      parseReview: () => ({ approved: true, findings: [], valid: true, issues: [] }),
+      readReview: () => ({ approved: true, findings: [], valid: true, issues: [] }),
     },
     manifest: {
       read: async () => [],
@@ -405,7 +390,7 @@ test("manifest entry changeRef.type falls back to 'unknown' when input.intent is
     },
   };
 
-  const useCase = new GenerateTestsUseCase(ports);
+  const useCase = new GenerateTestsUseCase(submitting(ports));
   await useCase.author({
     repo: "r",
     sha: "def5678",
@@ -444,12 +429,12 @@ test("a spec present in specs[] but ABSENT from specMetas[] gets NO manifest ent
       specFileForFlow: (flow) => `flows/${flow}.spec.ts`,
     },
     verdicts: {
-      parseGenerator: () => ({
+      readGenerator: () => ({
         specs: ["flows/checkout.spec.ts", "flows/login.spec.ts"],
         parsed: true,
         specMetas: [{ file: "flows/checkout.spec.ts", flow: "checkout", objective: "user can checkout", targets: ["CheckoutService.pay"] }],
       }),
-      parseReview: () => ({ approved: true, findings: [], valid: true, issues: [] }),
+      readReview: () => ({ approved: true, findings: [], valid: true, issues: [] }),
     },
     manifest: {
       read: async () => [],
@@ -460,7 +445,7 @@ test("a spec present in specs[] but ABSENT from specMetas[] gets NO manifest ent
     },
   };
 
-  const useCase = new GenerateTestsUseCase(ports);
+  const useCase = new GenerateTestsUseCase(submitting(ports));
   const out = await useCase.author({
     repo: "r",
     sha: "sha1",
@@ -476,80 +461,6 @@ test("a spec present in specs[] but ABSENT from specMetas[] gets NO manifest ent
   assert.deepEqual(out.specs, ["flows/checkout.spec.ts", "flows/login.spec.ts"]);
   assert.equal(reconcileArgs?.length, 1);
   assert.equal(reconcileArgs?.[0]?.flow, "checkout");
-});
-
-/* The bounded repair loop threads the agent's own prior-turn output through
-   RepairPort.instruction's opts, so a STATELESS repair re-prompt (e.g. a fresh process
-   with no session resume) can recover its prior specifics instead of fabricating a new
-   verdict. Pinned via a fake RepairPort that captures the opts it receives at each call site.
- */
-test("follow-up #27: a malformed generator verdict triggers ONE bounded repair whose instruction carries priorResponseTail (the agent's own prior output)", async () => {
-  const capturedOpts: Array<{ kind: string; issues: string[]; opts?: { priorResponseTail?: string } }> = [];
-  let sessionPromptCount = 0;
-
-  const ports: AuthoringPorts = {
-    runtime: {
-      openSession: async () => ({
-        prompt: async () => {
-          sessionPromptCount++;
-          if (sessionPromptCount === 1) {
-            /* First call: malformed generator output (no specs field) — the prior turn's text. */
-            return { output: '{"note":"oops — forgot specs"}' };
-          }
-          return { output: '{"specs":["flows/repair.spec.ts"]}' };
-        },
-        dispose: () => {},
-      }),
-    },
-    rendering: {
-      render: () => "",
-      renderMain: () => ({ text: "MAIN_PROMPT", sectionSizes: {} }),
-      renderReviewer: () => ({ text: "", sectionSizes: {} }),
-      specFileForFlow: (flow) => `flows/${flow}.spec.ts`,
-    },
-    verdicts: {
-      parseGenerator: (text) => {
-        if (text.includes('"specs"')) return { specs: ["flows/repair.spec.ts"], parsed: true };
-        return { specs: [], parsed: true };
-      },
-      parseReview: () => ({ approved: true, findings: [], valid: true, issues: [] }),
-    },
-    manifest: {
-      read: async () => [],
-      reconcile: async (_d, e) => [...e] as ManifestEntry[],
-    },
-    repair: {
-      checkGenerator: (text) => {
-        if (text.includes('"specs"')) return { valid: true, issues: [] };
-        return { valid: false, issues: ["no closing verdict JSON found"] };
-      },
-      instruction: (kind, issues, opts) => {
-        capturedOpts.push({ kind, issues, opts });
-        return `REPAIR ${kind}: ${issues.join(";")}`;
-      },
-    },
-  };
-
-  const useCase = new GenerateTestsUseCase(ports);
-  await useCase.author({
-    repo: "r",
-    sha: "s",
-    diff: "d",
-    mirrorDir: "/m",
-    e2eRelDir: "e2e",
-    namespace: "ns",
-    mode: "diff",
-    appName: "a",
-  });
-
-  assert.equal(sessionPromptCount, 2, "exactly two prompt calls: initial + one bounded repair");
-  assert.equal(capturedOpts.length, 1, "instruction() called exactly once (bounded repair)");
-  assert.equal(capturedOpts[0]?.kind, "generator");
-  assert.equal(
-    capturedOpts[0]?.opts?.priorResponseTail,
-    '{"note":"oops — forgot specs"}',
-    "priorResponseTail carries the generator's own prior (malformed) turn output",
-  );
 });
 
 /* ── manifest schema conformance: assembled entries satisfy the real static-gate schema ─────────
@@ -575,12 +486,12 @@ test("assembled manifest entries satisfy the real ManifestEntrySchema shape (obj
       specFileForFlow: (flow) => `flows/${flow}.spec.ts`,
     },
     verdicts: {
-      parseGenerator: () => ({
+      readGenerator: () => ({
         specs: ["flows/checkout.spec.ts"],
         parsed: true,
         specMetas: [{ file: "flows/checkout.spec.ts", flow: "checkout", objective: "user can checkout", targets: ["CheckoutService.pay"] }],
       }),
-      parseReview: () => ({ approved: true, findings: [], valid: true, issues: [] }),
+      readReview: () => ({ approved: true, findings: [], valid: true, issues: [] }),
     },
     manifest: {
       read: async () => [],
@@ -591,7 +502,7 @@ test("assembled manifest entries satisfy the real ManifestEntrySchema shape (obj
     },
   };
 
-  const useCase = new GenerateTestsUseCase(ports);
+  const useCase = new GenerateTestsUseCase(submitting(ports));
   await useCase.author({
     repo: "r",
     sha: "shaXYZ",
@@ -623,20 +534,17 @@ async function reportedSpecs(): Promise<string[]> {
     mkdirSync(join(mirrorDir, "e2e", "flows"), { recursive: true });
     writeFileSync(join(mirrorDir, "e2e", "flows", "login.spec.ts"), "export {};\n");
     const ports: AuthoringPorts = {
-      runtime: { openSession: async () => ({ prompt: async () => ({ output: '{"specs":["login.spec.ts"]}' }), dispose: () => {} }) },
+      runtime: submittingRuntime({ openSession: async () => ({ prompt: async () => ({ output: '{"specs":["login.spec.ts"]}' }), dispose: () => {} }) }),
       rendering: {
         render: () => "",
         renderMain: () => ({ text: "PROMPT", sectionSizes: {} }),
         renderReviewer: () => ({ text: "", sectionSizes: {} }),
         specFileForFlow: (flow) => `flows/${flow}.spec.ts`,
       },
-      verdicts: new VerdictParserAdapter({
-        parseVerdict: () => ({ parsed: true, approved: true, specs: ["login.spec.ts"] }),
-        parseReviewerVerdict: () => ({ approved: true, findings: [], blockingCount: 0, parsed: true, valid: true, issues: [] }),
-      }),
+      verdicts: new VerdictParserAdapter({ readVerdict: () => ({ parsed: true, approved: true, specs: ["login.spec.ts"] }) }),
       manifest: { read: async () => [], reconcile: async (_d, e) => [...e] as ManifestEntry[] },
     };
-    const out = await new GenerateTestsUseCase(ports).author({
+    const out = await new GenerateTestsUseCase(submitting(ports)).author({
       repo: "org/demo", sha: "abc", diff: "d", mirrorDir, e2eRelDir: "e2e", namespace: "ns",
       mode: "diff", appName: "a",
     });
@@ -650,18 +558,18 @@ test("an e2e generation reports its specs as suite-relative paths", async () => 
   assert.deepEqual(await reportedSpecs(), ["flows/login.spec.ts"]);
 });
 
-/* A prompt that states a step limit is sent with that limit as an option, so the turn it starts is classified against the number the prompt stated. The generator's prompt carries its own; a verdict repair says nothing of it but runs in the same session under the same limit, so it is sent with the number of the prompt it repairs. */
+/* A prompt that states a step limit is sent with that limit as an option, so the turn it starts is classified against the number the prompt stated. The generator's prompt carries its own; a continuation says nothing of it but runs in the same session under the same limit, so it is sent with the number of the prompt it continues. */
 type SentOptions = Array<Record<string, unknown> | undefined>;
 
-/* Whether the generator answers its first prompt with no verdict, so that it is asked once more. */
-async function optionsSentFor(input: Partial<OpencodeRunInput>, repairing?: "generator"): Promise<{ generator: SentOptions }> {
+/* Whether the generator answers its first prompt with no submission, so that it is asked once more. */
+async function optionsSentFor(input: Partial<OpencodeRunInput>, continuing?: "generator"): Promise<{ generator: SentOptions }> {
   const sent: Record<string, SentOptions> = { primary: [] };
   const ports: AuthoringPorts = {
     runtime: {
       openSession: async (role) => ({
         prompt: async (_text, opts) => {
           (sent[role] ??= []).push(opts as Record<string, unknown> | undefined);
-          return { output: "SESSION_OUTPUT" };
+          return { output: continuing && (sent[role]?.length ?? 0) === 1 ? "no call" : '{"specs":["flows/a.spec.ts"]}' };
         },
         dispose: () => {},
       }),
@@ -673,20 +581,12 @@ async function optionsSentFor(input: Partial<OpencodeRunInput>, repairing?: "gen
       specFileForFlow: (flow) => `flows/${flow}.spec.ts`,
     },
     verdicts: {
-      parseGenerator: () => ({ specs: ["flows/a.spec.ts"], parsed: true }),
-      parseReview: () => ({ approved: true, findings: [], valid: true, issues: [], parsed: true }),
+      readGenerator: () => ({ specs: ["flows/a.spec.ts"], parsed: true }),
+      readReview: () => ({ approved: true, findings: [], valid: true, issues: [], parsed: true }),
     },
     manifest: { read: async () => [], reconcile: async (_d, e) => [...e] as ManifestEntry[] },
-    ...(repairing
-      ? {
-          repair: {
-            checkGenerator: () => ({ valid: repairing !== "generator", issues: ["no verdict"] }),
-            instruction: () => "REPAIR_PROMPT",
-          },
-        }
-      : {}),
   };
-  await new GenerateTestsUseCase(ports).author({
+  await new GenerateTestsUseCase(submitting(ports)).author({
     repo: "r", sha: "s", diff: "d", mirrorDir: "/m", e2eRelDir: "e2e", namespace: "ns",
     mode: "diff", appName: "a",
     ...input,
@@ -699,8 +599,7 @@ test("the generator's prompt is sent with the limit its input states, beside the
 
   assert.equal(generator.length, 1);
   assert.equal(generator[0]?.stepLimit, 41);
-  assert.equal(generator[0]?.finalStepOnly, true, "the options it carried are still there");
-  assert.deepEqual(generator[0]?.sectionSizes, { task: 10 });
+  assert.deepEqual(generator[0]?.sectionSizes, { task: 10 }, "the options it carried are still there");
 });
 
 test("a generator prompt whose input states no limit is sent with no limit key", async () => {
@@ -710,20 +609,19 @@ test("a generator prompt whose input states no limit is sent with no limit key",
   assert.equal("stepLimit" in (generator[0] ?? {}), false);
 });
 
-test("a verdict repair runs in the same session under the same limit, so it is sent with the limit of the prompt it repairs, beside the options it already carried", async () => {
+test("a continuation runs in the same session under the same limit, so it is sent with the limit of the prompt it continues", async () => {
   const { generator } = await optionsSentFor({ stepLimit: 41 }, "generator");
 
-  assert.equal(generator.length, 2, "the prompt and its repair");
+  assert.equal(generator.length, 2, "the prompt and its continuation");
   assert.equal(generator[0]?.stepLimit, 41);
   assert.equal(generator[1]?.isRepair, true);
   assert.equal(generator[1]?.stepLimit, 41);
-  assert.equal(generator[1]?.finalStepOnly, true, "the options it carried are still there");
 });
 
-test("a generator repair whose input states no limit is sent with no limit key either", async () => {
+test("a continuation whose input states no limit is sent with no limit key either", async () => {
   const { generator } = await optionsSentFor({}, "generator");
 
-  assert.equal(generator.length, 2, "the prompt and its repair");
+  assert.equal(generator.length, 2, "the prompt and its continuation");
   assert.equal(generator[1]?.isRepair, true);
   assert.equal("stepLimit" in (generator[1] ?? {}), false);
 });
@@ -746,13 +644,13 @@ for (const mode of ["diff", "context"] as const) {
         specFileForFlow: (flow) => `flows/${flow}.spec.ts`,
       },
       verdicts: {
-        parseGenerator: () => ({ specs: ["flows/a.spec.ts"], parsed: true }),
-        parseReview: () => ({ approved: false, findings: [], valid: true, issues: [], parsed: true }),
+        readGenerator: () => ({ specs: ["flows/a.spec.ts"], parsed: true }),
+        readReview: () => ({ approved: false, findings: [], valid: true, issues: [], parsed: true }),
       },
       manifest: { read: async () => [], reconcile: async (_d, e) => [...e] as ManifestEntry[] },
     };
 
-    const result = await new GenerateTestsUseCase(ports).author({
+    const result = await new GenerateTestsUseCase(submitting(ports)).author({
       repo: "r", sha: "s", diff: "", mirrorDir: "/m", e2eRelDir: "e2e", namespace: "ns",
       mode, appName: "a",
     });

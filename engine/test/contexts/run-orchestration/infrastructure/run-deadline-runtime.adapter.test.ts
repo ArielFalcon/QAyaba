@@ -76,8 +76,8 @@ test("the session's own limit counts as the prompt's when the prompt states none
 test("every other option of the prompt reaches the session untouched", async () => {
   const h = harness(60_000);
   const session = await h.runtime.openSession("author", "/w");
-  await session.prompt("hi", { isRepair: true, withoutTools: true, stepLimit: 7, finalStepOnly: true });
-  assert.deepEqual({ ...h.prompts[0]!.opts, timeoutMs: undefined, timeLimit: undefined }, { isRepair: true, withoutTools: true, stepLimit: 7, finalStepOnly: true, timeoutMs: undefined, timeLimit: undefined });
+  await session.prompt("hi", { isRepair: true, withoutWrites: true, stepLimit: 7, textOnly: true });
+  assert.deepEqual({ ...h.prompts[0]!.opts, timeoutMs: undefined, timeLimit: undefined }, { isRepair: true, withoutWrites: true, stepLimit: 7, textOnly: true, timeoutMs: undefined, timeLimit: undefined });
 });
 
 test("a time the run's deadline sets is named as the run's deadline, and one the turn's own limit sets keeps the caller's name", async () => {
