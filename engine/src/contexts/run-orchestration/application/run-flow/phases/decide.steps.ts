@@ -105,7 +105,7 @@ export async function decideRun(state: Readonly<RunState>, ctx: WorkspaceRunCont
     verdict: runOf(state).verdict,
     generating: state.classification.generating,
     needsReview: reviewsTests(ctx),
-    reviewerApproved: state.review.reviewerApproved,
+    reviewerApproved: reviewerApprovedForOutcomeOf(state),
     blocksPublish: state.coverage.blocksPublish,
     shadow: cfg.shadow,
     onFailure: cfg.onFailure,

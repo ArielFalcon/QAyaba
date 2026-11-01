@@ -209,6 +209,35 @@ test("an overrun of the earlier phases shrinks what generation may start, while 
   assert.equal(deadline.allowance("review"), 4 * MIN, "the review is still allotted what is left less the decision");
 });
 
+test("a purpose this run will not enter is held back no time, neither its measured share nor the fallback", () => {
+  const { deadline } = armedAt(40 * MIN);
+  assert.equal(deadline.allowance("generate"), 29 * MIN, "coverage is owed its 2 min while the run may reach it");
+  deadline.willNotEnter(["coverage"]);
+  assert.equal(deadline.allowance("generate"), 31 * MIN, "the run settled it will not measure: nothing is held for it");
+  assert.equal(deadline.allotment("generate")?.reserve.ms, 9 * MIN);
+  const { deadline: unmeasured } = armedAt(40 * MIN, []);
+  unmeasured.willNotEnter(["coverage"]);
+  assert.deepEqual(unmeasured.allotment("generate")?.reserve.unmeasured, ["validate", "execute", "fix", "review"], "a purpose the run will not enter takes no fallback share either");
+});
+
+test("a purpose the run held out is still allotted what the purposes after it leave, if the run reaches it", () => {
+  const { deadline: held } = armedAt(40 * MIN);
+  const { deadline: never } = armedAt(40 * MIN);
+  held.willNotEnter(["coverage"]);
+  assert.equal(
+    held.allowance("coverage"),
+    never.allowance("coverage"),
+    "a suite the fix loop turned green measures with the same allowance: no purpose is ever owed less for having been held out",
+  );
+});
+
+test("the purposes the run will not enter are the ones its state last named", () => {
+  const { deadline } = armedAt(40 * MIN);
+  deadline.willNotEnter(["coverage"]);
+  deadline.willNotEnter([]);
+  assert.equal(deadline.allowance("generate"), 29 * MIN, "a purpose the run's state holds out again is owed its share as before");
+});
+
 test("a phase the app has no completed run of shares one fallback reserve, a quarter of what is left and at least two minutes, and the allotment says so", () => {
   const { deadline, at } = armedAt(40 * MIN, []);
   const first = deadline.allotment("generate");

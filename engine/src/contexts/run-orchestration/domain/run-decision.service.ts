@@ -8,7 +8,8 @@ export interface RunEvidence {
   verdict: RunVerdict;
   generating: boolean;
   needsReview: boolean;
-  reviewerApproved: boolean;
+  /* The reviewer's verdict, and only a real one: `true` is an approval, `false` a rejection, and an absent one is no verdict, which is no approval either. */
+  reviewerApproved?: boolean;
   blocksPublish: boolean;
   shadow: boolean;
   /* app.report.onFailure: anything other than "github-issue" suppresses fail/invalid reporting. */
@@ -55,7 +56,7 @@ export function decide(ev: RunEvidence): RunDecision {
     return RunDecision.of("pass", "none");
   }
 
-  if (ev.needsReview && !ev.reviewerApproved) {
+  if (ev.needsReview && ev.reviewerApproved !== true) {
     return shadowed("pass", "issue", ev.shadow);
   }
 
@@ -74,5 +75,5 @@ export function decide(ev: RunEvidence): RunDecision {
  * that nothing publishes still keeps what it proved.
  */
 export function isAccepted(ev: RunEvidence): boolean {
-  return verdictOf(ev) === "pass" && ev.generating && (!ev.needsReview || ev.reviewerApproved) && !ev.blocksPublish;
+  return verdictOf(ev) === "pass" && ev.generating && (!ev.needsReview || ev.reviewerApproved === true) && !ev.blocksPublish;
 }

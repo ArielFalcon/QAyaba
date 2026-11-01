@@ -27,6 +27,8 @@ export interface RunDeadlinePort {
   currentPurpose?(): DeadlinePurpose;
   /** Hands in the app's recent finished runs, from which the reserve of every allotment is read. */
   measure?(records: readonly PhaseRecord[]): void;
+  /** The purposes this run will not enter, as its own state stands: they are owed no time, so none is held back for them. */
+  willNotEnter?(purposes: readonly DeadlinePurpose[]): void;
   /** The run entered a phase: an allowance asked for without a purpose is that phase's. */
   enter?(phase: RunPhase): void;
   /** Told once per purpose, the first time it is allotted time. */

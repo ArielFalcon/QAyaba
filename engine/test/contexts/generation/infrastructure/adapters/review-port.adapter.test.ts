@@ -272,7 +272,7 @@ test("review() maps a thrown openSession/prompt failure (e.g. a reviewer timeout
 
   const result = await adapter.review("/mirrors/org/app/e2e", cases);
 
-  assert.equal(result.approved, false, "a reviewer failure must NEVER read as approved");
+  assert.equal(result.approved, undefined, "a reviewer failure carries no verdict: not an approval and not a rejection a later reader could find");
   assert.equal(result.parsed, false, "a reviewer failure is a parse-equivalent miss — not an actionable rejection to regenerate against");
   assert.ok(result.rationale?.includes("reviewer unavailable"), "the rationale must carry a distinctive, human-legible note distinguishing this from a real rejection");
   assert.ok(result.rationale?.includes("timed out"), "the original failure reason should be visible for operators");
@@ -292,7 +292,7 @@ test("review() maps a thrown session.prompt() failure the same fail-closed way (
 
   const result = await adapter.review("/mirrors/org/app/e2e", cases);
 
-  assert.equal(result.approved, false);
+  assert.equal(result.approved, undefined);
   assert.equal(result.parsed, false);
   assert.ok(result.rationale?.includes("reviewer unavailable"));
 });
@@ -402,7 +402,7 @@ test("review() marks a reviewer whose session failed as unavailable, in either p
   for (const runtime of [failAtOpen, failAtPrompt]) {
     const result = await adapterOver({ runtime, rendering: fakeRendering(), verdicts: approving }, REVIEW_CTX).review("/mirrors/org/app/e2e", cases);
     assert.equal(result.unavailable, true);
-    assert.equal(result.approved, false);
+    assert.equal(result.approved, undefined, "no reviewer reached a verdict, so the answer carries none");
     assert.equal(result.parsed, false);
   }
 });

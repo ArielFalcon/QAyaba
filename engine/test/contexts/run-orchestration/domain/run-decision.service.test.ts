@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { decide, type RunEvidence } from "@contexts/run-orchestration/domain/run-decision.service.ts";
+import { decide, isAccepted, type RunEvidence } from "@contexts/run-orchestration/domain/run-decision.service.ts";
 
 function baseEvidence(overrides: Partial<RunEvidence> = {}): RunEvidence {
   return {
@@ -283,4 +283,13 @@ test("decide: a run with no defect keeps the flaky quarantine and the silent inf
   assert.equal(decide(baseEvidence({ verdict: "flaky", defectFound: false })).sideEffect, "quarantine");
   assert.equal(decide(baseEvidence({ verdict: "infra-error", defectFound: false })).sideEffect, "none");
   assert.equal(decide(baseEvidence({ verdict: "skipped" })).sideEffect, "none");
+});
+
+test("a pass run that needs a review publishes only on a real approval: no verdict is no approval", () => {
+  assert.equal(decide(baseEvidence({ reviewerApproved: true })).sideEffect, "pr");
+  assert.equal(decide(baseEvidence({ reviewerApproved: false })).sideEffect, "issue");
+  const noVerdict = baseEvidence();
+  delete noVerdict.reviewerApproved;
+  assert.equal(decide(noVerdict).sideEffect, "issue", "no reviewer reached a verdict, so nothing is published on its behalf");
+  assert.equal(isAccepted(noVerdict), false, "and the suite it never approved is not kept");
 });

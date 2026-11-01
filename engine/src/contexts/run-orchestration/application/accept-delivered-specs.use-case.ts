@@ -83,7 +83,7 @@ export class AcceptDeliveredSpecsUseCase {
     const shadow = input.shadow ?? false;
     const onFailure = input.onFailure ?? "github-issue";
     const conclude = (verdict: RunVerdict, rest: Omit<AcceptanceReport, "verdict" | "decision" | "accepted">, ev: Partial<RunEvidence> = {}): AcceptanceReport => {
-      const evidence: RunEvidence = { verdict, generating: true, needsReview: input.reviewRequired, reviewerApproved: true, blocksPublish: false, shadow, onFailure, ...ev };
+      const evidence: RunEvidence = { verdict, generating: true, needsReview: input.reviewRequired, blocksPublish: false, shadow, onFailure, ...ev };
       const decision = decide(evidence);
       return { ...rest, verdict, decision: { verdict: decision.verdict, sideEffect: decision.sideEffect }, accepted: isAccepted(evidence) };
     };
@@ -128,7 +128,7 @@ export class AcceptDeliveredSpecsUseCase {
     const review = await this.deps.review.review(input.specDir, first.cases, input.diff, {});
     const unavailable = review.unavailable === true;
     /* The pipeline's own gate: approved with no blocking correction; a verdict that could not be read, or no verdict at all, is no approval. */
-    const approved = !unavailable && review.parsed !== false && review.approved && (review.blockingCount ?? review.findings.length) === 0;
+    const approved = !unavailable && review.parsed !== false && review.approved === true && (review.blockingCount ?? review.findings.length) === 0;
     return conclude(verdict, { validate, runs, coverage, reviewer: { approved, corrections: findingTexts(review.findings), unavailable } }, { blocksPublish: blocks, reviewerApproved: approved });
   }
 

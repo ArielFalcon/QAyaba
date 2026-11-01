@@ -174,7 +174,7 @@ async function keepAcceptedSuite(state: Readonly<RunState>, ctx: WorkspaceRunCon
 async function publishDecision(state: Readonly<RunState>, ctx: WorkspaceRunContext, ambient: AmbientRecord | undefined): Promise<Published> {
   const { deps, input, workspace, services } = ctx;
   const run = runOf(state);
-  const { reviewerApproved } = state.review;
+  const reviewerApproved = reviewerApprovedForOutcomeOf(state);
   const { lastAdjudicatorVerdict } = state.fixLoop;
   const { decision, defects } = decidedOf(state);
   const defectFacts = new Set((defects ?? []).map((defect) => defect.fact));
@@ -185,7 +185,7 @@ async function publishDecision(state: Readonly<RunState>, ctx: WorkspaceRunConte
       verdict: decision.verdict,
       cases: run.cases,
       logs: run.logs,
-      reviewerApproved,
+      ...(reviewerApproved !== undefined ? { reviewerApproved } : {}),
       coverageBlocks: state.coverage.blocksPublish,
       /* The measurement behind a coverage block, for the PR text a held run keeps. */
       ...(state.coverage.blocksPublish ? { coverageReport: coverageReportOf(state, ctx.cfg.coverageMinRatio) } : {}),

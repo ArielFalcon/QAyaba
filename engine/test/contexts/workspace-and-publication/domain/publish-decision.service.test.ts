@@ -14,6 +14,13 @@ test("green + approved but no e2e changes → noop", () => {
 test("green but reviewer rejected → issue", () => {
   assert.equal(svc.decide({ ...base, verdict: "pass", reviewerApproved: false }).outcome, "issue");
 });
+/* The two are one outcome and two facts: a rejection the reviewer gave, and a review that never reached a verdict (nobody approved). */
+test("a green run with no reviewer verdict is never published on an approval nobody gave, and says so", () => {
+  const decided = svc.decide({ ...base, verdict: "pass", reviewerApproved: undefined });
+  assert.equal(decided.outcome, "issue");
+  assert.match(decided.reason, /no reviewer verdict/);
+  assert.doesNotMatch(decided.reason, /rejected/);
+});
 test("green but coverage enforce-blocks → held (nothing is opened in the app's repository)", () => {
   assert.equal(svc.decide({ ...base, verdict: "pass", coverageBlocks: true }).outcome, "held");
 });

@@ -280,13 +280,16 @@ export interface ReviewRoundScratch {
   outcome: Awaited<ReturnType<RegenerationAcceptance["accept"]>> | undefined;
 }
 
+/** The verdict a review reached, as the run records it: `approved` or `rejected` once a round reached one, and nothing when the reviewer could not be reached. */
+export type ReviewerVerdict = "approved" | "rejected";
+
 /** The review's convergence context between rounds: data, so the rounds are steps and not one function's locals. */
 export interface ReviewSession {
   round: number;
   finalRunVerdict: Awaited<ReturnType<ExecutionPort["execute"]>>["verdict"];
   reviewCases: QaCase[];
   existingSpecFiles: string[];
-  reviewerApproved: boolean;
+  reviewerVerdict: ReviewerVerdict | undefined;
   finalReviewerCorrections: string[];
   /** The reviewer's missing cases, each once across the rounds. */
   missingCases: string[];
@@ -308,15 +311,16 @@ export interface ReviewSession {
 export interface ReviewOutcome {
   /** The review in progress; undefined before it opens and after it settles. */
   session: ReviewSession | undefined;
-  reviewerApproved: boolean;
+  /** The verdict a round reached; undefined while none did, so nothing stands as an approval or as a rejection of the suite. */
+  reviewerVerdict: ReviewerVerdict | undefined;
   /** Set once a genuine review verdict stands; undefined while none does, so the run falls back to what the generation itself reported. */
   reviewerApprovedForOutcome: boolean | undefined;
   /** Stays [] when the review loop never runs, never fabricated. */
   finalReviewerCorrections: string[];
   /** The reviewer's missing cases: findings that cite an arm of the changed code no test ran. Recorded and shown, never a gate. */
   missingCases: string[];
-  /** What the review phase cost and decided; absent when the phase never ran. */
-  reviewerSignal: RunOutcome["gateSignals"]["reviewer"];
+  /** What the review phase cost and decided; absent when the phase never ran, or when it reached no verdict to record. */
+  reviewerSignal?: RunOutcome["gateSignals"]["reviewer"];
 }
 
 /* What the decide phase concluded from the run's evidence; undefined until it has run. */
@@ -470,7 +474,7 @@ export function initialRunState(): RunState {
       exclusions: undefined,
       measuredBy: undefined,
     },
-    review: { session: undefined, reviewerApproved: true, reviewerApprovedForOutcome: undefined, finalReviewerCorrections: [], missingCases: [], reviewerSignal: undefined },
+    review: { session: undefined, reviewerVerdict: undefined, reviewerApprovedForOutcome: undefined, finalReviewerCorrections: [], missingCases: [], reviewerSignal: undefined },
     decided: undefined,
     loops: initialLoopCounters(),
     run: { generationEnd: undefined, limits: [], degradations: [], endReason: undefined, reviewRequired: undefined, timeBudget: undefined, servedVersion: undefined, lessons: undefined },

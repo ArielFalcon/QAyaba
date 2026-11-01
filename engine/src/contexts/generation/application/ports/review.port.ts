@@ -9,7 +9,8 @@ export interface ReviewPort {
    * static ctx.diff. `enrichment` is independently absent-safe.
    */
   review(specDir: string, cases: readonly QaCase[], diff?: string, enrichment?: ReviewEnrichment): Promise<{
-    approved: boolean;
+    /* The verdict, and only when the reviewer reached one: `true` approved, `false` rejected, absent when the reviewer judged nothing. */
+    approved?: boolean;
     /* The reviewer's findings as it wrote them: text, severity and the evidence each cites. Nothing stands in for a field the reviewer did not send. */
     findings: ReviewFinding[];
     rationale?: string;

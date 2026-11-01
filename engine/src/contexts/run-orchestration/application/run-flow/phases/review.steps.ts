@@ -96,7 +96,7 @@ export async function reviewTests(state: Readonly<RunState>, ctx: WorkspaceRunCo
     finalRunVerdict: run.verdict,
     reviewCases: run.cases.filter((c) => deliveredFiles.has(c.file ?? c.name)),
     existingSpecFiles,
-    reviewerApproved: true,
+    reviewerVerdict: undefined,
     /* Stays [] when the review loop never runs — never fabricated. */
     finalReviewerCorrections: [],
     /* The reviewer's missing cases, each once across the rounds. */
@@ -176,7 +176,7 @@ export async function reviewRound(state: Readonly<RunState>, ctx: WorkspaceRunCo
   let roundRationale: string | undefined;
 
   if (unchangedSinceRejection) {
-    session.reviewerApproved = false;
+    session.reviewerVerdict = "rejected";
     reviewStats.skippedRounds++;
     reviewResult = {
       approved: false,
@@ -204,7 +204,7 @@ export async function reviewRound(state: Readonly<RunState>, ctx: WorkspaceRunCo
     const precheckFindings = precheckSpecsAgainstDom({ specs: reviewedSpecs, domSnapshot: reviewDomSnapshot, provenGreenFiles });
     if (reviewDomSnapshot) reviewStats.preCheckSkippedProven += reviewedSpecs.filter((spec) => provenGreenFiles.has(spec.file)).length;
     if (precheckFindings.length > 0) {
-      session.reviewerApproved = false;
+      session.reviewerVerdict = "rejected";
       reviewStats.preCheckRejects++;
       roundRationale = `the captured DEV page contradicts ${precheckFindings.length} assertion(s) in the specs (deterministic check)`;
       reviewResult = {
@@ -261,7 +261,7 @@ export async function reviewRound(state: Readonly<RunState>, ctx: WorkspaceRunCo
     reviewResult = {
       ...reviewResult,
       /* A rejection that rested only on missing cases is no rejection. */
-      approved: reviewResult.approved || (restedOnArms && blocking === 0),
+      approved: reviewResult.approved === true || (restedOnArms && blocking === 0),
       findings: taken.rest,
       blockingCount: blocking,
     };
@@ -305,7 +305,7 @@ export async function reviewRound(state: Readonly<RunState>, ctx: WorkspaceRunCo
     advisoryReviewFindings = filtered.advisory.length;
     droppedBlockingReasons = filtered.droppedBlocking;
     /* A rejection whose every blocking finding was dropped turns into an approval here: the run must be able to tell. Only the model's own rejection counts: an approval's blocking-severity notes were never a rejection. */
-    if (!reviewResult.approved && filtered.blocking.length === 0 && Object.keys(filtered.droppedBlocking).length > 0) addDroppedRejection(reviewStats, filtered.droppedBlocking);
+    if (reviewResult.approved !== true && filtered.blocking.length === 0 && Object.keys(filtered.droppedBlocking).length > 0) addDroppedRejection(reviewStats, filtered.droppedBlocking);
     if (filtered.dropped.length > 0 || filtered.advisory.length > 0) {
       try {
         ctx.telemetry.counter("qayaba.review.filtered")(filtered.dropped.length, { "qayaba.app": input.app });
@@ -330,7 +330,7 @@ export async function reviewRound(state: Readonly<RunState>, ctx: WorkspaceRunCo
   const corrections = findingTexts(reviewResult.findings);
   const reviewedBlocking = reviewResult.blockingCount ?? corrections.length;
   if (!reviewResult.unavailable) reviewStats.blocking = reviewedBlocking;
-  const reviewOutcome = reviewResult.unavailable ? "unavailable" : reviewResult.parsed === false ? "parse-miss" : reviewResult.approved && reviewedBlocking === 0 ? "approved" : "rejected";
+  const reviewOutcome = reviewResult.unavailable ? "unavailable" : reviewResult.parsed === false ? "parse-miss" : reviewResult.approved === true && reviewedBlocking === 0 ? "approved" : "rejected";
   const correctionClass = reviewedBlocking > 0 ? correctionClassOf(corrections) : "none";
   session.lastReviewOutcome = reviewOutcome;
   session.lastCorrectionClass = correctionClass;
@@ -358,7 +358,6 @@ export async function reviewRound(state: Readonly<RunState>, ctx: WorkspaceRunCo
     annotateReviewPhase(ctx, reviewStats, session.lastCorrectionClass, "unavailable");
     /* A flaky run is quarantined whatever the reviewer says: a reviewer that could not be reached leaves it unapproved, not an infra-error. */
     if (advisoryReview(session)) {
-      session.reviewerApproved = false;
       return goto("review-settle");
     }
     return end("reviewer-unavailable", { rationale: reviewResult.rationale, passedCases: reviewCases.length, ...(await exitFactsOf(state, ctx)) });
@@ -373,13 +372,13 @@ export async function reviewRound(state: Readonly<RunState>, ctx: WorkspaceRunCo
   if (executedRed) {
     engineLog.error("[qa] executedRed override: the executed run was red — reviewer approval overridden fail-closed (round 0, known-red spec, no regeneration).");
   }
-  const gateApproves = reviewResult.approved && reviewedBlocking === 0;
+  const gateApproves = reviewResult.approved === true && reviewedBlocking === 0;
   const next = reviewAction({ after: "judgment", round, maxRounds: MAX_REVIEW_ROUNDS, unavailable: false, parsed, executedRed, gateApproves, unchangedSinceRejection });
   /* Do not set finalReviewerCorrections on parse-miss or executedRed exits (no real reviewer-authored text). */
   if (!parsed || executedRed) {
-    session.reviewerApproved = false;
+    session.reviewerVerdict = "rejected";
   } else {
-    session.reviewerApproved = gateApproves;
+    session.reviewerVerdict = gateApproves ? "approved" : "rejected";
     /*
      * Only a rejecting round's corrections become a learning/errorClass signal.
      * An approving round clears them, including its own advisory notes — otherwise
@@ -507,7 +506,7 @@ export async function reviewResolve(state: Readonly<RunState>, ctx: WorkspaceRun
     const allWithdrawn = corrections.length > 0 && outstanding.length === 0;
     const next = reviewAction({ after: "correction", produced: false, allWithdrawn, disputed: settled.disputed.length > 0 });
     if (next === "approve") {
-      session.reviewerApproved = true;
+      session.reviewerVerdict = "approved";
       session.finalReviewerCorrections = [];
     } else if (next === "end-disputed") {
       /*
@@ -517,12 +516,12 @@ export async function reviewResolve(state: Readonly<RunState>, ctx: WorkspaceRun
        */
       /* A flaky run is quarantined whatever the reviewer says: a finding the run could not settle leaves it unapproved. */
       if (advisoryReview(session)) {
-        session.reviewerApproved = false;
+        session.reviewerVerdict = "rejected";
         return goto("review-settle");
       }
       return end("review-disputed", { disputed: settled.disputed, passedCases: session.reviewCases.filter(isRealPass).length, ...(await exitFactsOf(state, ctx)) });
     } else {
-      session.reviewerApproved = false;
+      session.reviewerVerdict = "rejected";
     }
     return goto("review-settle");
   }
@@ -562,45 +561,50 @@ export async function reviewResolve(state: Readonly<RunState>, ctx: WorkspaceRun
   }
   rollbackDelivered(state, deliveredBefore);
   if (outcome) traceAcceptedFiles(ctx, CORRECTION_ORIGIN.REVIEW, { kept: 0, restored: changedSpecFiles.length });
-  session.reviewerApproved = false;
+  session.reviewerVerdict = "rejected";
   session.finalReviewerCorrections = corrections;
   if (outcome?.kind === "cap") integrityCounters.capHit = true;
   else integrityCounters.rejected += 1;
   return goto("review-settle");
 }
 
-/* The review is over: its verdict, and what it cost, become the run's. */
+/* The review is over: its verdict, and what it cost, become the run's. A phase that reached no verdict leaves none behind, and records no signal for a later reader to read one from. */
 export async function reviewSettle(state: Readonly<RunState>, ctx: WorkspaceRunContext): Result {
   const session = sessionOf(state);
-  const { stats: reviewStats, reviewerApproved, finalReviewerCorrections } = session;
+  const { stats: reviewStats, reviewerVerdict, finalReviewerCorrections } = session;
   if (session.lastReviewOutcome !== undefined) annotateReviewPhase(ctx, reviewStats, session.lastCorrectionClass, session.lastReviewOutcome);
+  const reviewerApproved = reviewerVerdict === "approved";
   return {
     update: {
       review: {
         session: undefined,
-        reviewerApproved,
-        /* A genuine review verdict overwrites generation's self-approval default. */
-        reviewerApprovedForOutcome: reviewerApproved,
+        reviewerVerdict,
+        /* A genuine review verdict overwrites generation's self-approval default; one that was never reached leaves the fallback to the generation. */
+        reviewerApprovedForOutcome: reviewerVerdict === undefined ? undefined : reviewerApproved,
         finalReviewerCorrections,
         missingCases: session.missingCases,
-        reviewerSignal: {
-          rounds: reviewStats.rounds,
-          modelRounds: reviewStats.modelRounds,
-          approved: reviewerApproved,
-          corrections: finalReviewerCorrections.length,
-          blocking: reviewStats.blocking,
-          durationMs: reviewStats.durationMs,
-          promptBytes: reviewStats.promptBytes,
-          outputTokens: reviewStats.metricsKnown.output ? reviewStats.outputTokens : null,
-          costUsd: reviewStats.metricsKnown.cost ? reviewStats.costUsd : null,
-          steps: reviewStats.metricsKnown.steps ? reviewStats.steps : null,
-          preCheckRejects: reviewStats.preCheckRejects,
-          ...(reviewStats.preCheckSkippedProven > 0 ? { preCheckSkippedProven: reviewStats.preCheckSkippedProven } : {}),
-          skippedRounds: reviewStats.skippedRounds,
-          correctionClass: reviewerApproved ? "none" : correctionClassOf(finalReviewerCorrections),
-          ...(reviewStats.droppedRejections > 0 ? { droppedRejections: { rounds: reviewStats.droppedRejections, reasons: { ...reviewStats.droppedRejectionReasons } } } : {}),
-          ...(reviewStats.rebuttals > 0 ? { rebuttals: { received: reviewStats.rebuttals, withdrawn: reviewStats.rebuttalWithdrawn } } : {}),
-        },
+        ...(reviewerVerdict !== undefined
+          ? {
+              reviewerSignal: {
+                rounds: reviewStats.rounds,
+                modelRounds: reviewStats.modelRounds,
+                approved: reviewerApproved,
+                corrections: finalReviewerCorrections.length,
+                blocking: reviewStats.blocking,
+                durationMs: reviewStats.durationMs,
+                promptBytes: reviewStats.promptBytes,
+                outputTokens: reviewStats.metricsKnown.output ? reviewStats.outputTokens : null,
+                costUsd: reviewStats.metricsKnown.cost ? reviewStats.costUsd : null,
+                steps: reviewStats.metricsKnown.steps ? reviewStats.steps : null,
+                preCheckRejects: reviewStats.preCheckRejects,
+                ...(reviewStats.preCheckSkippedProven > 0 ? { preCheckSkippedProven: reviewStats.preCheckSkippedProven } : {}),
+                skippedRounds: reviewStats.skippedRounds,
+                correctionClass: reviewerApproved ? "none" : correctionClassOf(finalReviewerCorrections),
+                ...(reviewStats.droppedRejections > 0 ? { droppedRejections: { rounds: reviewStats.droppedRejections, reasons: { ...reviewStats.droppedRejectionReasons } } } : {}),
+                ...(reviewStats.rebuttals > 0 ? { rebuttals: { received: reviewStats.rebuttals, withdrawn: reviewStats.rebuttalWithdrawn } } : {}),
+              },
+            }
+          : {}),
       },
     },
   };

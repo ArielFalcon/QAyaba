@@ -14,6 +14,7 @@ import type { RunState } from "../run-state.ts";
 import { addRetries, withRun } from "../reducers.ts";
 import { awaitEntryHealth } from "./opening.steps.ts";
 import { deliveredSpecTexts } from "../ambient-data-state.ts";
+import { tellPurposesNotEntered } from "../unentered-purposes.ts";
 import { closedLoopSignal, loopClosedNow, regenerate, staticGateFindings } from "./generation-services.ts";
 
 type Result = Promise<StepOutcome<RunState>>;
@@ -226,6 +227,8 @@ export async function executeSpecs(state: Readonly<RunState>, ctx: WorkspaceRunC
       ? reported
       : { ...reported, verdict: verdictAfterRefusal(reported.verdict, judged), cases: [...judged.cases, ...judged.refused], skippedTests: judged.skippedTests };
   if (judged.refused.length > 0) deps.observer?.onEvent({ type: "log.line", level: "info", text: `[qa] ${judged.refused.length} skipped, test.fail() or request-intercepting test(s) in the delivered specs are not a pass and are handed to the fix loop as failures` });
+  /* The verdict settles what the run can still reach: the phases a later step will pass over are owed no time from the ones after it. */
+  tellPurposesNotEntered(run.verdict, ctx);
   /* The primary pass just ran: its bytes fix the contract every later regeneration is measured against (A5). */
   await services.primeIntentBaseline();
   return { update: { execution: withRun(state.execution, run) } };

@@ -118,7 +118,9 @@ export type FixLoopAcceptanceOutcome =
       /** The execution that rejected the round (an infra-error), when one ran. */
       execution?: FixLoopRun;
     }
-  | { kind: "cap" };
+  | { kind: "cap" }
+  /** The round's share of the run's time was spent before its acceptance could run: the prior verdict and bytes stand, as when no round was accepted. */
+  | { kind: "skipped" };
 
 /** What the caller grants the loop: the evidence the triage needs and a cap for the one re-execution it may spend. */
 export interface FixLoopIntegrity {
@@ -717,6 +719,7 @@ export class FixLoop {
       return fixLoopAction({ after: "acceptance", kind: "rejected" });
     }
     if (outcome.kind === "cap") return fixLoopAction({ after: "acceptance", kind: "cap" }); /* the prior verdict and bytes stand (B-7) */
+    if (outcome.kind === "skipped") return fixLoopAction({ after: "acceptance", kind: "skipped" });
 
     state.run = mergeAcceptedRound(state.run, outcome);
     state.roundAccepted = true;

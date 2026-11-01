@@ -1,6 +1,7 @@
 /* The fix_loop phase of a run: the bounded repair of a failing primary execution, and the fingerprint the suite store takes of a green one. */
 
 import { engineLog } from "@kernel/ports/process-logger.ts";
+import { isAllotmentSpentError } from "@kernel/run-deadline.ts";
 import { CORRECTION_ORIGIN } from "@contexts/coordination/application/index.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import { hasProof } from "@kernel/case-proof.ts";
@@ -15,7 +16,7 @@ import type { StepId } from "../step-ids.ts";
 import type { FixLoopStep } from "../../../domain/fix-loop-action.ts";
 import type { WorkspaceRunContext } from "../run-context.ts";
 import { runOf, type FixLoopSession, type RunState } from "../run-state.ts";
-import { addRetries, withRun } from "../reducers.ts";
+import { addRetries, recordLimit, withRun } from "../reducers.ts";
 import { checkDevHealth, executeAccepted, liveExecutionOptions, validateAccepted } from "./execute.steps.ts";
 import { loopClosedNow, regenerate } from "./generation-services.ts";
 import { carryOn } from "../failure-policy.ts";
@@ -23,6 +24,9 @@ import { refuseRegeneration, regenerationAllowed } from "../regeneration-allowed
 import { specSetDigest } from "../spec-set-digest.ts";
 
 type Result = Promise<StepOutcome<RunState>>;
+
+/* The role whose turn the fix loop's acceptance is, as a limit the run records names it. */
+const ACCEPTANCE_ROLE = "acceptance";
 
 /*
  * Renders every failing case's failureDom into one prompt-facing block.
@@ -137,48 +141,56 @@ function fixLoopFor(state: Readonly<RunState>, ctx: WorkspaceRunContext, pending
     begin: () => snapshotSuite(),
     accept: async ({ round, specs, namespace, prior, named }) => {
       const snapshot = round as SuiteRestorePoint;
-      /* A round that changed anything the specs import is accepted over the whole suite, never over its specs alone. */
-      const changedSpecFiles = acceptanceScope(await suiteChangedFiles(snapshot, specs));
-      if (changedSpecFiles.length === 0) {
-        /* The turn changed no bytes: nothing to accept, and the round's current bytes are its token. */
-        return { kind: "accepted", changedSpecFiles, accepted: snapshot };
-      }
-      const outcome = await acceptance.accept({
-        specDir: workspace.specDir,
-        changedSpecFiles,
-        namespace,
-        snapshot,
-        prior,
-        named,
-        adoptFailures: true,
-        deadline: runDeadlinePort,
-        validate: validateAccepted(state, ctx),
-        execute: executeAccepted(ctx),
-      });
-      if (outcome.kind === "accepted") {
-        integrityCounters.acceptances += 1;
-        if (outcome.executedSpecs.length === 0) integrityCounters.proofReused += 1;
-        /* The bytes this round leaves behind are the token a later, worse round is measured against. */
-        const accepted = await snapshotSuite();
-        return {
-          kind: "accepted",
+      try {
+        /* A round that changed anything the specs import is accepted over the whole suite, never over its specs alone. */
+        const changedSpecFiles = acceptanceScope(await suiteChangedFiles(snapshot, specs));
+        if (changedSpecFiles.length === 0) {
+          /* The turn changed no bytes: nothing to accept, and the round's current bytes are its token. */
+          return { kind: "accepted", changedSpecFiles, accepted: snapshot };
+        }
+        const outcome = await acceptance.accept({
+          specDir: workspace.specDir,
           changedSpecFiles,
-          ...(outcome.execution ? { execution: { verdict: outcome.execution.verdict, cases: [...outcome.execution.cases], ...(outcome.execution.skippedTests ? { skippedTests: [...outcome.execution.skippedTests] } : {}) } } : {}),
-          accepted,
+          namespace,
+          snapshot,
+          prior,
+          named,
+          adoptFailures: true,
+          deadline: runDeadlinePort,
+          validate: validateAccepted(state, ctx),
+          execute: executeAccepted(ctx),
+        });
+        if (outcome.kind === "accepted") {
+          integrityCounters.acceptances += 1;
+          if (outcome.executedSpecs.length === 0) integrityCounters.proofReused += 1;
+          /* The bytes this round leaves behind are the token a later, worse round is measured against. */
+          const accepted = await snapshotSuite();
+          return {
+            kind: "accepted",
+            changedSpecFiles,
+            ...(outcome.execution ? { execution: { verdict: outcome.execution.verdict, cases: [...outcome.execution.cases], ...(outcome.execution.skippedTests ? { skippedTests: [...outcome.execution.skippedTests] } : {}) } } : {}),
+            accepted,
+          };
+        }
+        if (outcome.kind === "cap") {
+          integrityCounters.capHit = true;
+          return { kind: "cap" };
+        }
+        integrityCounters.rejected += 1;
+        return {
+          kind: "rejected",
+          reason: outcome.reason,
+          ...(outcome.execution
+            ? { execution: { verdict: outcome.execution.verdict, cases: [...outcome.execution.cases], ...(outcome.execution.skippedTests ? { skippedTests: [...outcome.execution.skippedTests] } : {}) } }
+            : {}),
         };
+      } catch (err) {
+        /* The fix purpose's share of the run's time is this round's timeout, not the run's: the round is skipped and the run keeps the verdict it holds. */
+        if (!isAllotmentSpentError(err)) throw err;
+        engineLog.warn(`[qa] the fix round's acceptance ran out of the fix loop's time (${err.message}); the round is skipped and the run keeps its verdict`);
+        recordLimit(state, { fired: "allotment", role: ACCEPTANCE_ROLE, purpose: "fix" });
+        return { kind: "skipped" };
       }
-      if (outcome.kind === "cap") {
-        integrityCounters.capHit = true;
-        return { kind: "cap" };
-      }
-      integrityCounters.rejected += 1;
-      return {
-        kind: "rejected",
-        reason: outcome.reason,
-        ...(outcome.execution
-          ? { execution: { verdict: outcome.execution.verdict, cases: [...outcome.execution.cases], ...(outcome.execution.skippedTests ? { skippedTests: [...outcome.execution.skippedTests] } : {}) } }
-          : {}),
-      };
     },
     restore: async (token) => {
       const snapshot = token as SuiteRestorePoint;

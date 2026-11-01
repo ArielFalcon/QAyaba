@@ -22,6 +22,7 @@ export type FixLoopStop =
   | "revalidation-failed"
   | "round-rejected"
   | "round-capped"
+  | "round-skipped"
   | "dev-failed-under-the-run";
 
 /** `go` names the next step; `again` says the step opens a new round (the round counter moves on). */
@@ -44,8 +45,8 @@ export type FixLoopTransition =
   | { after: "dev-check"; healthy: boolean; then: "accept" | "reexecute" }
   /** The pre-acceptance retry path: the gate on the regenerated specs. */
   | { after: "revalidation"; ok: boolean }
-  /** The acceptance of a round: it was `accepted`, `rejected` or `cap`. */
-  | { after: "acceptance"; kind: "accepted" | "rejected" | "cap" }
+  /** The acceptance of a round: it was `accepted`, `rejected`, `cap` (no execution was left for it), or `skipped` (its share of the run's time was spent). */
+  | { after: "acceptance"; kind: "accepted" | "rejected" | "cap" | "skipped" }
   /** The re-execution of the retry path: it failed while DEV is not healthy, or it did not. */
   | { after: "reexecution"; failed: boolean; devHealthy: boolean }
 ;
@@ -75,6 +76,7 @@ export function fixLoopAction(t: FixLoopTransition): FixLoopNext {
       return t.ok ? { go: "reexecute" } : { stop: "revalidation-failed" };
     case "acceptance":
       if (t.kind === "cap") return { stop: "round-capped" };
+      if (t.kind === "skipped") return { stop: "round-skipped" };
       if (t.kind === "rejected") return { stop: "round-rejected" };
       return { go: "triage", again: true };
     case "reexecution":

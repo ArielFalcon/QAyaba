@@ -120,7 +120,7 @@ export function buildWorkspaceAndPublication(deps: WorkspaceAndPublicationDeps):
       {
         repo: run.repo,
         branch: run.branch,
-        reviewerApproved: publication.reviewerApproved ?? true,
+        reviewerApproved: publication.reviewerApproved,
         coverageBlocks: publication.coverageBlocks ?? false,
         shadow: run.shadow,
         e2eChanged: publication.e2eChanged ?? true,

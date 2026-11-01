@@ -112,6 +112,7 @@ export class RunDeadline implements RunDeadlineView {
   private current: DeadlinePurpose = "ground";
   private listener: ((allotment: Allotment) => void) | undefined;
   private readonly told = new Set<DeadlinePurpose>();
+  private notEntered: ReadonlySet<DeadlinePurpose> = new Set();
 
   constructor(private readonly deps: RunDeadlineDeps) {}
 
@@ -135,6 +136,15 @@ export class RunDeadline implements RunDeadlineView {
   /** The run entered a phase: an allowance asked for without a purpose is that phase's. */
   enter(phase: RunPhase): void {
     this.current = purposeOfPhase(phase);
+  }
+
+  /**
+   * The purposes this run will not enter, as its own state stands now: a phase the run cannot reach is owed no time, so the purposes
+   * before it are not asked to hold a share for it. Told again, it replaces what was said before. A purpose the run names here and then
+   * reaches is still allotted what is left (its own reserve never stood in its way); what it does not get is what an earlier purpose held.
+   */
+  willNotEnter(purposes: readonly DeadlinePurpose[]): void {
+    this.notEntered = new Set(purposes);
   }
 
   /** Told the first time each purpose is allotted time after the deadline is armed (or re-measured): once per purpose, never once per turn. */
@@ -161,9 +171,9 @@ export class RunDeadline implements RunDeadlineView {
     return this.armed ? this.armed.deadlineAt - this.deps.now() : undefined;
   }
 
-  /** What is held back, at the moment of asking, for the purposes after `purpose`. */
+  /** What is held back, at the moment of asking, for the purposes after `purpose` the run will still enter. */
   reserveAfter(purpose: DeadlinePurpose, left: number): Reserve {
-    const later = purposesAfter(purpose);
+    const later = purposesAfter(purpose).filter((p) => !this.notEntered.has(p));
     if (later.length === 0) return { ms: 0, source: "none", unmeasured: [] };
     const unmeasured = later.filter((p) => !this.measured.has(p) && !NO_FALLBACK.has(p));
     const measuredMs = later.reduce((sum, p) => sum + (this.measured.get(p) ?? 0), 0);

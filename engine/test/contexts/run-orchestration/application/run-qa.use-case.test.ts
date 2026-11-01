@@ -21,7 +21,7 @@ import { AuthSessionAdapter } from "@contexts/app-catalog/infrastructure/auth-se
 import type { LoginDiscoveryInput, LoginDiscoveryResult } from "@contexts/app-catalog/infrastructure/login-discovery/login-discovery.runner.ts";
 import { GENERATION_END } from "@kernel/generation-end.ts";
 import { NOOP_KIND } from "@kernel/noop-kind.ts";
-import { RunDeadlineExceededError } from "@kernel/run-deadline.ts";
+import { AllotmentSpentError, RunDeadlineExceededError } from "@kernel/run-deadline.ts";
 import { NoopTelemetry } from "@kernel/telemetry/noop-telemetry.ts";
 import type { RecordMeasurement, SpanHandle, StartSpanOptions } from "@kernel/telemetry/telemetry.port.ts";
 import { CoordinationTelemetryRecorder } from "@contexts/coordination/application/index.ts";
@@ -2344,6 +2344,18 @@ test("a reviewer that answered but could not be read (a parse miss) is still the
   assert.equal(publishedSideEffect, "issue");
 });
 
+test("a reviewer that could not be reached on a run whose review is advice only leaves no verdict behind, for any reader to read as a rejection", async () => {
+  const { ports, savedOutcomes } = stubPorts({
+    execute: async () => ({ verdict: "flaky", cases: [{ name: "owners", status: "flaky" as const, file: "owners.spec.ts" }], logs: "" }),
+    review: reviewerDown,
+  });
+  const out = await new RunQaUseCase({ ...ports, config: { ...baseConfig, needsReview: true } }).run({ ...baseInput, runId: "reviewer-down-flaky" });
+  assert.equal(out.decision.verdict, "flaky", "a flaky run is quarantined whatever the reviewer says");
+  const saved = savedOutcomes[0]!;
+  assert.equal(saved.gateSignals.reviewerApproved, undefined, "no reviewer reached a verdict: neither approved nor rejected");
+  assert.equal(saved.gateSignals.reviewer, undefined, "the phase's own signal holds no verdict the reviewer did not give");
+});
+
 test("follow-up #28: a NORMAL reviewer rejection (parsed:true) does NOT carry a reviewerNote", async () => {
   let publishedDecision: { reviewerNote?: string } | undefined;
   const { ports } = stubPorts({
@@ -2943,7 +2955,7 @@ for (const { name, review } of REJECTING_REVIEWERS) {
       assert.equal(out.decision.verdict, "pass");
       assert.equal(reviewCalls, 0, "a context run has no test to review");
       assert.notEqual(out.decision.sideEffect, "issue");
-      assert.deepEqual(published.map((p) => p.reviewerApproved), [true], "publication is handed a run nobody rejected");
+      assert.deepEqual(published.map((p) => p.reviewerApproved), [undefined], "no review ran, so publication is handed no verdict to read as an approval");
     });
   }
 }
@@ -9818,6 +9830,43 @@ test("a fix loop with 100 s left and no history skips its regeneration the same 
   assert.equal(out.decision.verdict, "fail");
   assert.equal(out.decision.sideEffect, "issue");
   assert.equal(generateCalls, 1);
+});
+
+test("a fix round whose acceptance is allotted no more time skips the round, and the run reaches its failing verdict instead of ending on the time budget", async () => {
+  const clock = { t: 0 };
+  const deadline = deadlineOn(clock, 25 * MIN);
+  let executedForAcceptance = 0;
+  const { ports, ws } = stubPorts({
+    generate: async () => scriptedGeneration({ specs: ["a.spec.ts"] }),
+    execute: async (_dir, opts) => {
+      if ((opts as { purpose?: string } | undefined)?.purpose === "acceptance") {
+        executedForAcceptance++;
+        throw new AllotmentSpentError("acceptance", "fix", "before-turn");
+      }
+      return { verdict: "fail", cases: [{ name: "owners", status: "fail", detail: "boom", file: "owners.spec.ts" }], logs: "" };
+    },
+  });
+  ports.generation.author = revisingAuthor(ws);
+  const out = await new RunQaUseCase({ ...ports, runDeadline: deadline, config: { ...baseConfig, needsReview: false } }).run({ ...baseInput, mode: "manual", runId: "acceptance-share-spent" });
+  assert.equal(executedForAcceptance, 1, "the round's acceptance was reached and its execution was the turn that ran out of time");
+  assert.equal(out.decision.verdict, "fail", "the run still had time: the unrepaired failure is the app's verdict");
+  assert.equal(out.decision.sideEffect, "issue");
+  assert.notEqual(out.errorClass, ERROR_CLASS.TIME_BUDGET, "a spent share is the acceptance's timeout, not the run's");
+  assert.ok(limitsOf(out).includes("allotment@fix"), `the skipped round is the fix loop's time limit: ${limitsOf(out).join(", ")}`);
+});
+
+test("a run whose suite is red owes its fix loop no time for a coverage measurement it will not reach", async () => {
+  const clock = { t: 0 };
+  const deadline = deadlineOn(clock, 25 * MIN);
+  const history = Array.from({ length: 5 }, () => ({ furthestPhase: "learn" as const, phaseTimings: { fix_loop: 0, coverage: 5 * MIN, review: 3 * MIN, decide: 30_000, publish: 30_000 } }));
+  let generateCalls = 0;
+  const { ports } = stubPorts({
+    generate: async () => { generateCalls++; clock.t += generateCalls === 1 ? 15 * MIN : MIN; return scriptedGeneration({ specs: ["a.spec.ts"] }); },
+    execute: async () => { clock.t += MIN; return { verdict: "fail", cases: [{ name: "owners", status: "fail", detail: "boom", file: "owners.spec.ts" }], logs: "" }; },
+  });
+  const out = await new RunQaUseCase({ ...ports, runDeadline: deadline, phaseHistory: { recentPhaseRecords: async () => history }, config: { ...baseConfig, needsReview: false } } as never).run({ ...baseInput, mode: "manual", runId: "share-fix-red" });
+  assert.ok(generateCalls > 1, `the fix loop had the time the coverage measurement was no longer owed: ${generateCalls} generate call(s)`);
+  assert.equal(out.decision.verdict, "fail");
 });
 
 /* The T17 shape: a green run that needs its review, whose coverage regeneration would run past its share. */

@@ -15,7 +15,7 @@ import type { WorkspaceRegistry } from "./workspace-registry.ts";
 export interface PublishDecisionCollaborator {
   decide(ctx: {
     verdict: RunVerdict;
-    reviewerApproved: boolean;
+    reviewerApproved?: boolean;
     coverageBlocks: boolean;
     shadow: boolean;
     e2eChanged: boolean;
@@ -98,7 +98,8 @@ export interface PublicationPortCollaborators {
 export interface PublicationPortStaticContext {
   repo: string;
   branch: string;
-  reviewerApproved: boolean;
+  /* The verdict a review reached; absent when none was. The adapter decides nothing on its own: an absent one reaches the collaborator as absent. */
+  reviewerApproved?: boolean;
   coverageBlocks: boolean;
   shadow: boolean;
   e2eChanged: boolean;

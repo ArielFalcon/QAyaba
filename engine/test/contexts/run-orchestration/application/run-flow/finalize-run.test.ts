@@ -236,12 +236,13 @@ function decidedRun(opts: { verdict: "pass" | "fail"; mode?: RunQaInput["mode"];
   const run = { verdict: opts.verdict, cases: [{ name: "case", status: opts.verdict === "pass" ? "pass" : "fail" }], logs: "log text" };
   const state = initialRunState();
   state.execution = { ...state.execution, run: run as never, validation: { ok: true, errors: [] } as never, lastGenerated: { specMetas: [] } as never };
-  state.review = { ...state.review, reviewerApproved: opts.reviewerApproved ?? true };
+  const reviewerVerdict = (opts.reviewerApproved ?? true) ? ("approved" as const) : ("rejected" as const);
+  state.review = { ...state.review, reviewerVerdict, reviewerApprovedForOutcome: reviewerVerdict === "approved" };
   const evidence: RunEvidence = {
     verdict: opts.verdict,
     generating: true,
     needsReview: ctx.cfg.needsReview && ctx.input.mode !== "context",
-    reviewerApproved: state.review.reviewerApproved,
+    reviewerApproved: state.review.reviewerApprovedForOutcome,
     blocksPublish: false,
     shadow: ctx.cfg.shadow,
     onFailure: ctx.cfg.onFailure,
