@@ -79,7 +79,10 @@ signed-in app (see below); without either, no sidekick can author and the run en
    drops each use case on `no-observable-change`, a fan-out of no flow, and the drops inside a fan-out): a drop the lead keeps after the
    one re-ask stands (a no-op stays `skipped`, a fan-out keeps its flows) and is recorded per candidate with its basis and the contradicting fact
    (`gateSignals.coordination.dropsContradicted`, `contradicted` on the plan snapshot's candidate, a `lead-decision` event); it is never an infra error. The planning turn lists the candidates, each with the specs the suite already holds for it and what the manifest
-   declares each one checks and the part of the diff its flow would own (`candidateLine`; its owned slice from the change map,
+   declares each one checks and the part of the diff its flow would own (`candidateLine`; the changed code reaching the use case is one
+   list, `changedCodeOf` in `change-map.ts`, one entry per file with the engine's class of it, code first, and whether the use case's own
+   code or a hub's seeds it, cut by a count per class; the `no-observable-change` refusal reads the same list through `isChangedCode`;
+   its owned slice from the change map,
    `owned-slices.ts`: hunks, added and removed lines), so the lead plans from that instead of opening them and groups use cases into
    flows of a workable size; the section states the run's capacity. **One amendment turn** (`MAX_PLAN_ROUNDS`): a plan that leaves a
    use case unresolved (a refused drop among them), names flows past the capacity, or admits a flow whose owned change alone does

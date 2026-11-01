@@ -13,11 +13,17 @@ export type EntryPoint =
   | { kind: "page"; repo: string; route: string }
   | { kind: "operation"; repo: string; verb: string; path: string; operationId?: string };
 
-/* A changed symbol; the range is the store's, absent only when the index gave none. */
+/* A changed symbol; the range is the store's, absent only when the index gave none. `addedLines` is the lines the change added to the symbol's file, when the diff was read. */
 export interface ChangedSymbol {
   file: string;
   symbol: string;
   range?: { start: number; end: number };
+  addedLines?: number;
+}
+
+/* A hub's changed symbol as one of its pages sees it: the symbol and range, and the entries the hub reaches that are pages. */
+export interface SharedSeed extends ChangedSymbol {
+  pages: number;
 }
 
 export function entryKey(entry: EntryPoint): string {

@@ -9,7 +9,8 @@
 import { namesTemplatePage } from "@contexts/generation/application/index.ts";
 import { DROP_BASIS, type NotAdmittedFlow, type PlanDrop } from "./lead-plan.ts";
 import type { OwnedSliceSize } from "@kernel/use-case-candidate.ts";
-import { LanguageRegistry } from "@kernel/language-id.ts";
+import { changedCodeOf } from "@kernel/change-map.ts";
+import { isChangedCode } from "@kernel/file-classes.ts";
 import type { RedactionPort } from "@kernel/ports/redaction.port.ts";
 import { candidatePagesOf, type UseCaseCandidate } from "@kernel/use-case-candidate.ts";
 import { assembleDefs, type AssembledPrompt } from "@kernel/prompt-sections.ts";
@@ -47,9 +48,6 @@ export interface PlanCoverage {
   refused?: Array<{ candidate: UseCaseCandidate; basis: PlanDrop["basis"]; why: string }>;
 }
 
-/* Whether a changed file is executable code of a declared language (a test file, a style sheet or a template is not). */
-const isCodeFile = (file: string): boolean => LanguageRegistry.languageForFile(file) !== null && !LanguageRegistry.isTestFile(file);
-
 /* The facts besides the candidate's own that a drop is held to. */
 export interface PlanFacts {
   /* The data requests the run's capture recorded while it read the candidate's pages, each as the Context Pack states it (method, origin and path, with a count); none when it recorded none. */
@@ -78,7 +76,7 @@ export function dropRefusal(candidate: UseCaseCandidate, basis: PlanDrop["basis"
     return `the run observed this route's changed behaviour with its own client (${candidate.evidence[0] ?? "the change governs where it sends the browser"})`;
   }
   if (basis === DROP_BASIS.NO_OBSERVABLE_CHANGE) {
-    const code = [...new Set([...candidate.seeds, ...(candidate.sharedSeeds ?? [])].map((seed) => seed.file).filter(isCodeFile))];
+    const code = changedCodeOf(candidate).map((entry) => entry.file).filter(isChangedCode);
     const facts = [...(code.length > 0 ? [`its changed code is executable (${code.slice(0, 3).join(", ")}), which a browser can observe`] : []), ...(recorded.length > 0 ? [requestsFact(recorded)] : [])];
     return facts.length > 0 ? facts.join("; ") : undefined;
   }

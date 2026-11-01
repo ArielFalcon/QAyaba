@@ -15,6 +15,7 @@
  * left out here is never also recorded as an unloaded file with no line of code (`noCodeFiles`). Pure.
  */
 import { LanguageRegistry } from "@kernel/language-id.ts";
+import { candidateSeeds } from "@kernel/change-map.ts";
 import { diffGitHeaderPath } from "@kernel/diff-parser/diff-parser.service.ts";
 import { FILE_SEED_SYMBOL, type UseCaseCandidate } from "@kernel/use-case-candidate.ts";
 import { AVAILABILITY_CLASS, factForRoute, type RouteAvailabilityFact } from "@kernel/route-availability.ts";
@@ -75,7 +76,7 @@ export function unreachableByDesign(input: UnreachableInput): UnreachableByDesig
   const changedLines = parseDiffHunks(diffWithoutTestFiles(input.diff).diff);
   const out: UnreachableByDesign[] = [];
   for (const file of input.files) {
-    const touching = candidates.filter((c) => [...c.seeds, ...(c.sharedSeeds ?? [])].some((s) => s.file === file));
+    const touching = candidates.filter((c) => candidateSeeds(c).some((s) => s.file === file));
     if (touching.length === 0) continue;
     if (!touching.every((c) => c.entry.kind === "page" && byDesign(c.entry.route))) continue;
     /* A symbol is vouched for only by a seed that names it: the whole-file seed of a map link stands for no symbol. */

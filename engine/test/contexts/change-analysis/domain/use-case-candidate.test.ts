@@ -2,8 +2,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { deriveCandidates, type ChangeScope, type ReachEntry } from "@contexts/change-analysis/application/index.ts";
-import { candidateLine } from "@kernel/use-case-candidate.ts";
-import { DECLARED_FILE_SEED_SYMBOL } from "@kernel/change-map.ts";
+import { candidateLine, type UseCaseCandidate } from "@kernel/use-case-candidate.ts";
+import { DECLARED_FILE_SEED_SYMBOL, changedCodeOf } from "@kernel/change-map.ts";
+import { isChangedCode } from "@kernel/file-classes.ts";
+import { dropRefusal } from "@contexts/coordination/application/plan-coverage.ts";
+import { DROP_BASIS } from "@contexts/coordination/application/lead-plan.ts";
+import { pageCandidate } from "../../../support/use-case-candidate.ts";
 
 const WEB = "org/web";
 const API = "org/api";
@@ -134,30 +138,66 @@ test("candidates come ordered direct, then indirect, then cross-repo", () => {
   assert.deepEqual(out.map((c) => c.tier), ["direct", "indirect", "cross-repo"]);
 });
 
-test("a page the map links to changed files is seeded by those files, whole, and shows them with the lines the change added", () => {
+test("a page the map links to changed files is seeded by those files, whole, and carries the lines the change added to them", () => {
   const scope: ChangeScope = { ...scopeOf([]), repos: [{ repo: WEB, role: "primary", indexedSha: null, changedFiles: [], seeds: [], seedBasis: "none", addedLines: { "web/src/profile.scss": 12 }, entryPoints: [], entryPointsTruncated: false }] };
 
   const [c] = deriveCandidates(scope, { mapLinks: [{ repo: WEB, route: "/profile", basis: "implementation", files: ["web/src/profile.scss", "web/src/profile.ts"] }] });
 
-  assert.deepEqual(c!.seeds.map((s) => [s.file, s.range]), [["web/src/profile.scss", undefined], ["web/src/profile.ts", undefined]]);
-  assert.deepEqual(c!.changedFiles, [{ file: "web/src/profile.scss", addedLines: 12 }, { file: "web/src/profile.ts" }]);
+  assert.deepEqual(c!.seeds.map((s) => [s.file, s.range, s.addedLines]), [["web/src/profile.scss", undefined, 12], ["web/src/profile.ts", undefined, undefined]]);
 });
 
-test("a candidate the call graph proved keeps its seeds and lists their files once", () => {
+test("a candidate the call graph proved keeps its seeds", () => {
   const seeds = [SEED, { ...SEED, symbol: "other", range: { start: 9, end: 12 } }];
   const [c] = deriveCandidates(scopeOf([page("/orders", { seeds })]));
 
   assert.deepEqual(c!.seeds, seeds);
-  assert.deepEqual(c!.changedFiles, [{ file: SEED.file }]);
 });
 
-test("the candidate line names the changed files with their kind and added lines, and says nothing about files when none seeds it", () => {
-  const withFiles = candidateLine({ ...deriveCandidates(scopeOf([page("/orders")]))[0]!, changedFiles: [{ file: "web/src/a.scss", addedLines: 7 }, { file: "web/src/a.ts", addedLines: 2 }, { file: "b.java" }] });
-  assert.match(withFiles, /web\/src\/a\.scss \(other, \+7\)/);
-  assert.match(withFiles, /web\/src\/a\.ts \(typescript, \+2\)/);
-  assert.match(withFiles, /b\.java \(java\)/);
+const codeSeed = (file: string, symbol = "view") => ({ file, symbol, range: { start: 1, end: 5 } });
+const lineOf = (over: Partial<UseCaseCandidate>): string => candidateLine({ ...pageCandidate("/orders"), ...over });
 
-  assert.doesNotMatch(candidateLine({ ...deriveCandidates(scopeOf([page("/orders")]))[0]!, changedFiles: [] }), /changed:/);
+test("the candidate line lists each changed file once under one label, with its class, how it seeds the page and the lines the change added", () => {
+  const line = lineOf({
+    seeds: [{ file: "web/src/a.scss", symbol: "*", addedLines: 7 }, { ...codeSeed("web/src/a.ts"), addedLines: 2 }, { ...codeSeed("web/src/a.ts", "other"), addedLines: 2 }],
+    sharedSeeds: [{ ...codeSeed("web/src/store.ts", "load"), pages: 14, addedLines: 3 }, { ...codeSeed("web/src/store.ts", "save"), pages: 14, addedLines: 3 }],
+  });
+
+  assert.equal(line.split("web/src/a.ts").length - 1, 1);
+  assert.equal(line.split("web/src/store.ts").length - 1, 1);
+  assert.match(line, /web\/src\/a\.scss \(style, direct, \+7\)/);
+  assert.match(line, /web\/src\/store\.ts \(code, shared, \+3, reaches 14 pages\)/);
+  assert.equal(line.split("web/src/a.ts")[0]!.includes("web/src/a.scss"), false, "code files are listed before styles");
+});
+
+test("a candidate with no seed names no changed file", () => {
+  assert.doesNotMatch(lineOf({ seeds: [], sharedSeeds: undefined }), /web\/src/);
+});
+
+test("the candidate line lists a code entry exactly when a drop on no-observable-change is refused for the changed code", () => {
+  const cases: Array<Partial<UseCaseCandidate>> = [
+    { seeds: [{ file: "web/src/a.scss", symbol: "*" }] },
+    { seeds: [{ file: "web/src/a.scss", symbol: "*" }], sharedSeeds: [{ ...codeSeed("web/src/store.ts"), pages: 3 }] },
+    { seeds: [codeSeed("web/src/a.ts")] },
+    { seeds: [{ file: "web/src/a.html", symbol: "*" }, { file: "web/src/a.spec.ts", symbol: "*" }] },
+    { seeds: [] },
+  ];
+  for (const over of cases) {
+    const candidate = { ...pageCandidate("/orders"), ...over };
+    const listsCode = changedCodeOf(candidate).some((entry) => isChangedCode(entry.file) && candidateLine(candidate).includes(entry.file));
+    assert.equal(listsCode, dropRefusal(candidate, DROP_BASIS.NO_OBSERVABLE_CHANGE) !== undefined, JSON.stringify(over));
+  }
+});
+
+test("when the line is cut it still counts every code file it leaves out, by class, and lists code before the rest", () => {
+  const styles = Array.from({ length: 3 }, (_, i) => ({ file: `web/src/s${i}.scss`, symbol: "*" }));
+  const shared = Array.from({ length: 9 }, (_, i) => ({ ...codeSeed(`web/src/shared/f${i}.ts`), pages: 2 }));
+  const line = lineOf({ seeds: styles, sharedSeeds: shared });
+
+  const listed = shared.filter((seed) => line.includes(seed.file));
+  assert.ok(listed.length > 0 && listed.length < shared.length, "the line is cut");
+  assert.equal(styles.some((seed) => line.includes(seed.file)), false, "no style is listed while code files are left out");
+  assert.match(line, new RegExp(`${shared.length - listed.length} code`));
+  assert.match(line, /3 style/);
 });
 
 const HUB_SEED = { file: "web/src/shared/format.ts", symbol: "formatMoney", range: { start: 3, end: 9 } };
@@ -176,7 +216,6 @@ test("a candidate whose page a hub reaches carries the hub's seed and range as a
 
   assert.deepEqual(c!.seeds, [{ file: "web/src/orders.scss", symbol: "*" }]);
   assert.deepEqual(c!.sharedSeeds, [{ ...HUB_SEED, pages: 2, addedLines: 6 }]);
-  assert.deepEqual(c!.changedFiles, [{ file: "web/src/orders.scss" }]);
 });
 
 test("a candidate whose page a fan-in hub's closure reaches carries the changed symbols that reach the hub as shared seeds", () => {
@@ -197,8 +236,8 @@ test("a hub alone creates no candidate, and a hub that reaches no candidate's pa
 test("the candidate line names each shared seed with its kind, added lines and the pages the hub reaches", () => {
   const [c] = deriveCandidates(hubScope([], ["page /orders", "page /cart", "GET /api/x"]), { mapLinks: hubLinks });
 
-  assert.match(candidateLine(c!), /shared with other pages: web\/src\/shared\/format\.ts \(typescript, \+6, reaches 2 pages\)/);
-  assert.doesNotMatch(candidateLine({ ...c!, sharedSeeds: undefined }), /shared with/);
+  assert.match(candidateLine(c!), /web\/src\/shared\/format\.ts \(code, shared, \+6, reaches 2 pages\)/);
+  assert.doesNotMatch(candidateLine({ ...c!, sharedSeeds: undefined }), /format\.ts/);
 });
 
 const CARD = { file: "web/src/card/card.component.ts", symbol: "CardComponent", range: { start: 1, end: 30 } };
@@ -219,8 +258,7 @@ const declaringScope = (reach: ReachEntry[], hubKeys: string[] = []): ChangeScop
 
 test("a changed non-code file a seed's source file declares seeds the candidate as that seed does: the whole file, direct for a seed, shared for a hub's", () => {
   const [direct] = deriveCandidates(declaringScope([page("/cards", { seeds: [CARD] })]));
-  assert.deepEqual(direct!.seeds, [CARD, { file: TEMPLATE, symbol: DECLARED_FILE_SEED_SYMBOL }]);
-  assert.deepEqual(direct!.changedFiles, [{ file: TEMPLATE, addedLines: 5 }, { file: CARD.file, addedLines: 2 }]);
+  assert.deepEqual(direct!.seeds, [{ ...CARD, addedLines: 2 }, { file: TEMPLATE, symbol: DECLARED_FILE_SEED_SYMBOL, addedLines: 5 }]);
 
   const [shared] = deriveCandidates(declaringScope([page("/cards", { seeds: [CARD] })], ["page /cards", "page /cart"]));
   assert.deepEqual(shared!.sharedSeeds, [{ ...HUB_SEED, pages: 2, addedLines: 6 }, { file: STYLE, symbol: DECLARED_FILE_SEED_SYMBOL, pages: 2 }]);

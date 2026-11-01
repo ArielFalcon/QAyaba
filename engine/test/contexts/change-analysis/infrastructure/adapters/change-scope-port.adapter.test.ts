@@ -210,8 +210,7 @@ test("a page only the map links to the changed files is seeded by those files an
 
   const [candidate] = await subject.candidates({ specDir: "/does/not/exist", scope });
 
-  assert.deepEqual(candidate!.seeds.map((s) => [s.file, s.range]), [[STYLE, undefined]]);
-  assert.deepEqual(candidate!.changedFiles, [{ file: STYLE, addedLines: 3 }]);
+  assert.deepEqual(candidate!.seeds.map((s) => [s.file, s.range, s.addedLines]), [[STYLE, undefined, 3]]);
 });
 
 /* Links beyond the first hop (RFC-0011): the call site is in the app's repo only for the link the walk ends on. */

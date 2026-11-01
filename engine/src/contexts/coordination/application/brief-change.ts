@@ -6,7 +6,7 @@
  * brief preloads every owned hunk is the fit rule's to say (`fitBriefChange`), never a fixed count. Pure; the brief's constructor
  * redacts every text.
  */
-import { buildChangeMap, DECLARED_FILE_SEED_SYMBOL } from "@kernel/change-map.ts";
+import { buildChangeMap, candidateSeeds, DECLARED_FILE_SEED_SYMBOL } from "@kernel/change-map.ts";
 import { sliceFor, type ChangeSlice, type HunkReference } from "@kernel/change-slice.ts";
 import { decisionRankOf, decisionsInHunk, type ChangedDecision } from "@kernel/changed-decision.ts";
 import { classifyPath, FILE_CLASS_ORDER } from "@kernel/file-classes.ts";
@@ -53,10 +53,7 @@ const symbolText = (seed: ChangedSymbol, shared: boolean): string =>
   `${seed.symbol} (${seed.file}${seed.range ? `:${seed.range.start}-${seed.range.end}` : ""}${shared ? ", shared with other pages" : ""})`;
 
 function briefCandidateOf(candidate: UseCaseCandidate, facts: ChangeFacts): BriefCandidate {
-  const symbols = [
-    ...candidate.seeds.filter(namesSymbol).map((seed) => symbolText(seed, false)),
-    ...(candidate.sharedSeeds ?? []).filter(namesSymbol).map((seed) => symbolText(seed, true)),
-  ];
+  const symbols = candidateSeeds(candidate).filter(namesSymbol).map((seed) => symbolText(seed, !candidate.seeds.includes(seed)));
   return { id: candidate.id, entry: entryKey(candidate.entry), tier: candidate.tier, evidence: boundedSteps(candidate.evidence), symbols: [...new Set(symbols)], expectedFrom: expectedFrom(candidate, facts) };
 }
 

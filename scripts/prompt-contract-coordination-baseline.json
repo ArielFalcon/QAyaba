@@ -53,11 +53,11 @@
       "directives": 1
     },
     "lead-replan/refused-drop": {
-      "bytes": 674,
+      "bytes": 634,
       "directives": 0
     },
     "lead-review/last-turn-with-gaps": {
-      "bytes": 1128,
+      "bytes": 1088,
       "directives": 1
     },
     "lead-review/turn-1": {
