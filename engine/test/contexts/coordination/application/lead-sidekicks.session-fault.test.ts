@@ -133,10 +133,9 @@ async function run(turns: Turn[], reviews: unknown[][], opts: RunOpts = {}): Pro
   let reviewTurn = 0;
   const plan = async (): Promise<PlanOutput> => ({
     plan: { kind: "fanout", flows: [{ id: "cart", objective: "the cart total" }] },
-    parsed: true,
     timedOut: false,
     lead: {
-      askForPlan: async () => ({ parsed: false, timedOut: false }),
+      askForPlan: async () => ({ noSubmission: "no accepted submission", timedOut: false }),
       ask: async (text: string, _opts: LeadTurnOpts) => {
         state.leadPrompts.push(text);
         return { output: JSON.stringify({ review: reviews[Math.min(reviewTurn++, reviews.length - 1)] }), timedOut: false };

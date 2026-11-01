@@ -201,21 +201,6 @@ test("the suite listing looks at no more than the cap of entries it is given, so
   }
 });
 
-test("and carries none when it read none", () => {
-  const plan = { kind: "fanout", flows: [{ id: "a", objective: "x" }] };
-  const withPlan = new VerdictParserAdapter({
-    parseVerdict: () => ({ parsed: true, approved: true, specs: [], plan }),
-    parseReviewerVerdict: () => ({ approved: true, findings: [], blockingCount: 0, parsed: true, valid: true, issues: [] }) as never,
-  } as never);
-  assert.deepEqual(withPlan.parseGenerator("planned").plan, plan);
-  const without = new VerdictParserAdapter({
-    parseVerdict: () => ({ parsed: true, approved: true, specs: ["a.spec.ts"] }),
-    parseReviewerVerdict: () => ({ approved: true, findings: [], blockingCount: 0, parsed: true, valid: true, issues: [] }) as never,
-  } as never);
-  assert.equal("plan" in without.parseGenerator("written"), false);
-});
-
-
 /* The reviewer's answer is a verdict, not a report. A model that writes a page of prose around its
  * JSON (the live run's second review: 49 KB) must leave the same bounded verdict the record keeps:
  * approval preserved, one/two-sentence rationale, a handful of corrections. */

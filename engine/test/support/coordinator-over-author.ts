@@ -6,6 +6,7 @@
  * what an author is told; the port records it when the coordinator asks the lead to plan.
  */
 import { GENERATION_END } from "@kernel/generation-end.ts";
+import { SUBMIT_TOOL, type SubmissionContract } from "@kernel/submission.ts";
 import type { CoordinateInput, CoordinateResult } from "@contexts/coordination/application/lead-sidekicks.ts";
 import type { AuthorPort, GenerationEnrichment, LeadPort } from "@contexts/generation/application/index.ts";
 import type { RunQaUseCaseDeps } from "@contexts/run-orchestration/application/run-qa.use-case.ts";
@@ -17,16 +18,18 @@ interface Briefing {
 
 const briefings = new WeakMap<object, Briefing>();
 
+const acceptAnyPlan: SubmissionContract<Record<string, unknown>> = { tool: SUBMIT_TOOL.PLAN, check: (answer) => ({ ok: true, value: answer as Record<string, unknown> }) };
+
 /** A lead that records the grounding it is handed and plans nothing; give it to a port that has none of its own. */
 export function briefingLead(owner: () => object): NonNullable<LeadPort["plan"]> {
   return async (_specDir, _signal, diff, enrichment) => {
     briefings.set(owner(), { diff, enrichment });
-    return { parsed: false, timedOut: false };
+    return { timedOut: false };
   };
 }
 
 export async function authoredByCoordinator(port: AuthorPort & Partial<LeadPort>, input: CoordinateInput): Promise<CoordinateResult> {
-  if (input.plan) await input.plan({} as never);
+  if (input.plan) await input.plan({ submit: acceptAnyPlan } as never);
   const briefing = briefings.get(port);
   const { planning: _planning, ...briefed } = briefing?.enrichment ?? {};
   const generated = await port.author(input.specDir, input.signal, briefing?.diff, briefing ? briefed : undefined);

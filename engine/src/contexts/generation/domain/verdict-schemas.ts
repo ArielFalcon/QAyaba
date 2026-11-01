@@ -52,11 +52,9 @@ export const GeneratorVerdictSchema = z
     testCorrect: z.unknown().optional(),
     /* The findings the generator disputes instead of correcting; the orchestrator checks each basis. */
     rebuttals: z.unknown().optional(),
-    /* The plan a lead gives when its turn asks for one; the orchestrator's admission reads it, so only its being an object is checked here. */
-    plan: z.record(z.string(), z.unknown()).optional(),
   })
   .superRefine((verdict, ctx) => {
-    if (verdict.specs.length > 0 || verdict.plan !== undefined || NoopDecisionSchema.safeParse(verdict.noop).success || TestCorrectSchema.safeParse(verdict.testCorrect).success || RebuttalsSchema.safeParse(verdict.rebuttals).success) return;
+    if (verdict.specs.length > 0 || NoopDecisionSchema.safeParse(verdict.noop).success || TestCorrectSchema.safeParse(verdict.testCorrect).success || RebuttalsSchema.safeParse(verdict.rebuttals).success) return;
     ctx.addIssue({
       code: "custom",
       path: ["noop"],

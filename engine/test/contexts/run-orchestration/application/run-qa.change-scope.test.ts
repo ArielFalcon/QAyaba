@@ -213,7 +213,7 @@ test("a two-entry change set reaches the evaluation: the coordinator is handed i
           received.push(input.candidates);
           const [first, second] = input.candidates ?? [];
           const plan = { kind: "fanout", flows: [{ id: "a", objective: "page a", routes: ["/a"], candidates: [first!.id] }, { id: "b", objective: "page b", routes: ["/b"], candidates: [second!.id] }] };
-          const result = await coordinator.coordinate({ ...input, plan: async () => ({ plan, parsed: true, timedOut: false }) });
+          const result = await coordinator.coordinate({ ...input, plan: async () => ({ plan, timedOut: false }) });
           if (result.action === "fanout") for (const spec of result.aggregated.specs) if (!rig.ws.has(spec)) rig.ws.write(spec);
           return result;
         },

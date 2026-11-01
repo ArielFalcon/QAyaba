@@ -3,6 +3,8 @@ import { engineLog } from "@kernel/ports/process-logger.ts";
 import type { AgentRuntimePort, AgentTurnStats } from "@kernel/ports/agent-runtime.port.ts";
 import { AUTHOR_SIDEKICK, LEAD_AGENT, openSidekickSession } from "@kernel/sidekick-session.ts";
 import type { LeadTurnOpts } from "@kernel/plan-output.ts";
+import { describeNoSubmission, type SubmittedTurn } from "@kernel/submission.ts";
+import { submitTurn } from "@kernel/submit-turn.ts";
 import type { DeliveredSpec } from "@kernel/delivered-spec.ts";
 import { GENERATION_END, type GenerationEndKind } from "@kernel/generation-end.ts";
 import type { PromptRenderingPort } from "./ports/prompt-rendering.port.ts";
@@ -62,18 +64,17 @@ export interface GenerateOpts {
 }
 
 /**
- * What a planning turn came to. `plan` is the object the lead's verdict carried, untrusted: the orchestrator's admission is its
- * only reader. `noopReason` is the reason the lead gave for writing nothing when it declared that instead of planning. A turn
- * that gives neither is `parsed` when its verdict could be read at all. `timedOut` is a turn that ran out of its planning time.
+ * What a planning turn came to. `plan` is the submission the lead's contract accepted, untrusted beyond that check: the
+ * orchestrator's admission reads it again under the run's time. A turn that delivered none, even after its one continuation, says
+ * why in `noSubmission`. `timedOut` is a turn that ran out of its planning time.
  */
 export interface PlanResult {
   plan?: Record<string, unknown>;
-  noopReason?: string;
-  parsed: boolean;
+  noSubmission?: string;
   timedOut: boolean;
   /** What the turn measured, when its runtime can measure a turn. */
   turn?: AgentTurnStats;
-  /** The lead's session, held open whenever the turn answered: the lead's next turn (a plan the run refused or could not read, asked once more; its review of the flows) is asked in it, read-only like the plan. The holder disposes it. */
+  /** The lead's session, held open whenever the turn answered: the lead's next turn (the plan's amendment, its review of the flows) is asked in it, read-only like the plan. The holder disposes it. */
   lead?: LeadSession;
 }
 
@@ -81,8 +82,8 @@ export interface PlanResult {
 export interface LeadSession {
   /* Asks the lead again, read-only; a turn that runs out of its time answers `timedOut` with no output. */
   ask(text: string, opts: LeadTurnOpts): Promise<{ output: string; timedOut: boolean }>;
-  /* Asks the lead again for its plan, read-only, and reads the answer as a planning turn is read: a plan, a declared no-op, or an answer no verdict could be read from. */
-  askForPlan(text: string, opts: LeadTurnOpts): Promise<{ plan?: Record<string, unknown>; noopReason?: string; parsed: boolean; timedOut: boolean }>;
+  /* Asks the lead again for its plan, read-only, through the plan contract as a planning turn is: a plan the contract accepted, or why none was delivered. */
+  askForPlan(text: string, opts: LeadTurnOpts): Promise<{ plan?: Record<string, unknown>; noSubmission?: string; timedOut: boolean }>;
   /* Ends the session. Idempotent. */
   dispose(): Promise<void>;
 }
@@ -91,15 +92,18 @@ export class GenerateTestsUseCase {
   constructor(private readonly ports: AuthoringPorts) {}
 
   /**
-   * The one turn a coordinated run asks its lead for a plan instead of specs. One prompt in one generator session, bounded by the
-   * planning time, in which the agent may read and look things up but not write; no reviewer, no repair, no manifest. A turn that
-   * runs out of its time is reported, not thrown (the coordinator then refuses the run: `plan-timed-out`); any other fault is thrown. A turn that
-   * answered keeps its session open (`lead`), whatever the answer held: an answer with no readable plan is a slip the coordinator asks the lead
-   * about once, in this session, and a plan is reviewed there. A turn that timed out or faulted closes it.
+   * The one turn a coordinated run asks its lead for a plan instead of specs. One prompt in one lead session, bounded by the
+   * planning time, in which the agent may read and look things up but not write; no reviewer, no manifest. The plan is delivered by
+   * the lead's submit tool and judged by the plan contract inside the turn; a turn that delivers none gets one continuation
+   * (`submitTurn`) and is then reported with its reason. A turn that runs out of its time is reported, not thrown (the coordinator
+   * then refuses the run: `plan-timed-out`); any other fault is thrown. A turn that answered keeps its session open (`lead`):
+   * the plan's amendment and the review of the flows are asked there. A turn that timed out or faulted closes it.
    */
   async plan(input: OpencodeRunInput, opts?: GenerateOpts): Promise<PlanResult> {
     const planning = input.planning;
     if (!planning) throw new Error("GenerateTestsUseCase.plan needs input.planning: the limits the plan will be held to");
+    const contract = planning.submit;
+    if (!contract) throw new Error("GenerateTestsUseCase.plan needs input.planning.submit: the contract the plan is delivered through");
     const assembled = this.ports.rendering.renderMain(input);
     const session = await openSidekickSession(this.ports.runtime, LEAD_AGENT, input.mirrorDir, {
       ...(opts?.signal ? { signal: opts.signal } : {}),
@@ -107,40 +111,36 @@ export class GenerateTestsUseCase {
       timeLimit: "plan-budget",
       descriptor: { runId: input.runId },
     });
-    let output = "";
     let turn: AgentTurnStats | undefined;
-    let timedOut = false;
     let disposed = false;
     const dispose = async (): Promise<void> => {
       if (disposed) return;
       disposed = true;
       await session.dispose();
     };
+    const submitted = (result: SubmittedTurn<Record<string, unknown>>): { plan?: Record<string, unknown>; noSubmission?: string } =>
+      result.submitted ? { plan: result.value } : { noSubmission: describeNoSubmission(result) };
+    let first: SubmittedTurn<Record<string, unknown>>;
     try {
-      const result = await session.prompt(assembled.text, {
-        sectionSizes: assembled.sectionSizes,
-        ...promptFactsOpts(assembled),
-        ...(assembled.providedPaths ? { providedPaths: assembled.providedPaths } : {}),
-        ...(input.stepLimit !== undefined ? { stepLimit: input.stepLimit } : {}),
-        finalStepOnly: true,
-        withoutWrites: true,
-        timeoutMs: planning.budgetMs,
-        timeLimit: "plan-budget",
-        onTurnStats: (stats) => { turn = stats; },
-      });
-      output = result.output;
+      first = await submitTurn(
+        session,
+        assembled.text,
+        {
+          sectionSizes: assembled.sectionSizes,
+          ...promptFactsOpts(assembled),
+          ...(assembled.providedPaths ? { providedPaths: assembled.providedPaths } : {}),
+          ...(input.stepLimit !== undefined ? { stepLimit: input.stepLimit } : {}),
+          withoutWrites: true,
+          timeoutMs: planning.budgetMs,
+          timeLimit: "plan-budget",
+          onTurnStats: (stats) => { turn = stats; },
+        },
+        contract,
+      );
     } catch (err) {
       await dispose();
       if (!isAgentTimeoutError(err)) throw err;
-      timedOut = true;
-    }
-    if (timedOut) return { parsed: false, timedOut: true, ...(turn ? { turn } : {}) };
-    let deliverable: ReturnType<AuthoringPorts["verdicts"]["parseGenerator"]>;
-    try {
-      deliverable = this.ports.verdicts.parseGenerator(output, `${input.mirrorDir}/${input.e2eRelDir}`);
-    } catch (err) {
-      await dispose();
-      throw err;
+      return { timedOut: true, ...(turn ? { turn } : {}) };
     }
     const ask: LeadSession["ask"] = async (text, askOpts) => {
       try {
@@ -161,26 +161,28 @@ export class GenerateTestsUseCase {
     const lead: LeadSession = {
       ask,
       askForPlan: async (text, askOpts) => {
-        const answer = await ask(text, askOpts);
-        if (answer.timedOut) return { parsed: false, timedOut: true };
-        const next = this.ports.verdicts.parseGenerator(answer.output, `${input.mirrorDir}/${input.e2eRelDir}`);
-        return {
-          ...(next.plan ? { plan: next.plan } : {}),
-          ...(next.noopReason ? { noopReason: next.noopReason } : {}),
-          parsed: next.parsed !== false,
-          timedOut: false,
-        };
+        try {
+          const again = await submitTurn(
+            session,
+            text,
+            {
+              withoutWrites: true,
+              timeoutMs: askOpts.timeoutMs,
+              timeLimit: askOpts.timeLimit ?? "plan-budget",
+              ...(askOpts.sectionSizes ? { sectionSizes: askOpts.sectionSizes } : {}),
+              ...(askOpts.sectionHashes ? { sectionHashes: askOpts.sectionHashes } : {}),
+            },
+            contract,
+          );
+          return { ...submitted(again), timedOut: false };
+        } catch (err) {
+          if (!isAgentTimeoutError(err)) throw err;
+          return { timedOut: true };
+        }
       },
       dispose,
     };
-    return {
-      ...(deliverable.plan ? { plan: deliverable.plan } : {}),
-      ...(deliverable.noopReason ? { noopReason: deliverable.noopReason } : {}),
-      parsed: deliverable.parsed !== false,
-      timedOut: false,
-      ...(turn ? { turn } : {}),
-      lead,
-    };
+    return { ...submitted(first), timedOut: false, ...(turn ? { turn } : {}), lead };
   }
 
   /* One turn of an author sidekick over a run's own authoring. Orchestrates the deterministic shell: 1. Build the authoring prompt (via PromptRenderingPort). 2. Open a session of the author kind and fire the prompt (via AgentRuntimePort); every turn opens a session of its own, so a regeneration is told everything it needs. 3. Check generator contract; if invalid, fire ONE bounded repair re-prompt. 4. Parse the deliverable (via VerdictParserPort). 5. Reconcile the manifest (via ManifestRepositoryPort). The independent review is the `review` sidekick kind, dispatched by the run's review step. */

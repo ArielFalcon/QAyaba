@@ -360,30 +360,6 @@ export const LEAD_CORRECTION_SECTIONS: readonly PromptSectionDef<CorrectionPromp
   }),
 ];
 
-/* ── rejected plan ── */
-
-export interface RejectedPlanPromptContext {
-  /* The refusal's code and what it says the plan got wrong, in words. */
-  downgrade: string;
-  fact: string;
-}
-
-/* The one request that sends a refused plan back to the lead: why it was refused (by its code and in words), and what to answer. */
-export const REJECTED_PLAN_SECTIONS: readonly PromptSectionDef<RejectedPlanPromptContext>[] = [
-  section({
-    id: "rejected-plan",
-    priority: 10, stability: "run", reason: "A refused plan is sent back to the lead once, with the reason (59937113)",
-    applies: () => true,
-    render: ({ downgrade, fact }) => ({
-      content: [
-        "## Your plan was not admitted",
-        `The orchestrator refused the plan (${downgrade}): ${fact}.`,
-        "Answer with ONLY the corrected plan JSON object, in one of the shapes of the plan contract. This is the only other plan turn of this run.",
-      ].join("\n"),
-    }),
-  }),
-];
-
 /* ── refused correction ── */
 
 export interface RefusedCorrectionPromptContext {

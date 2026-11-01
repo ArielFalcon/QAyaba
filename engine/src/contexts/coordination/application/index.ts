@@ -43,7 +43,6 @@ export { assembleLeadReview, assembleUnreadableReviewRequest } from "./lead-revi
 export { assembleReplanRequest } from "./plan-coverage.ts";
 export { assembleSidekickFeedback } from "./sidekick-executor.ts";
 export { assembleLeadCorrection, assembleRefusedCorrection } from "./lead-correction.ts";
-export { assembleRejectedPlanRequest } from "./lead-plan.ts";
 export { COORDINATION_PROMPTS } from "./coordination-sections/index.ts";
 export {
   AGENT_TOOL,

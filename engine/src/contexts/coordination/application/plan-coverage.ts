@@ -102,11 +102,6 @@ export function honorContradictedDrops(coverage: PlanCoverage): PlanCoverage {
   return { covered: coverage.covered, dropped: [...coverage.dropped, ...honored], unresolved: coverage.unresolved.filter((c) => !refused.has(c.id)) };
 }
 
-/* The drops of a plan that dropped everything without saying which: a declared no-op decides about each use case the change makes testable, on the basis that nothing a browser can observe changed. */
-export function impliedNoopDrops(reason: string, admission: readonly UseCaseCandidate[]): PlanDrop[] {
-  return admission.map((candidate) => ({ candidate: candidate.id, basis: DROP_BASIS.NO_OBSERVABLE_CHANGE, reason }));
-}
-
 /* The page routes `visited` name, as a change page is named: a route is the page or one of its template's. */
 export function unvisitedBy(pages: readonly string[], visited: readonly string[]): string[] {
   return pages.filter((page) => !visited.some((route) => namesTemplatePage(page, route)));

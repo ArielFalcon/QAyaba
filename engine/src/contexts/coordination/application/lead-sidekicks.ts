@@ -36,7 +36,7 @@ import type { WindowFitOutcome } from "@kernel/prompt-sections.ts";
 import { entryKey } from "@kernel/change-reach.ts";
 import { candidatePagesOf, pageRoutesOf, type UseCaseCandidate } from "@kernel/use-case-candidate.ts";
 import { candidateSeeds } from "@kernel/change-map.ts";
-import { admissionSetOf, flowCovers, honorContradictedDrops, impliedNoopDrops, MAX_PLAN_ROUNDS, needsAmendment, planCoverage, assembleReplanRequest, unvisitedBy, type AdmissionSet, type PlanAmendment, type PlanCoverage, type PlanFacts } from "./plan-coverage.ts";
+import { admissionSetOf, flowCovers, honorContradictedDrops, MAX_PLAN_ROUNDS, needsAmendment, planCoverage, assembleReplanRequest, unvisitedBy, type AdmissionSet, type PlanAmendment, type PlanCoverage, type PlanFacts } from "./plan-coverage.ts";
 import { candidateSlicesOf, changeViewOf, ownedSliceOf, type ChangeView } from "./owned-slices.ts";
 import { flowCapacity } from "./flow-capacity.ts";
 import { unansweredTurn, type CandidateClaim, type DelegationResult } from "./delegation-result.ts";
@@ -54,7 +54,8 @@ import { observationConflictIn } from "./evidence-precedence.ts";
 import { AUTHORING_FAILURE, authoringFailureFeedback, classifyAuthoringFailure, type AuthoringFailure } from "./authoring-failure.ts";
 import { FanOutDispatcher, FLOW_RESULT, type TimerPort } from "./fan-out-dispatcher.ts";
 import { aggregateFlowOutcomes, FLOW_OUTCOME, FLOW_OUTCOME_EFFECT, type AggregatedFlows, type FlowOutcome } from "./flow-outcomes.ts";
-import { admitLeadPlan, LEAD_PLAN_KIND, PLAN_DOWNGRADE, PLAN_REJECTED, assembleRejectedPlanRequest, type AdmittedFlow, type AdmittedPlan } from "./lead-plan.ts";
+import { admitLeadPlan, LEAD_PLAN_KIND, PLAN_REJECTED, type AdmittedFlow, type AdmittedPlan } from "./lead-plan.ts";
+import { leadPlanContract } from "./lead-plan.contract.ts";
 import { SIDEKICK_AUTHORING, sidekickAuthoring, sidekickDeniedTools, type SidekickAuthoringMode } from "./sidekick-authoring.ts";
 import type { SidekickExecutor, SidekickSession } from "./sidekick-executor.ts";
 import { SESSION_GONE, turnEndOf } from "./sidekick-turn-end.ts";
@@ -320,19 +321,14 @@ export class LeadSidekicks {
       ...(admission.others > 0 ? { otherCandidates: admission.others } : {}),
       ...(candidateSlices ? { candidateSlices } : {}),
       ...(input.change?.decisions?.length ? { decisions: input.change.decisions } : {}),
+      submit: leadPlanContract((answer) => this.admit(input, answer, parallel)),
     });
     /* The lead's planning session, when the plan kept it: its review of the flows is asked there, and it ends with the pass. */
     let leadHanded = false;
     try {
       if (planned.timedOut) return refuse(AUTHORING_REFUSAL.PLAN_TIMED_OUT, "the planning turn ran out of its time", { authoring: authoringName });
-      /* A declared no-op in either shape (`{"kind":"noop"}` or a plan of no flows that drops every use case) is held to the same facts. */
-      const noopOf = (reason: string): AdmittedPlan => ({ kind: LEAD_PLAN_KIND.NOOP, reason, ...(admission.required.length > 0 ? { dropped: impliedNoopDrops(reason, admission.required) } : {}) });
-      let admitted = planned.noopReason !== undefined ? noopOf(planned.noopReason) : this.admit(input, planned.plan, parallel);
-      if (admitted.kind === PLAN_REJECTED) {
-        const corrected = await this.reask(input, planned.lead, admitted.downgrade, parallel, admitted.detail);
-        if (corrected.noopReason !== undefined) admitted = noopOf(corrected.noopReason);
-        else if (corrected.plan) admitted = corrected.plan;
-      }
+      if (planned.noSubmission !== undefined) this.record(input, { kind: "lead-decision", reason: `plan: ${planned.noSubmission}`.slice(0, 1_000) });
+      let admitted = this.admit(input, planned.plan, parallel);
       let coverage: PlanCoverage = { covered: [], dropped: [], unresolved: [] };
       if (admitted.kind === LEAD_PLAN_KIND.FANOUT || (admitted.kind === LEAD_PLAN_KIND.NOOP && admitted.dropped !== undefined)) {
         /* A plan is held to the facts once: a drop they contradict returns it to the lead with the fact; what the lead keeps after that is its decision. */
@@ -413,39 +409,6 @@ export class LeadSidekicks {
   }
 
   /*
-   * A plan the run cannot admit goes back to the lead in its open session, once, with the reason, the way a plan that leaves use
-   * cases unresolved does: the lead's answer is untrusted text and a wrong shape is a correctable slip, not a decision. A no-op or
-   * an admitted plan replaces it; anything else, a failed turn, or no session or time left keeps the first refusal. Never twice.
-   */
-  private async reask(input: CoordinateInput, lead: LeadSessionHandle | undefined, downgrade: string, parallel: number, detail?: string): Promise<{ plan?: AdmittedPlan; noopReason?: string }> {
-    if (!lead || input.signal?.aborted) return {};
-    const { settings } = input;
-    const left = this.allowance(input);
-    if (left !== undefined && left < settings.planBudgetMs + MIN_FLOW_MS) {
-      this.record(input, { kind: "lead-decision", reason: `plan: not admitted (${downgrade}) and too little of the run is left to ask the lead again` });
-      return {};
-    }
-    this.record(input, { kind: "lead-decision", answer: "plan", reason: `plan: not admitted (${downgrade}${detail ? `: ${detail}` : ""}); asking the lead once more with the reason`.slice(0, 1_000) });
-    let answered: Awaited<ReturnType<LeadSessionHandle["askForPlan"]>>;
-    try {
-      const request = assembleRejectedPlanRequest(downgrade, detail);
-      answered = await lead.askForPlan(request.text, planTurnOpts(request, settings.planBudgetMs, left));
-    } catch (err) {
-      if (isRunDeadlineError(err)) throw err;
-      this.record(input, { kind: "lead-decision", reason: `plan: the lead's corrected plan turn failed (${err instanceof Error ? err.message : String(err)}); the refusal stands` });
-      return {};
-    }
-    if (input.signal?.aborted) return {};
-    if (answered.noopReason !== undefined) return { noopReason: answered.noopReason };
-    const second = answered.plan !== undefined ? this.admit(input, answered.plan, parallel) : undefined;
-    if (second === undefined || second.kind === PLAN_REJECTED) {
-      this.record(input, { kind: "lead-decision", reason: `plan: the lead's corrected answer was not admitted (${second?.downgrade ?? PLAN_DOWNGRADE.NO_PLAN}); the refusal stands` });
-      return {};
-    }
-    return { plan: second };
-  }
-
-  /*
    * The one amendment turn: a plan, of flows or of none, that leaves use cases unresolved (a drop the facts contradict or the reader
    * could not read among them), names flows past the
    * run's capacity, or admits a flow too large for one author goes back to the lead in its open session, once (`MAX_PLAN_ROUNDS`),
@@ -489,6 +452,7 @@ export class LeadSidekicks {
       this.record(input, { kind: "lead-decision", reason: `plan: the lead's second plan turn failed (${err instanceof Error ? err.message : String(err)}); the first plan stands` });
       return stands;
     }
+    if (answered.noSubmission !== undefined) this.record(input, { kind: "lead-decision", reason: `plan: the amendment turn delivered no accepted plan (${answered.noSubmission})`.slice(0, 1_000) });
     if (input.signal?.aborted) return stands;
     const second = answered.plan !== undefined ? this.admit(input, answered.plan, parallel) : undefined;
     /* A plan of flows, or a plan that drops every use case, which the facts must now allow. */

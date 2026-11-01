@@ -2,6 +2,7 @@
 
 import type { OwnedSliceSize, UseCaseCandidate } from "./use-case-candidate.ts";
 import type { ChangedDecision } from "./changed-decision.ts";
+import type { SubmissionContract } from "./submission.ts";
 
 /* The shapes of the plan a lead emits when it is asked for one. */
 export const LEAD_PLAN_KIND = {
@@ -32,6 +33,8 @@ export interface PlanningLimits {
   candidateSlices?: Readonly<Record<string, OwnedSliceSize>>;
   /* The decisions on the changed lines of the run's own diff, from the static listing: the plan's diff shows the hunks holding one first. Absent: none was listed. */
   decisions?: readonly ChangedDecision[];
+  /* The contract the lead delivers its plan through: its submit tool, judged by the run's own admission. Required by the planning turn and by every turn that asks the lead for a plan again. */
+  submit?: SubmissionContract<Record<string, unknown>>;
 }
 
 export type { OwnedSliceSize };

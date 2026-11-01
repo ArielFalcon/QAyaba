@@ -1,6 +1,7 @@
 import { pageCandidate, pageCandidates } from "../../../support/use-case-candidate.ts";
 import { PLAN_DOWNGRADE, MIN_RUN_SPEC_DEV_WRITES_PER_FLOW } from "@contexts/coordination/application/lead-plan.ts";
 import { AUTHORING_REFUSAL } from "@kernel/coordination.ts";
+import { SUBMIT_TOOL } from "@kernel/submission.ts";
 import { UNREADABLE_ANSWER } from "@kernel/unreadable-answer.ts";
 import { CORRECTION_ORIGIN } from "@contexts/coordination/application/lead-correction.ts";
 import { test } from "node:test";
@@ -59,7 +60,7 @@ class FakeTimers implements TimerPort {
 }
 
 /* A lead that cannot be asked for a plan again. */
-const noPlanAnswer = async (): Promise<{ parsed: boolean; timedOut: boolean }> => ({ parsed: false, timedOut: false });
+const noPlanAnswer = async (): Promise<{ noSubmission: string; timedOut: boolean }> => ({ noSubmission: "no accepted submission", timedOut: false });
 
 const settle = (): Promise<void> => new Promise((r) => setImmediate(r));
 
@@ -210,7 +211,7 @@ function input(r: Rig, over: Partial<CoordinateInput> = {}): CoordinateInput {
     facts: { hasLogin: true },
     closedLoop: r.closedLoop,
     agentBrowser: r.agentBrowser,
-    plan: async () => ({ plan: FANOUT_PLAN, parsed: true, timedOut: false }),
+    plan: async () => ({ plan: FANOUT_PLAN, timedOut: false }),
     ...over,
   };
 }
@@ -226,7 +227,6 @@ function leadWith(answers: unknown[][], plan: Record<string, unknown> = FANOUT_P
     disposed: () => disposed,
     plan: async () => ({
       plan,
-      parsed: true,
       timedOut: false,
       lead: {
         askForPlan: noPlanAnswer,
@@ -245,7 +245,7 @@ function leadWith(answers: unknown[][], plan: Record<string, unknown> = FANOUT_P
 test("a generation that cannot plan, a login with no grant to author with and a run with too little time are refused with their own reason, before any session is opened", async () => {
   const r = rig();
   let asked = 0;
-  const plan = async (): Promise<PlanOutput> => { asked += 1; return { plan: FANOUT_PLAN, parsed: true, timedOut: false }; };
+  const plan = async (): Promise<PlanOutput> => { asked += 1; return { plan: FANOUT_PLAN, timedOut: false }; };
   const refusalOf = (result: Awaited<ReturnType<typeof r.coordinator.coordinate>>): string | undefined => (result.action === "refused" ? result.refusal : undefined);
 
   const noPlan = await r.coordinator.coordinate(input(r, { plan: undefined }));
@@ -267,7 +267,7 @@ test("with the authenticated browser, a plan is never asked for more flows at on
   const r = rig();
   const seen: PlanningLimits[] = [];
   const settings = { ...DEFAULT_COORDINATION_SETTINGS, maxParallel: MAX_SESSION_PAGES + 2 };
-  await r.coordinator.coordinate(input(r, { settings, plan: async (p) => (seen.push(p), { parsed: false, timedOut: true }) }));
+  await r.coordinator.coordinate(input(r, { settings, plan: async (p) => (seen.push(p), { timedOut: true }) }));
   assert.equal(seen[0]!.maxParallel, MAX_SESSION_PAGES);
 });
 
@@ -275,7 +275,7 @@ test("the planning turn is told the use cases the change makes testable, and tho
   const r = rig();
   const seen: PlanningLimits[] = [];
   const plan = { kind: "fanout", flows: [{ id: "cart", objective: "the cart total", routes: ["/cart"] }, { id: "login", objective: "sign in works", routes: ["/shops/madrid"] }] };
-  const outcome = await r.coordinator.coordinate(input(r, { candidates: pageCandidates(["/cart", "/shops/:city", "/orders"]), plan: async (p) => (seen.push(p), { plan, parsed: true, timedOut: false }) }));
+  const outcome = await r.coordinator.coordinate(input(r, { candidates: pageCandidates(["/cart", "/shops/:city", "/orders"]), plan: async (p) => (seen.push(p), { plan, timedOut: false }) }));
   if (outcome.action === "fanout") await outcome.pass?.release();
   assert.deepEqual(seen[0]?.candidates?.map((c) => c.id), ["uc-/cart", "uc-/shops/:city", "uc-/orders"]);
   const reported = r.events.filter((e) => /unplanned/.test(e.reason ?? ""));
@@ -293,7 +293,7 @@ test("a page the change reaches only through an operation it changed is a change
     reachability: "via-page", pages: ["/orders"], existingSpecs: [],
   };
   const plan = { kind: "fanout", flows: [{ id: "cart", objective: "the cart total", routes: ["/cart"] }] };
-  const outcome = await r.coordinator.coordinate(input(r, { candidates: [...pageCandidates(["/cart"]), operation], plan: async () => ({ plan, parsed: true, timedOut: false }) }));
+  const outcome = await r.coordinator.coordinate(input(r, { candidates: [...pageCandidates(["/cart"]), operation], plan: async () => ({ plan, timedOut: false }) }));
   if (outcome.action === "fanout") await outcome.pass?.release();
   const last = r.plans.at(-1)!;
   assert.deepEqual(last.changeRoutes, ["/cart", "/orders"]);
@@ -303,7 +303,7 @@ test("a page the change reaches only through an operation it changed is a change
 test("the run keeps the plan it admitted, the change pages each flow visits and how each flow ended", async () => {
   const r = rig({ hasFile: new Set(["cart"]) });
   const plan = { kind: "fanout", flows: [{ id: "cart", objective: "the cart total", acceptance: ["the total adds the lines"], routes: ["/cart"] }, { id: "login", objective: "sign in works", routes: ["/login"] }] };
-  const outcome = await r.coordinator.coordinate(input(r, { candidates: pageCandidates(["/cart", "/orders"]), plan: async () => ({ plan, parsed: true, timedOut: false }) }));
+  const outcome = await r.coordinator.coordinate(input(r, { candidates: pageCandidates(["/cart", "/orders"]), plan: async () => ({ plan, timedOut: false }) }));
   if (outcome.action === "fanout") await outcome.pass?.release();
   const last = r.plans.at(-1)!;
   assert.equal(last.runId, "run-1");
@@ -323,10 +323,10 @@ test("the run keeps the plan it admitted, the change pages each flow visits and 
 
 test("a plan that is a no-op or is rejected is kept with why", async () => {
   const noop = rig();
-  await noop.coordinator.coordinate(input(noop, { candidates: pageCandidates(["/cart"]), plan: async () => ({ parsed: true, timedOut: false, noopReason: "only a comment changed" }) }));
+  await noop.coordinator.coordinate(input(noop, { candidates: pageCandidates(["/cart"]), plan: async () => ({ plan: { kind: "noop", reason: "only a comment changed" }, timedOut: false }) }));
   assert.deepEqual(noop.plans.map((p) => [p.kind, p.reason, p.flows.length, p.unvisited, p.candidates]), [["noop", "only a comment changed", 0, ["/cart"], []]]);
   const lead = rig();
-  await lead.coordinator.coordinate(input(lead, { plan: async () => ({ plan: { kind: "lead" }, parsed: true, timedOut: false }) }));
+  await lead.coordinator.coordinate(input(lead, { plan: async () => ({ plan: { kind: "lead" }, timedOut: false }) }));
   assert.deepEqual(lead.plans.map((p) => [p.kind, p.reason]), [["rejected", PLAN_DOWNGRADE.MALFORMED]]);
 });
 
@@ -348,7 +348,7 @@ test("a plan of one flow opens exactly one sidekick session and the lead reviews
 
 test("a plan of kind lead is rejected as malformed and names no use case", async () => {
   const lead = rig();
-  const outcome = await lead.coordinator.coordinate(input(lead, { candidates: pageCandidates(["/cart"]), plan: async () => ({ plan: { kind: "lead" }, parsed: true, timedOut: false }) }));
+  const outcome = await lead.coordinator.coordinate(input(lead, { candidates: pageCandidates(["/cart"]), plan: async () => ({ plan: { kind: "lead" }, timedOut: false }) }));
   assert.equal(outcome.action === "refused" ? outcome.refusal : undefined, `${AUTHORING_REFUSAL.PLAN_REJECTED}:${PLAN_DOWNGRADE.MALFORMED}`);
   assert.equal(lead.events.filter((e) => /unplanned/.test(e.reason ?? "")).length, 0);
 });
@@ -374,7 +374,7 @@ test("the lead's review names the use cases no flow covers and those no flow cov
 test("a flow that names a candidate page by its template, whatever its parameters are called, covers it", async () => {
   const r = rig();
   const plan = { kind: "fanout", flows: [{ id: "detail", objective: "the detail page", routes: ["/shops/:province/:shopSlug"] }, { id: "menu", objective: "the menu page", routes: ["/shops/[province]/[slug]/menu"] }] };
-  const outcome = await r.coordinator.coordinate(input(r, { candidates: pageCandidates(["/shops/:province/:slug", "/shops/:province/:slug/menu", "/shops/:province"]), plan: async () => ({ plan, parsed: true, timedOut: false }) }));
+  const outcome = await r.coordinator.coordinate(input(r, { candidates: pageCandidates(["/shops/:province/:slug", "/shops/:province/:slug/menu", "/shops/:province"]), plan: async () => ({ plan, timedOut: false }) }));
   if (outcome.action === "fanout") await outcome.pass?.release();
   const reported = r.events.filter((e) => /unplanned/.test(e.reason ?? ""));
   assert.equal(reported.length, 1);
@@ -384,40 +384,42 @@ test("a flow that names a candidate page by its template, whatever its parameter
 test("the planning turn is given the limits the plan is held to, and one that ran out of time or gave neither plan nor reason is refused", async () => {
   const r = rig();
   const seen: PlanningLimits[] = [];
-  const timedOut = await r.coordinator.coordinate(input(r, { plan: async (p) => (seen.push(p), { parsed: false, timedOut: true }) }));
+  const timedOut = await r.coordinator.coordinate(input(r, { plan: async (p) => (seen.push(p), { timedOut: true }) }));
   assert.equal(timedOut.action === "refused" ? timedOut.refusal : undefined, AUTHORING_REFUSAL.PLAN_TIMED_OUT);
-  assert.deepEqual(seen[0], { maxParallel: DEFAULT_COORDINATION_SETTINGS.maxParallel, flowBudgetMs: DEFAULT_COORDINATION_SETTINGS.flowBudgetMs.opencode, budgetMs: DEFAULT_COORDINATION_SETTINGS.planBudgetMs });
-  const nothing = await r.coordinator.coordinate(input(r, { plan: async () => ({ parsed: true, timedOut: false }) }));
+  const { submit, ...limits } = seen[0]!;
+  assert.deepEqual(limits, { maxParallel: DEFAULT_COORDINATION_SETTINGS.maxParallel, flowBudgetMs: DEFAULT_COORDINATION_SETTINGS.flowBudgetMs.opencode, budgetMs: DEFAULT_COORDINATION_SETTINGS.planBudgetMs });
+  assert.equal(submit?.tool, SUBMIT_TOOL.PLAN, "the plan is delivered through the lead's plan contract");
+  const nothing = await r.coordinator.coordinate(input(r, { plan: async () => ({ timedOut: false }) }));
   assert.equal(nothing.action === "refused" ? nothing.refusal : undefined, `${AUTHORING_REFUSAL.PLAN_REJECTED}:${PLAN_DOWNGRADE.NO_PLAN}`);
   assert.equal(r.executed.length, 0);
 });
 
 test("a lead that declares a no-op, in the plan or beside it, ends the coordination with its reason and no sidekick", async () => {
   const r = rig();
-  const declared = await r.coordinator.coordinate(input(r, { plan: async () => ({ noopReason: "docs only", parsed: true, timedOut: false }) }));
+  const declared = await r.coordinator.coordinate(input(r, { plan: async () => ({ plan: { kind: "noop", reason: "docs only" }, timedOut: false }) }));
   assert.deepEqual([declared.action, declared.action === "noop" ? declared.reason : ""], ["noop", "docs only"]);
-  const inPlan = await r.coordinator.coordinate(input(r, { plan: async () => ({ plan: { kind: "noop", reason: "nothing user-visible" }, parsed: true, timedOut: false }) }));
+  const inPlan = await r.coordinator.coordinate(input(r, { plan: async () => ({ plan: { kind: "noop", reason: "nothing user-visible" }, timedOut: false }) }));
   assert.deepEqual([inPlan.action, inPlan.action === "noop" ? inPlan.reason : ""], ["noop", "nothing user-visible"]);
   assert.equal(r.created.length, 0);
 });
 
 test("a plan that cannot be admitted is refused with its reason on the signal", async () => {
   const r = rig();
-  const alone = await r.coordinator.coordinate(input(r, { plan: async () => ({ plan: { kind: "lead" }, parsed: true, timedOut: false }) }));
+  const alone = await r.coordinator.coordinate(input(r, { plan: async () => ({ plan: { kind: "lead" }, timedOut: false }) }));
   assert.equal(alone.action === "refused" ? alone.refusal : undefined, `${AUTHORING_REFUSAL.PLAN_REJECTED}:${PLAN_DOWNGRADE.MALFORMED}`);
   assert.equal(alone.signal.refusal, `${AUTHORING_REFUSAL.PLAN_REJECTED}:${PLAN_DOWNGRADE.MALFORMED}`);
-  const over = await r.coordinator.coordinate(input(r, { plan: async () => ({ plan: { kind: "fanout", flows: [] }, parsed: true, timedOut: false }) }));
+  const over = await r.coordinator.coordinate(input(r, { plan: async () => ({ plan: { kind: "fanout", flows: [] }, timedOut: false }) }));
   assert.equal(over.action === "refused" ? over.refusal : undefined, `${AUTHORING_REFUSAL.PLAN_REJECTED}:${PLAN_DOWNGRADE.EMPTY}`);
 });
 
 test("a plan of no flows whose use cases are all dropped with a reason is the lead's declared no-op, its reasons named; one with no reasoned drop is still refused", async () => {
   const r = rig();
   const dropped = [{ candidate: "uc-aaaa1111", basis: "already-covered", reason: "already proven by the existing spec flows/gate.spec.ts" }, { candidate: "uc-bbbb2222", basis: "needs-unavailable-state", reason: "not observable on the web build" }];
-  const declared = await r.coordinator.coordinate(input(r, { plan: async () => ({ plan: { kind: "fanout", flows: [], dropped }, parsed: true, timedOut: false }) }));
+  const declared = await r.coordinator.coordinate(input(r, { plan: async () => ({ plan: { kind: "fanout", flows: [], dropped }, timedOut: false }) }));
   assert.equal(declared.action, "noop");
   for (const drop of dropped) assert.ok(declared.action === "noop" && declared.reason.includes(drop.candidate) && declared.reason.includes(drop.reason), drop.candidate);
   assert.equal(r.created.length, 0);
-  const unreasoned = await r.coordinator.coordinate(input(r, { plan: async () => ({ plan: { kind: "fanout", flows: [], dropped: [{ candidate: "uc-aaaa1111" }] }, parsed: true, timedOut: false }) }));
+  const unreasoned = await r.coordinator.coordinate(input(r, { plan: async () => ({ plan: { kind: "fanout", flows: [], dropped: [{ candidate: "uc-aaaa1111" }] }, timedOut: false }) }));
   assert.equal(unreasoned.action === "refused" ? unreasoned.refusal : undefined, `${AUTHORING_REFUSAL.PLAN_REJECTED}:${PLAN_DOWNGRADE.EMPTY}`);
 });
 
@@ -514,7 +516,7 @@ test("no more flows are authored at once than the settings allow", async () => {
   const open = r.deps.sidekick.open;
   r.deps.sidekick.open = async (brief, opts) => { running += 1; peak = Math.max(peak, running); await new Promise((resolve) => setTimeout(resolve, 2)); try { return await open(brief, opts); } finally { running -= 1; } };
   const flows = ["a", "b", "c", "d"].map((id) => ({ id, objective: `flow ${id}` }));
-  await new LeadSidekicks(r.deps).coordinate(input(r, { plan: async () => ({ plan: { kind: "fanout", flows }, parsed: true, timedOut: false }), settings: { ...DEFAULT_COORDINATION_SETTINGS, maxParallel: 2 } }));
+  await new LeadSidekicks(r.deps).coordinate(input(r, { plan: async () => ({ plan: { kind: "fanout", flows }, timedOut: false }), settings: { ...DEFAULT_COORDINATION_SETTINGS, maxParallel: 2 } }));
   assert.equal(peak, 2);
 });
 
@@ -680,7 +682,7 @@ test("a flow that delivered nothing may be dropped by the lead with its reason, 
 test("a review that cannot be read, or that runs out of its time, leaves the flows as they are", async () => {
   for (const answer of [{ output: "looks fine to me", timedOut: false }, { output: "", timedOut: true }]) {
     const r = rig({ answers: { cart: [{ status: "failed", summary: "x", filesChanged: [] }] }, hasFile: new Set(["login"]) });
-    const plan = async (): Promise<PlanOutput> => ({ plan: FANOUT_PLAN, parsed: true, timedOut: false, lead: { askForPlan: noPlanAnswer, ask: async () => answer, dispose: async () => {} } });
+    const plan = async (): Promise<PlanOutput> => ({ plan: FANOUT_PLAN, timedOut: false, lead: { askForPlan: noPlanAnswer, ask: async () => answer, dispose: async () => {} } });
     const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan }));
     assert.equal(outcome.action === "fanout" ? outcome.aggregated.incompleteFlows.length : -1, 1);
     assert.equal(r.executed.length, 2, "nothing was asked again");
@@ -690,7 +692,7 @@ test("a review that cannot be read, or that runs out of its time, leaves the flo
 
 test("a review turn that fails leaves the flows as they are: what was delivered stays delivered", async () => {
   const r = rig();
-  const plan = async (): Promise<PlanOutput> => ({ plan: FANOUT_PLAN, parsed: true, timedOut: false, lead: { askForPlan: noPlanAnswer, ask: async () => { throw new Error("provider down"); }, dispose: async () => {} } });
+  const plan = async (): Promise<PlanOutput> => ({ plan: FANOUT_PLAN, timedOut: false, lead: { askForPlan: noPlanAnswer, ask: async () => { throw new Error("provider down"); }, dispose: async () => {} } });
   const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan }));
   if (outcome.action === "fanout") await outcome.pass?.release();
   assert.equal(outcome.action, "fanout");
@@ -773,7 +775,7 @@ test("the lead's session ends however the plan comes out: a no-op or a plan that
   for (const planned of [{ kind: "noop", reason: "nothing" }, { kind: "lead" }, { kind: "fanout", flows: [] }]) {
     let disposed = 0;
     const r = rig();
-    const plan = async (): Promise<PlanOutput> => ({ plan: planned, parsed: true, timedOut: false, lead: { askForPlan: noPlanAnswer, ask: async () => ({ output: "", timedOut: false }), dispose: async () => { disposed += 1; } } });
+    const plan = async (): Promise<PlanOutput> => ({ plan: planned, timedOut: false, lead: { askForPlan: noPlanAnswer, ask: async () => ({ output: "", timedOut: false }), dispose: async () => { disposed += 1; } } });
     await new LeadSidekicks(r.deps).coordinate(input(r, { plan }));
     assert.equal(disposed, 1, JSON.stringify(planned));
   }
@@ -945,7 +947,6 @@ test("a plan's location opens the flow there, the sidekick's task states it, and
   };
   const plan = async () => ({
     plan: { kind: "fanout", flows: [{ id: "cart", objective: "the cart", location: "barcelona" }, { id: "login", objective: "sign in" }] },
-    parsed: true,
     timedOut: false,
   });
   const outcome = await r.coordinator.coordinate(input(r, { geolocation, plan }));
@@ -1046,7 +1047,7 @@ test("each sidekick's brief carries the Live DOM of its own flow's pages from th
   const r = rig();
   const contextPack = [`### ${PACK_HEADINGS.liveDom}`, "route /cart:", "  button \"Checkout\"", "route /login:", "  textbox \"Email\""].join("\n");
   const plan = { kind: "fanout", flows: [{ id: "cart", objective: "the cart total", routes: ["/cart"] }, { id: "login", objective: "sign in works", routes: ["/nowhere"] }] };
-  await r.coordinator.coordinate(input(r, { contextPack, plan: async () => ({ plan, parsed: true, timedOut: false }) }));
+  await r.coordinator.coordinate(input(r, { contextPack, plan: async () => ({ plan, timedOut: false }) }));
   const brief = (flow: string) => r.executed.find((e) => e.brief.delegationId === `run-1-flow-${flow}`)!.brief;
   assert.ok(brief("cart").pages?.includes("button \"Checkout\""));
   assert.ok(!brief("cart").pages?.includes("Email"));
@@ -1058,12 +1059,12 @@ test("each sidekick's brief carries the run's harness facts and the specs the su
   const harnessFacts = { fixtures: { file: "fixtures.ts", exports: ["test", "expect"] } };
   const existingSpecs = ["flows/home.spec.ts — flow: home, objective: landing"];
   const withFacts = rig();
-  await withFacts.coordinator.coordinate(input(withFacts, { harnessFacts, existingSpecs, plan: async () => ({ plan, parsed: true, timedOut: false }) }));
+  await withFacts.coordinator.coordinate(input(withFacts, { harnessFacts, existingSpecs, plan: async () => ({ plan, timedOut: false }) }));
   const brief = withFacts.executed.find((e) => e.brief.delegationId === "run-1-flow-cart")!.brief;
   assert.deepEqual(brief.harnessFacts, harnessFacts);
   assert.deepEqual(brief.suite, existingSpecs);
   const bare = rig();
-  await bare.coordinator.coordinate(input(bare, { plan: async () => ({ plan, parsed: true, timedOut: false }) }));
+  await bare.coordinator.coordinate(input(bare, { plan: async () => ({ plan, timedOut: false }) }));
   const bareBrief = bare.executed.find((e) => e.brief.delegationId === "run-1-flow-cart")!.brief;
   assert.equal(bareBrief.harnessFacts, undefined);
   assert.equal(bareBrief.suite, undefined);
@@ -1077,7 +1078,7 @@ test("each sidekick's brief carries the evidence for the candidate pages its flo
   ];
   const confirmedDataRoutes = [{ path: "/shops/madrid", resultCount: 3 }, { path: "/orders", resultCount: 2 }];
   const plan = { kind: "fanout", flows: [{ id: "shops", objective: "the shop list", routes: ["/shops/madrid"] }, { id: "login", objective: "sign in works", routes: ["/login"] }] };
-  await r.coordinator.coordinate(input(r, { candidates, confirmedDataRoutes, plan: async () => ({ plan, parsed: true, timedOut: false }) }));
+  await r.coordinator.coordinate(input(r, { candidates, confirmedDataRoutes, plan: async () => ({ plan, timedOut: false }) }));
   const brief = (flow: string) => r.executed.find((e) => e.brief.delegationId === `run-1-flow-${flow}`)!.brief;
   assert.deepEqual(brief("shops").candidates?.map((c) => c.evidence), [["src/util/format.ts::formatMoney", "src/shops/list.page.ts::ShopList", "page /shops/:city"]]);
   assert.equal(brief("login").candidates, undefined, "a flow that visits no candidate page carries none");
@@ -1093,7 +1094,7 @@ test("a lesson reaches the brief of the flow whose pages it names and no other, 
   ];
   const plan = { kind: "fanout", flows: [{ id: "shops", objective: "the shop list", routes: ["/shops/madrid"] }, { id: "login", objective: "sign in works", routes: ["/login"] }] };
   const r = rig();
-  const outcome = await r.coordinator.coordinate(input(r, { lessons, plan: async () => ({ plan, parsed: true, timedOut: false }) }));
+  const outcome = await r.coordinator.coordinate(input(r, { lessons, plan: async () => ({ plan, timedOut: false }) }));
   const brief = (flow: string) => r.executed.find((e) => e.brief.delegationId === `run-1-flow-${flow}`)!.brief;
   assert.deepEqual(brief("shops").knownFacts.map((f) => [f.kind, f.dataRef]), [["lesson", "/shops/:city"]]);
   assert.match(brief("shops").knownFacts[0]!.summary, /read it with results 2 time\(s\) and as a confirmed empty state 1 time\(s\)/);
@@ -1107,7 +1108,7 @@ test("a lesson is delivered only when the brief the sidekick was opened on went 
   const lessons = [{ kind: "data-volatility", scope: "/shops/:city", withResults: 2, emptyConfirmed: 1, latestReadAt: "2026-10-30T10:00:00.000Z" }];
   const plan = { kind: "fanout", flows: [{ id: "shops", objective: "the shop list", routes: ["/shops/madrid"] }] };
   const r = rig({ answers: { shops: [{ throws: new Error("the runtime refused the session") }] } });
-  const outcome = await r.coordinator.coordinate(input(r, { lessons, plan: async () => ({ plan, parsed: true, timedOut: false }) }));
+  const outcome = await r.coordinator.coordinate(input(r, { lessons, plan: async () => ({ plan, timedOut: false }) }));
   assert.equal(r.executed.length, 1, "the open was attempted on a brief that states the lesson");
   assert.deepEqual(r.executed[0]!.brief.knownFacts.map((f) => f.kind), ["lesson"]);
   assert.equal(outcome.action, "fanout");
@@ -1122,7 +1123,7 @@ test("a lesson the author's window gave way to a count was not delivered: delive
   const run = async (windowTokens: number) => {
     const r = rig();
     r.coordinator = new LeadSidekicks({ ...r.deps, contextBudget: new ContextBudget({ windowTokens: () => windowTokens }, noRoom) });
-    const outcome = await r.coordinator.coordinate(input(r, { lessons, existingSpecs, plan: async () => ({ plan, parsed: true, timedOut: false }) }));
+    const outcome = await r.coordinator.coordinate(input(r, { lessons, existingSpecs, plan: async () => ({ plan, timedOut: false }) }));
     if (outcome.action === "fanout") await outcome.pass?.release();
     const sent = r.executed[0];
     const stated = sent ? assembleSidekickBrief(r.deps.redaction, sent.brief, sent.opts.fit).text.includes(sent.brief.knownFacts.find((f) => f.kind === "lesson")!.summary) : undefined;
@@ -1151,7 +1152,7 @@ test("the delivery of a lesson is decided from the brief rendered for the send: 
     const memory = memoryLogger();
     installProcessLogger(memory);
     try {
-      const outcome = await r.coordinator.coordinate(input(r, { lessons, existingSpecs, plan: async () => ({ plan, parsed: true, timedOut: false }) }));
+      const outcome = await r.coordinator.coordinate(input(r, { lessons, existingSpecs, plan: async () => ({ plan, timedOut: false }) }));
       if (outcome.action === "fanout") await outcome.pass?.release();
       return { r, degraded: memory.entries.filter((e) => /section 'lessons' degraded/.test(e.message)).length };
     } finally {
@@ -1176,7 +1177,7 @@ test("a flow's pages are named by pathname wherever the lessons compare or recor
   const lessons = [{ kind: "data-volatility", scope: "/search", withResults: 2, emptyConfirmed: 1, latestReadAt: "2026-10-30T10:00:00.000Z" }];
   const plan = { kind: "fanout", flows: [{ id: "search", objective: "the search", routes: ["/search?q=madrid&token=abc123secret#top", "/shops/madrid?session=abc123secret"] }] };
   const r = rig({ hasFile: new Set(["search"]) });
-  const outcome = await r.coordinator.coordinate(input(r, { lessons, plan: async () => ({ plan, parsed: true, timedOut: false }) }));
+  const outcome = await r.coordinator.coordinate(input(r, { lessons, plan: async () => ({ plan, timedOut: false }) }));
   assert.equal(outcome.action, "fanout");
   if (outcome.action !== "fanout") return;
   assert.deepEqual(r.executed[0]!.brief.knownFacts.map((f) => [f.kind, f.dataRef]), [["lesson", "/search"]], "a lesson on /search reaches the flow whose route carries a query");
@@ -1212,7 +1213,7 @@ test("the signal states the settled failure points the flows' run_spec calls met
 test("a run with no lessons builds the same briefs and records no delivery, as before", async () => {
   const plan = { kind: "fanout", flows: [{ id: "shops", objective: "the shop list", routes: ["/shops/madrid"] }] };
   const r = rig();
-  const outcome = await r.coordinator.coordinate(input(r, { confirmedDataRoutes: [{ path: "/shops/madrid", resultCount: 3 }], plan: async () => ({ plan, parsed: true, timedOut: false }) }));
+  const outcome = await r.coordinator.coordinate(input(r, { confirmedDataRoutes: [{ path: "/shops/madrid", resultCount: 3 }], plan: async () => ({ plan, timedOut: false }) }));
   const facts = r.executed.find((e) => e.brief.delegationId === "run-1-flow-shops")!.brief.knownFacts;
   assert.deepEqual(facts.map((f) => f.kind), ["grounding"]);
   assert.equal(outcome.action === "fanout" && outcome.signal.lessonsDelivered, undefined);
@@ -1226,7 +1227,7 @@ test("a flow's brief preloads its changed code while it fits the author's window
   const briefWith = async (windowTokens: number | undefined) => {
     const r = rig();
     r.coordinator = new LeadSidekicks({ ...r.deps, contextBudget: windowed(windowTokens) });
-    const outcome = await r.coordinator.coordinate(input(r, { candidates, change: { diffs: [diff(6)] }, plan: async () => ({ plan, parsed: true, timedOut: false }) }));
+    const outcome = await r.coordinator.coordinate(input(r, { candidates, change: { diffs: [diff(6)] }, plan: async () => ({ plan, timedOut: false }) }));
     if (outcome.action === "fanout") await outcome.pass?.release();
     return r.executed.find((e) => e.brief.delegationId === "run-1-flow-cart")!;
   };
@@ -1246,7 +1247,7 @@ test("a flow's brief over the author's window gives its suite listing up to the 
   const run = async (windowTokens: number) => {
     const r = rig();
     r.coordinator = new LeadSidekicks({ ...r.deps, contextBudget: new ContextBudget({ windowTokens: () => windowTokens }, noRoom) });
-    const outcome = await r.coordinator.coordinate(input(r, { existingSpecs, plan: async () => ({ plan, parsed: true, timedOut: false }) }));
+    const outcome = await r.coordinator.coordinate(input(r, { existingSpecs, plan: async () => ({ plan, timedOut: false }) }));
     if (outcome.action === "fanout") await outcome.pass?.release();
     return r.executed.find((e) => e.brief.delegationId === "run-1-flow-cart");
   };
@@ -1265,7 +1266,7 @@ test("every flow of a large plan gets its loop and the calls its own time can ru
     const r = rig({ hasFile: new Set() });
     const devWritesCap = r.closedLoop.limits.maxDevWrites;
     const flows = Array.from({ length: count }, (_, i) => ({ id: `f${i}`, objective: `flow ${i}` }));
-    const outcome = await r.coordinator.coordinate(input(r, { plan: async () => ({ plan: planOf(flows), parsed: true, timedOut: false }) }));
+    const outcome = await r.coordinator.coordinate(input(r, { plan: async () => ({ plan: planOf(flows), timedOut: false }) }));
     if (outcome.action === "fanout") await outcome.pass?.release();
     return { r, devWritesCap };
   };
@@ -1290,7 +1291,7 @@ test("a flow whose brief is over the author's known window even with all its cha
   const run = async (windowTokens: number) => {
     const r = rig();
     r.coordinator = new LeadSidekicks({ ...r.deps, contextBudget: new ContextBudget({ windowTokens: () => windowTokens }, noRoom) });
-    const outcome = await r.coordinator.coordinate(input(r, { candidates, change: { diffs: [diff] }, plan: async () => ({ plan, parsed: true, timedOut: false }) }));
+    const outcome = await r.coordinator.coordinate(input(r, { candidates, change: { diffs: [diff] }, plan: async () => ({ plan, timedOut: false }) }));
     if (outcome.action === "fanout") await outcome.pass?.release();
     return { r, outcome };
   };
@@ -1332,7 +1333,6 @@ function leadAnswering(outputs: string[]): { plan: CoordinateInput["plan"]; aske
     disposed: () => disposed,
     plan: async () => ({
       plan: FANOUT_PLAN,
-      parsed: true,
       timedOut: false,
       lead: {
         askForPlan: noPlanAnswer,
@@ -1436,7 +1436,7 @@ test("a run stopped while a kept sidekick session answers a revision closes that
 test("an order the lead gave in its review that the run has no room left to carry out is on the record and counted, never dropped in silence", async () => {
   let left = 3_600_000;
   const plan: CoordinateInput["plan"] = async () => ({
-    plan: FANOUT_PLAN, parsed: true, timedOut: false,
+    plan: FANOUT_PLAN, timedOut: false,
     lead: {
       askForPlan: noPlanAnswer,
       ask: async () => {
@@ -1475,7 +1475,7 @@ test("findings the lead sends to a flow when too little of the run is left for i
   const outputs = [ACCEPT_ALL, JSON.stringify({ corrections: [{ flow: "cart", action: "revise", instruction: "assert the total" }] })];
   let turn = 0;
   const plan: CoordinateInput["plan"] = async () => ({
-    plan: FANOUT_PLAN, parsed: true, timedOut: false,
+    plan: FANOUT_PLAN, timedOut: false,
     lead: {
       askForPlan: noPlanAnswer,
       ask: async () => {
@@ -1700,13 +1700,12 @@ function leadReplanning(first: Record<string, unknown>, again: Array<Record<stri
     reviews,
     plan: async () => ({
       plan: first,
-      parsed: true,
       timedOut: false,
       lead: {
         askForPlan: async (text: string) => {
           replans.push(text);
           const plan = again[Math.min(replans.length - 1, again.length - 1)];
-          return { parsed: plan !== undefined, timedOut: false, ...(plan ? { plan } : {}) };
+          return { timedOut: false, ...(plan ? { plan } : { noSubmission: "no accepted submission" }) };
         },
         /* It accepts the flows the review shows it, and only those. */
         ask: async (text: string) => { reviews.push(text); return { output: JSON.stringify({ review: [...text.matchAll(/### Flow `([^`]+)`/g)].map((m) => ({ flow: m[1], action: "accept" })) }), timedOut: false }; },
@@ -1844,7 +1843,7 @@ test("a flow's brief carries the use cases it cites with the changed code, and t
   const diff = ["diff --git a/src/cart.ts b/src/cart.ts", "--- a/src/cart.ts", "+++ b/src/cart.ts", "@@ -3,2 +3,3 @@", " keep", "+const total = 1;", " keep"].join("\n");
   const candidates = [pageCandidate("/cart", ["src/cart.ts::total", "page /cart"], { seeds: [{ file: "src/cart.ts", symbol: "total", range: { start: 1, end: 9 } }] }), pageCandidate("/login")];
   const plan = planOf([{ ...cartFlow, candidates: ["uc-/cart"] }, { ...loginFlow, routes: [] }]);
-  const outcome = await r.coordinator.coordinate(input(r, { candidates, change: { diffs: [diff], subject: "feat(cart): total" }, plan: async () => ({ plan, parsed: true, timedOut: false }) }));
+  const outcome = await r.coordinator.coordinate(input(r, { candidates, change: { diffs: [diff], subject: "feat(cart): total" }, plan: async () => ({ plan, timedOut: false }) }));
   if (outcome.action === "fanout") await outcome.pass?.release();
   const brief = (flow: string) => r.executed.find((e) => e.brief.delegationId === `run-1-flow-${flow}`)!.brief;
   assert.deepEqual(brief("cart").candidates?.map((c) => c.id), ["uc-/cart"]);
@@ -1862,7 +1861,7 @@ test("the change's decision listing reaches the planning turn and the brief of t
   const candidates = [pageCandidate("/cart", ["src/cart.ts::total", "page /cart"], { seeds: [{ file: "src/cart.ts", symbol: "total", range: { start: 1, end: 9 } }] })];
   const seen: PlanningLimits[] = [];
   const plan = planOf([{ ...cartFlow, candidates: ["uc-/cart"] }]);
-  const outcome = await r.coordinator.coordinate(input(r, { candidates, change: { diffs: [diff], decisions }, plan: async (p) => (seen.push(p), { plan, parsed: true, timedOut: false }) }));
+  const outcome = await r.coordinator.coordinate(input(r, { candidates, change: { diffs: [diff], decisions }, plan: async (p) => (seen.push(p), { plan, timedOut: false }) }));
   if (outcome.action === "fanout") await outcome.pass?.release();
   assert.deepEqual(seen[0]!.decisions, decisions);
   const brief = r.executed.find((e) => e.brief.delegationId === "run-1-flow-cart")!.brief;
@@ -1875,34 +1874,29 @@ test("a flow's briefs carry no candidates when the run derived none", async () =
   assert.ok(r.executed.every((e) => !("candidates" in e.brief)));
 });
 
-test("a plan that cannot be admitted goes back to the lead once with the reason; an admissible answer is planned, another is refused with the first reason", async () => {
-  const leadAnswering = (second: Record<string, unknown>) => {
-    const asked: string[] = [];
-    const lead = {
-      ask: async () => ({ output: "", timedOut: false }),
-      askForPlan: async (text: string) => { asked.push(text); return { ...second, parsed: true, timedOut: false }; },
-      dispose: async () => {},
-    };
-    return { asked, plan: async (): Promise<PlanOutput> => ({ plan: { kind: "fanout", flows: [] }, parsed: true, timedOut: false, lead }) };
-  };
-
-  const fixed = leadAnswering({ plan: FANOUT_PLAN });
+test("the plan contract refuses inside the planning turn what the admission cannot read, naming where, and accepts what only the run's time would refuse", async () => {
   const r = rig();
-  const planned = await r.coordinator.coordinate(input(r, { plan: fixed.plan }));
-  assert.equal(planned.action, "fanout");
-  if (planned.action === "fanout") await planned.pass?.release();
-  assert.equal(fixed.asked.length, 1);
-  assert.ok(fixed.asked[0]!.includes(PLAN_DOWNGRADE.EMPTY), "the lead is told why its plan was not admitted");
+  const seen: PlanningLimits[] = [];
+  await r.coordinator.coordinate(input(r, { plan: async (p) => (seen.push(p), { timedOut: true }) }));
+  const contract = seen[0]!.submit!;
+  const errorsOf = (answer: Record<string, unknown>) => {
+    const checked = contract.check(answer);
+    return checked.ok ? [] : checked.errors;
+  };
+  assert.match(errorsOf({ kind: "lead" })[0]!.reason, /not one of the plan shapes/);
+  assert.match(errorsOf({ kind: "fanout", flows: [] })[0]!.reason, /fan-out with no flow/);
+  assert.match(errorsOf({ kind: "fanout", flows: [{ id: "cart", objective: "a" }, { id: "cart", objective: "b" }] })[0]!.reason, /same id/);
+  assert.equal(contract.check(FANOUT_PLAN).ok, true);
+  assert.equal(contract.check({ kind: "noop", reason: "docs only" }).ok, true);
+});
 
-  const declined = leadAnswering({ noopReason: "the suite already proves it" });
-  const noop = await rig().coordinator.coordinate(input(rig(), { plan: declined.plan }));
-  assert.deepEqual([noop.action, noop.action === "noop" ? noop.reason : ""], ["noop", "the suite already proves it"]);
-
-  const again = leadAnswering({ plan: { kind: "lead" } });
-  const r3 = rig();
-  const refused = await r3.coordinator.coordinate(input(r3, { plan: again.plan }));
-  assert.equal(refused.action === "refused" ? refused.refusal : undefined, `${AUTHORING_REFUSAL.PLAN_REJECTED}:${PLAN_DOWNGRADE.EMPTY}`);
-  assert.equal(again.asked.length, 1, "once, never twice");
+test("a planning turn that delivered no accepted plan, continuation included, refuses the run and records why", async () => {
+  const r = rig();
+  const reason = "no accepted submission (the turn stopped; the continuation delivered none either)";
+  const outcome = await r.coordinator.coordinate(input(r, { plan: async () => ({ noSubmission: reason, timedOut: false }) }));
+  assert.equal(outcome.action === "refused" ? outcome.refusal : undefined, `${AUTHORING_REFUSAL.PLAN_REJECTED}:${PLAN_DOWNGRADE.NO_PLAN}`);
+  assert.ok(r.events.some((e) => e.kind === "lead-decision" && (e.reason ?? "").includes(reason)), "why the plan is missing is a fact of the run");
+  assert.equal(r.executed.length, 0);
 });
 
 const NO_ORDERS = JSON.stringify({ corrections: [] });
@@ -2042,7 +2036,6 @@ function leadCiting(outputs: string[], plan: Record<string, unknown>, second?: R
     replans,
     plan: async () => ({
       plan,
-      parsed: true,
       timedOut: false,
       lead: {
         askForPlan: async (text: string) => { replans.push(text); return { ...(second ?? {}), parsed: second !== undefined, timedOut: false }; },
@@ -2277,13 +2270,13 @@ test("a drop of a use case whose pages made requests while the run captured them
   assert.equal(unasked.replans.length, 0, "a pack that recorded no request on its pages holds the drop to nothing more");
 });
 
-test("the explicit no-op shape is held to the same facts: asked once with the fact, then honored and recorded", async () => {
+test("a plan of no flows that drops every use case on the basis nothing changed is held to the facts once, and what it keeps is honored and recorded", async () => {
   const asked: string[] = [];
+  const dropping = (reason: string) => ({ kind: "fanout", flows: [], dropped: [{ candidate: "uc-/cart", basis: "no-observable-change", reason }] });
   const plan: CoordinateInput["plan"] = async () => ({
-    noopReason: "a refactor, nothing observable",
-    parsed: true,
+    plan: dropping("a refactor, nothing observable"),
     timedOut: false,
-    lead: { askForPlan: async (text: string) => { asked.push(text); return { noopReason: "still a refactor", parsed: true, timedOut: false }; }, ask: async () => ({ output: "", timedOut: false }), dispose: async () => {} },
+    lead: { askForPlan: async (text: string) => { asked.push(text); return { plan: dropping("still a refactor"), timedOut: false }; }, ask: async () => ({ output: "", timedOut: false }), dispose: async () => {} },
   });
   const r = rig();
   const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan, closedLoop: undefined, candidates: [SEEDED[0]!] }));
@@ -2293,7 +2286,7 @@ test("the explicit no-op shape is held to the same facts: asked once with the fa
   assert.deepEqual(outcome.signal.dropsContradicted?.map((c) => c.candidate), ["uc-/cart"]);
 
   const style = rig();
-  const plain = await new LeadSidekicks(style.deps).coordinate(input(style, { plan: async () => ({ noopReason: "docs only", parsed: true, timedOut: false }), candidates: [seededPage("/cart", "src/cart.css")] }));
+  const plain = await new LeadSidekicks(style.deps).coordinate(input(style, { plan: async () => ({ plan: { kind: "noop", reason: "docs only" }, timedOut: false }), candidates: [seededPage("/cart", "src/cart.css")] }));
   assert.equal(plain.action, "noop");
   assert.equal(plain.signal.dropsContradicted, undefined);
 });
@@ -2436,13 +2429,13 @@ test("the flows are admitted under the time the deadline allots to generation, s
   const r = rig();
   const seen: PlanningLimits[] = [];
   const settings = { ...DEFAULT_COORDINATION_SETTINGS, maxParallel: 2, flowBudgetMs: { opencode: 6 * 60_000 } };
-  await r.coordinator.coordinate(input(r, { settings, deadline, plan: async (p) => (seen.push(p), { parsed: false, timedOut: true }) }));
+  await r.coordinator.coordinate(input(r, { settings, deadline, plan: async (p) => (seen.push(p), { timedOut: true }) }));
   /* 40 - 25 = 15 minutes for generation, 3 of them for the plan: 12 minutes of 6-minute flows is 2 waves of 2. */
   assert.equal(seen[0]!.capacity, 4);
   t = 20 * 60_000;
   const later = rig();
   const seenLater: PlanningLimits[] = [];
-  await later.coordinator.coordinate(input(later, { settings, deadline, plan: async (p) => (seenLater.push(p), { parsed: false, timedOut: true }) }));
+  await later.coordinator.coordinate(input(later, { settings, deadline, plan: async (p) => (seenLater.push(p), { timedOut: true }) }));
   assert.equal(seenLater.length, 0, "20 minutes in, generation has 5 left less the plan's 3: too little to plan in parallel, whatever the review is owed");
 });
 
@@ -2451,12 +2444,12 @@ test("the planning turn is told the run's capacity from its time and parallel fl
   const seen: PlanningLimits[] = [];
   /* 48 min allotted, 3 for the plan: 45 min of 10 min flows is 4 waves of 2. */
   const settings = { ...DEFAULT_COORDINATION_SETTINGS, maxParallel: 2, flowBudgetMs: { opencode: 10 * 60_000 } };
-  await r.coordinator.coordinate(input(r, { settings, deadline: { allowance: () => 48 * 60_000 }, candidates: SEEDED, change: { diffs: [diffOf({ "src/cart.ts": 3, "src/login.ts": 1 })] }, plan: async (p) => (seen.push(p), { parsed: false, timedOut: true }) }));
+  await r.coordinator.coordinate(input(r, { settings, deadline: { allowance: () => 48 * 60_000 }, candidates: SEEDED, change: { diffs: [diffOf({ "src/cart.ts": 3, "src/login.ts": 1 })] }, plan: async (p) => (seen.push(p), { timedOut: true }) }));
   assert.equal(seen[0]!.capacity, 8);
   assert.deepEqual(seen[0]!.candidateSlices?.["uc-/cart"], { hunks: 1, added: 3, removed: 1 });
   assert.deepEqual(seen[0]!.candidateSlices?.["uc-/orders"], { hunks: 0, added: 0, removed: 0 });
   const ceiling: PlanningLimits[] = [];
-  await rig().coordinator.coordinate(input(r, { settings: { ...settings, maxFlows: 3 }, deadline: { allowance: () => 48 * 60_000 }, plan: async (p) => (ceiling.push(p), { parsed: false, timedOut: true }) }));
+  await rig().coordinator.coordinate(input(r, { settings: { ...settings, maxFlows: 3 }, deadline: { allowance: () => 48 * 60_000 }, plan: async (p) => (ceiling.push(p), { timedOut: true }) }));
   assert.equal(ceiling[0]!.capacity, 3, "the app's ceiling bounds it");
 });
 
@@ -2575,7 +2568,7 @@ function timedPass(outputs: string[], spend: number | "to-timeout", overshootMs 
   const timeouts: number[] = [];
   const limits: Array<string | undefined> = [];
   const plan: CoordinateInput["plan"] = async () => ({
-    plan: FANOUT_PLAN, parsed: true, timedOut: false,
+    plan: FANOUT_PLAN, timedOut: false,
     lead: {
       askForPlan: noPlanAnswer,
       ask: async (text: string, opts: LeadTurnOpts) => {
@@ -2674,7 +2667,7 @@ test("a fast lead turn with ample room is handed the plan budget and is routed a
 test("findings dropped for lack of time are logged and summarised under the same time code, never as no flow having taken them", async () => {
   let left = 3_600_000;
   const plan: CoordinateInput["plan"] = async () => ({
-    plan: FANOUT_PLAN, parsed: true, timedOut: false,
+    plan: FANOUT_PLAN, timedOut: false,
     lead: {
       askForPlan: noPlanAnswer,
       ask: async () => {
@@ -2790,7 +2783,7 @@ test("a flow whose sidekick overruns the share it is allotted ends that flow alo
   };
   const r = rig();
   r.deps.sidekick = new SidekickExecutor({ redaction: new PatternRedactionAdapter(), runtime: new RunDeadlineRuntime(inner as never, deadline) }) as never;
-  const onePlan = async () => ({ plan: { kind: "fanout", flows: [{ id: "cart", objective: "the cart total" }] }, parsed: true, timedOut: false });
+  const onePlan = async () => ({ plan: { kind: "fanout", flows: [{ id: "cart", objective: "the cart total" }] }, timedOut: false });
   const done = await new LeadSidekicks(r.deps).coordinate(input(r, { plan: onePlan as never, deadline }));
   assert.equal(done.action, "fanout", "the end of a share is a timeout of that flow, not the end of the run");
   if (done.action === "fanout") {

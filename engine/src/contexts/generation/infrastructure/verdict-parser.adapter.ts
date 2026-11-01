@@ -41,8 +41,6 @@ interface ParsedVerdict {
   noopReason?: string;
   /* The kind the no-op names, `unspecified` when it names none. */
   noopKind?: NoopKind;
-  /* The plan the verdict carries, forwarded untouched: it is the orchestrator's admission that judges it. */
-  plan?: Record<string, unknown>;
   /* The generator's typed test-correct claim, forwarded after sanitizing/bounding its reason. */
   testCorrect?: { cause: "env" | "app"; reason: string };
   /* The findings the generator disputes, forwarded so the run can check each one's basis. */
@@ -96,7 +94,6 @@ export class VerdictParserAdapter implements VerdictParserPort {
       ...(v.note ? { note: v.note } : {}),
       ...(noopReason ? { noopReason, ...(v.noopKind ? { noopKind: v.noopKind } : {}) } : {}),
       ...(outputTail ? { outputTail } : {}),
-      ...(v.plan ? { plan: v.plan } : {}),
       ...(v.testCorrect && testCorrectReason ? { testCorrect: { cause: v.testCorrect.cause, reason: testCorrectReason } } : {}),
       ...(bounded.length ? { rebuttals: bounded } : {}),
       ...(v.specMetas ? { specMetas: v.specMetas.map((meta) => ({ ...meta, file: resolve(meta.file) })) } : {}),

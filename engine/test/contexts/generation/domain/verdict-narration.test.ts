@@ -28,10 +28,10 @@ test("parseVerdict reads the author's specs after narration with an unbalanced b
   assert.deepEqual(v.specs, ["e2e/login.spec.ts"]);
 });
 
-test("parseVerdict reads the lead's plan after narration with an unbalanced brace", () => {
+test("a plan is no part of the generator's verdict: the lead delivers it through its submit tool", () => {
   const v = parseVerdict(`${NARRATION}{"plan":{"flows":[]}}`);
-  assert.equal(v.parsed, true);
-  assert.deepEqual(v.plan, { flows: [] });
+  assert.equal(v.parsed, false);
+  assert.equal("plan" in v, false);
 });
 
 test("parseVerdict takes the closing block, not an earlier one", () => {

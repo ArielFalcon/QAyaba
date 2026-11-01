@@ -984,7 +984,7 @@ test("author() puts the author's limit from the resolver on every input it build
 test("plan() puts the lead's limit from the resolver on the input of the planning turn", async () => {
   const inputs: OpencodeRunInput[] = [];
   const asked: StepLimitRole[] = [];
-  const planning = { ...recordingUseCase(inputs), plan: async (input: OpencodeRunInput) => { inputs.push(input); return { parsed: true, timedOut: false }; } } as unknown as GenerateTestsUseCase;
+  const planning = { ...recordingUseCase(inputs), plan: async (input: OpencodeRunInput) => { inputs.push(input); return { timedOut: false }; } } as unknown as GenerateTestsUseCase;
   const adapter = new GenerationTurnsAdapter(planning, { ...STATIC_CONTEXT }, { stepLimitFor: resolverAsking(asked) });
 
   await adapter.plan("/mirrors/org/app/e2e", undefined, undefined, { planning: { budgetMs: 1000 } as never });
@@ -1265,7 +1265,7 @@ test("plan() hands the use case the input a first pass has, with the limits of t
   const useCase = Object.assign(new GenerateTestsUseCase(fakeAuthoringPorts()), {
     plan: async (input: OpencodeRunInput) => {
       seen.push(input);
-      return { plan: { kind: "single" }, parsed: true, timedOut: false };
+      return { plan: { kind: "single" }, timedOut: false };
     },
   });
   const adapter = new GenerationTurnsAdapter(useCase, { ...STATIC_CONTEXT, guidance: "cover the cart" });
@@ -1289,14 +1289,14 @@ test("plan() refuses a call that carries no limits for the plan, before any sess
   assert.equal(opened, false);
 });
 
-test("plan() forwards a plan turn that ran out of time and one that gave a no-op", async () => {
-  const outcomes = [{ parsed: false, timedOut: true }, { noopReason: "docs only", parsed: true, timedOut: false }] as const;
+test("plan() forwards a plan turn that ran out of time and one that delivered no accepted plan", async () => {
+  const outcomes = [{ timedOut: true }, { noSubmission: "no accepted submission (it stopped)", timedOut: false }] as const;
   for (const outcome of outcomes) {
     const useCase = Object.assign(new GenerateTestsUseCase(fakeAuthoringPorts()), { plan: async () => outcome });
     const adapter = new GenerationTurnsAdapter(useCase, { ...STATIC_CONTEXT});
     const result = await adapter.plan("/mirrors/org/app/e2e", undefined, "diff", { sha: "abc1234", planning: { capacity: 3, maxParallel: 2, budgetMs: 60_000 } });
     assert.equal(result.timedOut, outcome.timedOut);
-    assert.equal(result.noopReason, "noopReason" in outcome ? outcome.noopReason : undefined);
+    assert.equal(result.noSubmission, "noSubmission" in outcome ? outcome.noSubmission : undefined);
   }
 });
 
