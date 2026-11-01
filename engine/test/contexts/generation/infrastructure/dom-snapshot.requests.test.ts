@@ -6,16 +6,19 @@ import type { RouteSnapshot } from "@contexts/generation/domain/route-snapshot.t
 import { MAX_LOGGED_PATH_CHARS, MAX_LOGGED_REQUESTS } from "@kernel/observed-requests.ts";
 import { REDACTED } from "@kernel/ports/redaction.port.ts";
 import { createRunSecretScope, withRunSecretScope } from "../../../../src/shared-kernel/run-secret-redaction.ts";
+import { RequestLog } from "@contexts/test-execution/domain/agent-browser-request-log.ts";
+import { createRouteGuard } from "@contexts/test-execution/domain/agent-browser-route-guard.ts";
 import { sharedTestExec } from "../../../support/exec-sandbox-harness.ts";
 
 const SECRET = "hunter2-account-password";
+const DECLARED = ["http://dev.example", "https://maps.example"];
 
 /* What the capture script printed for one route, read back as the orchestrator reads it. */
-async function readBack(lines: unknown[], inRun?: () => ReturnType<typeof createRunSecretScope>): Promise<RouteSnapshot[]> {
+async function readBack(lines: unknown[], inRun?: () => ReturnType<typeof createRunSecretScope>, origins: readonly string[] = DECLARED): Promise<RouteSnapshot[]> {
   const exec = sharedTestExec();
   const script = exec.writeScript("echo-capture.cjs", `process.stdout.write(${JSON.stringify(lines.map((line) => JSON.stringify(line)).join("\n"))});`);
   const wrapped = { ...exec, writeScript: () => script, spawn: (_cmd: string, _args: readonly string[], o: Parameters<typeof exec.spawn>[2]) => exec.spawn(process.execPath, [script], o) };
-  const render = (): Promise<RouteSnapshot[]> => createCaptureDomDeps(wrapped).render(process.cwd(), "http://dev.example", ["/"]);
+  const render = (): Promise<RouteSnapshot[]> => createCaptureDomDeps(wrapped, undefined, undefined, undefined, undefined, origins).render(process.cwd(), "http://dev.example", ["/"]);
   return inRun ? withRunSecretScope(inRun(), render) : render();
 }
 
@@ -23,8 +26,28 @@ test("a route's requests are read back as method, origin and path with a count, 
   const [snap] = await readBack([{ route: "/", yaml: "", requests: [{ method: "get", url: "https://maps.example/styles/v1/owner/id?access=x#top", count: 2 }, { method: "POST", url: "http://dev.example/api/orders", count: 1, failed: true }] }]);
   assert.deepEqual(snap?.requests, {
     listed: [{ method: "GET", url: "https://maps.example/styles/v1/owner/id", count: 2 }, { method: "POST", url: "http://dev.example/api/orders", count: 1, blocked: true }],
+    otherHosts: [],
     omitted: 0,
   });
+});
+
+test("a request to a host the run does not declare is only counted for its host, never listed", async () => {
+  const [snap] = await readBack([{ route: "/", yaml: "", requests: [
+    { method: "POST", url: "https://o1.ingest.sentry.example/api/1/envelope?key=k", count: 2, failed: true },
+    { method: "GET", url: "https://events.maps.example/events/v2", count: 1, failed: true },
+    { method: "POST", url: "https://o1.ingest.sentry.example/api/1/other", count: 1 },
+    { method: "GET", url: "http://dev.example/api/shops", count: 1 },
+  ] }]);
+  assert.deepEqual(snap?.requests, {
+    listed: [{ method: "GET", url: "http://dev.example/api/shops", count: 1 }],
+    otherHosts: [{ host: "o1.ingest.sentry.example", count: 3 }, { host: "events.maps.example", count: 1 }],
+    omitted: 0,
+  });
+});
+
+test("a page whose only requests went to undeclared hosts still reports them, counted by host", async () => {
+  const [snap] = await readBack([{ route: "/", yaml: "", requests: [{ method: "GET", url: "https://tracker.example/p.gif", count: 4 }] }]);
+  assert.deepEqual(snap?.requests, { listed: [], otherHosts: [{ host: "tracker.example", count: 4 }], omitted: 0 });
 });
 
 test("an entry that is no request of the network is not read back", async () => {
@@ -59,8 +82,28 @@ test("a run's secret in a request's path is taken out where the capture's output
   assert.ok(JSON.stringify(snap?.requests).includes(REDACTED));
 });
 
+test("the capture and the authenticated browser's log keep and count the same requests of a set of addresses", async () => {
+  const origins = ["http://dev.example", "https://maps.example", "https://*.cdn.example", "http://dev.example:8080"];
+  const urls = [
+    "http://dev.example/api/a",
+    "https://dev.example/api/secure",
+    "http://dev.example:8080/api/b",
+    "http://dev.example:9090/api/c",
+    "https://maps.example/styles/v1/o/id",
+    "https://tiles.cdn.example/t/1.png",
+    "https://cdn.example/root.png",
+    "https://o1.ingest.sentry.example/api/1/envelope",
+    "https://events.maps.example/events/v2",
+  ];
+  const log = new RequestLog(createRouteGuard({ origins, denyRoutes: [], allowMutating: [] }).originRole);
+  for (const url of urls) log.record({ method: "GET", url }, { allow: true });
+  const [snap] = await readBack([{ route: "/", yaml: "", requests: urls.map((url) => ({ method: "GET", url, count: 1 })) }], undefined, origins);
+  assert.deepEqual(snap?.requests, log.drain());
+  assert.deepEqual(snap?.requests?.otherHosts.map((h) => h.host), ["dev.example", "dev.example:9090", "cdn.example", "o1.ingest.sentry.example", "events.maps.example"]);
+});
+
 test("the pages a capture reports to its caller carry the requests their snapshots hold", async () => {
-  const snap: RouteSnapshot = { route: "/map", nodes: ["heading: Map"], requests: { listed: [{ method: "GET", url: "https://maps.example/styles/v1/o/id", count: 1 }], omitted: 0 } };
+  const snap: RouteSnapshot = { route: "/map", nodes: ["heading: Map"], requests: { listed: [{ method: "GET", url: "https://maps.example/styles/v1/o/id", count: 1 }], otherHosts: [], omitted: 0 } };
   const reported: CapturedPage[] = [];
   await captureDomForRoutes(["/map"], { e2eDir: "/e2e", baseUrl: "http://dev.example", onPages: (pages) => reported.push(...pages) }, { render: async () => [snap] });
   assert.deepEqual(reported[0]?.requests, snap.requests);

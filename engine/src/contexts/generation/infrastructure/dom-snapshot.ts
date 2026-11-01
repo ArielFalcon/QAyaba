@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { redactByValue } from "../../../shared-kernel/run-secret-redaction.ts";
 import { PRODUCER_MEMORY_BOUND_CHARS } from "../../../shared-kernel/redact-then-bound.ts";
 import { boundProducerText } from "../../../shared-infrastructure/redaction/redact-and-bound.ts";
-import { MAX_LOGGED_REQUESTS, RequestLedger, boundedAddress, requestAddress, type ObservedRequest } from "@kernel/observed-requests.ts";
+import { MAX_LOGGED_REQUESTS, RequestLedger, boundedAddress, requestAddress, requestOriginClassifier, type RequestOriginRole } from "@kernel/observed-requests.ts";
 import type { ExecSandboxPort } from "../../../shared-infrastructure/process-sandbox/exec-sandbox.ts";
 import { ProcessKillAdapter } from "../../../shared-infrastructure/process-sandbox/process-kill.adapter.ts";
 import { BoundedWholeOutput } from "../../../shared-kernel/process-sandbox/bounded-whole-output.ts";
@@ -751,20 +751,21 @@ function repeatedFrom(value: unknown): RepeatedName[] | undefined {
  * The requests the script reported for a route, read through the kernel ledger so they are kept and bounded as the authenticated browser's
  * are: a request is method + origin + pathname whatever the script sent (a query or fragment it left on is dropped), a method that is not
  * a token, an address that is not http(s) or a count that is not a whole number is not believed, and past the ledger's bounds a new
- * distinct request is only counted. `omitted` adds what the script itself left out. Undefined when nothing was reported.
+ * distinct request is only counted. A request to an origin the run does not declare is only counted for its host (`originRole`). `omitted` adds what the script itself left out. Undefined when nothing was reported.
  */
-function requestsFrom(value: unknown, scriptOmitted: unknown): PageRequests | undefined {
+function requestsFrom(value: unknown, scriptOmitted: unknown, originRole: (url: string) => RequestOriginRole): PageRequests | undefined {
   const ledger = new RequestLedger();
   for (const entry of Array.isArray(value) ? value : []) {
     const { method, url, count, failed } = (entry ?? {}) as { method?: unknown; url?: unknown; count?: unknown; failed?: unknown };
     if (typeof method !== "string" || !/^[A-Za-z]{1,16}$/.test(method) || typeof url !== "string" || !Number.isInteger(count) || (count as number) < 1) continue;
     const address = requestAddress(url);
     if (address === undefined || (address.protocol !== "http:" && address.protocol !== "https:")) continue;
-    ledger.addListed(method.toUpperCase(), address.address, failed === true, count as number);
+    if (originRole(url) === "counted-by-host") ledger.addHost(address.host, count as number);
+    else ledger.addListed(method.toUpperCase(), address.address, failed === true, count as number);
   }
   if (Number.isInteger(scriptOmitted) && (scriptOmitted as number) > 0) ledger.addOmitted(scriptOmitted as number);
-  const { listed, omitted } = ledger.drain();
-  return listed.length === 0 && omitted === 0 ? undefined : { listed, omitted };
+  const requests = ledger.drain();
+  return requests.listed.length === 0 && requests.otherHosts.length === 0 && requests.omitted === 0 ? undefined : requests;
 }
 
 /* A name of a field the capture keeps: letters, digits and the few marks field names use, no space, no control character, none of the other. */
@@ -891,10 +892,12 @@ export function createCaptureDomDeps(
   observer?: DomCaptureObserver,
   geolocation?: { latitude: number; longitude: number },
   dataState?: CaptureDataState,
+  origins: readonly string[] = [],
 ): CaptureDomDeps {
   if (!exec) {
     throw new Error("[qa] createCaptureDomDeps requires an execution launcher — there is no safe default (the capture loads a package from the agent-writable e2e project).");
   }
+  const originRole = requestOriginClassifier(origins);
   return {
     ...(geolocation ? { geolocation } : {}),
     ...(dataState ? { dataState } : {}),
@@ -989,7 +992,7 @@ export function createCaptureDomDeps(
               const captureAttempts = captureAttemptsOf(r.captureAttempts);
               if (captureAttempts !== undefined) snap.captureAttempts = captureAttempts;
               Object.assign(snap, navigationFactsOf(r));
-              const requests = requestsFrom(r.requests, r.requestsOmitted);
+              const requests = requestsFrom(r.requests, r.requestsOmitted, originRole);
               if (requests !== undefined) snap.requests = requests;
               const shapes = shapesFrom(r.shapes, r.shapesOmitted);
               if (shapes !== undefined) snap.shapes = shapes;

@@ -8,9 +8,9 @@ import { PACK_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
 const STYLE = "https://maps.example/styles/v1/owner/theme-a";
 
 const lines = requestsSectionLines([
-  { route: "/map", requests: { listed: [{ method: "GET", url: STYLE, count: 1 }, { method: "POST", url: "https://dev.example/api/orders", count: 3, blocked: true }], omitted: 0 } },
-  { route: "/shops/madrid", template: "/shops/:city", requests: { listed: [{ method: "GET", url: "https://dev.example/api/shops", count: 2 }], omitted: 4 } },
-  { route: "/quiet", requests: { listed: [], omitted: 0 } },
+  { route: "/map", requests: { listed: [{ method: "GET", url: STYLE, count: 1 }, { method: "POST", url: "https://dev.example/api/orders", count: 3, blocked: true }], otherHosts: [], omitted: 0 } },
+  { route: "/shops/madrid", template: "/shops/:city", requests: { listed: [{ method: "GET", url: "https://dev.example/api/shops", count: 2 }], otherHosts: [], omitted: 4 } },
+  { route: "/quiet", requests: { listed: [], otherHosts: [], omitted: 0 } },
 ]);
 
 test("each page's requests are listed one fact per request, with the count and whether it completed", () => {
@@ -25,7 +25,7 @@ test("what the capture's bounds left out is stated for the page, and a page that
 });
 
 test("no page that made a request, no fact", () => {
-  assert.deepEqual(requestsSectionLines([{ route: "/quiet", requests: { listed: [], omitted: 0 } }]), []);
+  assert.deepEqual(requestsSectionLines([{ route: "/quiet", requests: { listed: [], otherHosts: [], omitted: 0 } }]), []);
   assert.deepEqual(requestsSectionLines([]), []);
 });
 
@@ -72,4 +72,25 @@ test("the requests a pack recorded for pages are read back, by address or by tem
   assert.deepEqual(recordedRequestsFor(pack, ["/cart", "/nowhere"]), []);
   assert.deepEqual(recordedRequestsFor(undefined, ["/map"]), []);
   assert.deepEqual(recordedRequestsFor(`### ${PACK_HEADINGS.liveDom}\nroute /map:\n  heading "Map"`, ["/map"]), []);
+});
+
+const hostsLines = requestsSectionLines([
+  { route: "/map", requests: { listed: [{ method: "GET", url: STYLE, count: 1 }], otherHosts: [{ host: "sentry.example", count: 3 }, { host: "events.maps.example", count: 1 }], omitted: 0 } },
+  { route: "/blocked-only", requests: { listed: [], otherHosts: [{ host: "sentry.example", count: 2 }], omitted: 0 } },
+]);
+const hostsPack = [`### ${PACK_HEADINGS.liveDom}`, "route /map:", "route /blocked-only:", "", `### ${PACK_HEADINGS.requests} ${REQUESTS_SECTION_INTRO}`, ...hostsLines].join("\n");
+
+test("the requests to other hosts are one line of the page counting them per host", () => {
+  const line = hostsLines.find((l) => l.startsWith("- /map: (")) ?? "";
+  assert.ok(line.includes("sentry.example ×3") && line.includes("events.maps.example ×1"), line);
+  assert.equal(hostsLines.filter((l) => l.startsWith("- /map:")).length, 2, "one request fact and one host line");
+});
+
+test("the host-count line is no recorded request, so a page whose only requests went to other hosts records none", () => {
+  assert.deepEqual(recordedRequestsFor(hostsPack, ["/map"]), [`GET ${STYLE}`]);
+  assert.deepEqual(recordedRequestsFor(hostsPack, ["/blocked-only"]), []);
+});
+
+test("a flow's slice of the pack still carries the host-count line of its page", () => {
+  assert.ok(packPagesFor(hostsPack, ["/blocked-only"])!.includes("sentry.example ×2"));
 });

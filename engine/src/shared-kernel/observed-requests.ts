@@ -7,6 +7,7 @@
  */
 
 import { cutAddress, withoutPartialValue } from "./address-cut.ts";
+import { compileEgressPolicy } from "./egress-policy.ts";
 import { redactByValue } from "./run-secret-redaction.ts";
 
 /* A request the page made, as method + origin + pathname (no query, fragment, body, headers, cookies or userinfo), with how many times. */
@@ -52,6 +53,33 @@ export function requestAddress(url: string): { origin: string; address: string; 
   } catch {
     return undefined;
   }
+}
+
+const NETWORK_SCHEME: Readonly<Record<string, "http:" | "https:">> = { "http:": "http:", "https:": "https:", "ws:": "http:", "wss:": "https:" };
+
+/* The scheme a request travels over the network by (a web socket by its http twin), or undefined when it reaches no network the run could declare. */
+export function networkSchemeOf(protocol: string): "http:" | "https:" | undefined {
+  return NETWORK_SCHEME[protocol];
+}
+
+/* Whether an observer lists a request or only counts its host: listed when its origin is one the run declares, counted by host otherwise (a host the egress filter refuses, the app's blocked origins included, or an address that reaches no declared network). */
+export type RequestOriginRole = "listed" | "counted-by-host";
+
+/* The one rule every observer of a page's requests applies, from the origins the run declares (`resolveRunOrigins(app).dev`): the egress filter's own match of host and port. */
+export function requestOriginClassifier(origins: readonly string[]): (url: string) => RequestOriginRole {
+  const policy = compileEgressPolicy(origins);
+  return (url) => {
+    let parsed: URL;
+    try {
+      parsed = new URL(url);
+    } catch {
+      return "counted-by-host";
+    }
+    const scheme = networkSchemeOf(parsed.protocol);
+    if (scheme === undefined) return "counted-by-host";
+    const port = parsed.port !== "" ? Number(parsed.port) : scheme === "https:" ? 443 : 80;
+    return policy.allows(parsed.hostname, port) ? "listed" : "counted-by-host";
+  };
 }
 
 interface Listed {

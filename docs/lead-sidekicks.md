@@ -71,7 +71,8 @@ signed-in app (see below); without either, no sidekick can author and the run en
    typed basis and a reason (`dropped`; `DROP_BASIS`: `no-observable-change`, `already-covered`, `needs-unavailable-state`). The orchestrator holds the basis
    to the facts it has (`dropRefusal`, `plan-coverage.ts`): `no-observable-change` is refused when a seed of the candidate is
    executable code of a declared language (`LanguageRegistry`, a test file excluded) or when the candidate's pages made data requests
-   while the run's capture read them (the Context Pack's `Requests the pages made` section, read back by `recordedRequestsFor`; the
+   while the run's capture read them (the Context Pack's `Requests the pages made` section, read back by `recordedRequestsFor`; requests
+   to hosts the run does not declare are only counted per host in that section and are no such request; the
    refusal names the first three), `already-covered` when no spec of the suite
    is linked to the candidate; a drop with no basis of the set, or a refused one, leaves the candidate unresolved and goes back
    to the lead in the one amendment turn with the fact that contradicts it. The fact is a signal, not proof (a refactor, a

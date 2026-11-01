@@ -285,7 +285,7 @@ export class PlaywrightAgentBrowserHost implements AgentBrowserHostPort {
     } finally {
       this.creatingPage = false;
     }
-    const entry: PageEntry = { page, lastGoodUrl: undefined, blocked: [], requests: new RequestLog(), notes: [], status: undefined };
+    const entry: PageEntry = { page, lastGoodUrl: undefined, blocked: [], requests: new RequestLog((url) => this.deps.guard.originRole(url)), notes: [], status: undefined };
     page.on("response", (response) => {
       if (response.request().isNavigationRequest() && response.frame() === page.mainFrame()) entry.status = response.status();
     });
