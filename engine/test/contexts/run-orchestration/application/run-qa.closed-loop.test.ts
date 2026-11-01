@@ -367,8 +367,8 @@ test("the single change-coverage regeneration still runs when the loop is closed
 /* ── A gap regeneration stands only on an execution of the bytes it accepted, never on a run_spec proof ──────────────────────── */
 
 const ARMS = [
-  { file: "src/a.ts", line: 3, kind: "if", arm: "else" },
-  { file: "src/a.ts", line: 7, kind: "logical", arm: "right of || evaluated" },
+  { file: "src/a.ts", line: 3, column: 0, kind: "if", arm: "else" },
+  { file: "src/a.ts", line: 7, column: 0, kind: "logical", arm: "right of || evaluated" },
 ];
 const SURVIVOR_SITE = {
   file: "src/a.ts",

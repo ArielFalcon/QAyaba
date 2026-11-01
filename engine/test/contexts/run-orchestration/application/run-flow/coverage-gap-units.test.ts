@@ -6,7 +6,7 @@ import { flowOfFinding } from "@contexts/coordination/application/lead-correctio
 import { pageCandidate } from "../../../../support/use-case-candidate.ts";
 
 const seeded = (route: string, file: string) => pageCandidate(route, undefined, { seeds: [{ file, symbol: "*" }] });
-const arm = (file: string, line: number) => ({ file, line, kind: "if", arm: "else" });
+const arm = (file: string, line: number, column = 2) => ({ file, line, column, kind: "if", arm: "else" });
 
 test("each unit of the gap names the changed file it is about, and an arm its line", () => {
   const units = gapUnits([{ file: "src/a.ts", lines: [3, 4] }], [arm("src/b.ts", 9)], []);
@@ -51,4 +51,15 @@ test("a unit about a file several flows hold goes to the flow whose spec's tests
   ];
   assert.deepEqual(units.map((u) => flowOfFinding(u.finding, flows)), ["login", "login", "cart"], "a file no spec is recorded as running keeps the plan's order");
   assert.deepEqual(units.map((u) => u.finding.ranBy), [["flows/login.spec.ts"], ["flows/login.spec.ts"], undefined]);
+});
+
+test("a decision with several untaken arms is one unit that names them all, and two decisions of one line never give the same text", () => {
+  const sw = (armLabel: string) => ({ file: "src/a.ts", line: 8, column: 2, kind: "switch", arm: armLabel });
+  const fallback = (column: number) => ({ file: "src/a.ts", line: 9, column, kind: "logical", arm: "right of ?? evaluated" });
+  const units = gapUnits([], [sw("case 'open'"), sw("default"), fallback(10), fallback(25)], []);
+
+  assert.equal(units.length, 3);
+  assert.ok(units[0]!.text.includes("case 'open'") && units[0]!.text.includes("default"));
+  assert.equal(new Set(units.map((u) => u.text)).size, 3);
+  assert.deepEqual(units.map((u) => [u.finding.file, u.finding.line]), [["src/a.ts", 8], ["src/a.ts", 9], ["src/a.ts", 9]]);
 });

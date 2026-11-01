@@ -12,7 +12,7 @@ export interface ChangeCoverage {
   /* The arms of the decisions on changed lines, and how many ran; null when no decision was seen on a changed line. A signal beside the line ratio: it never decides the status. */
   branches: { changedBranches: number; takenBranches: number; ratio: number } | null;
   /* The arms on changed lines that never ran, in file and line order. */
-  untakenArms?: { file: string; line: number; kind: string; arm: string }[];
+  untakenArms?: { file: string; line: number; column: number; kind: string; arm: string }[];
   /* The changed lines a loaded script holds no code for (imports, types, comments): neither counted nor uncovered. Absent when the collector cannot tell code from the rest. */
   notExecutable?: { file: string; lines: number[] }[];
   /* The changed files no loaded script maps: their added lines of code (every non-blank one when the language declares no statement syntax) are counted, and uncovered. */

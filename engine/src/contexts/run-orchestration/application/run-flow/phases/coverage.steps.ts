@@ -8,7 +8,7 @@ import { hasGreenBytes } from "@kernel/run-verdict.ts";
 import { isAllotmentSpentError } from "@kernel/run-deadline.ts";
 import type { DeadlinePurpose } from "@kernel/deadline-purpose.ts";
 import type { GenerationEnrichment } from "@contexts/generation/application/index.ts";
-import { changedCodeFiles, isReadTrouble, renderBranchGap, renderCoverageGap, renderSurvivedMutants, rerunEstimateMs, rerunFits, survivorClosureOf, survivorFindings, survivorRechecks, testOfCase, testSupportFiles, unreachableByDesign, type BundleMutationResult, type CoverageExclusions, type CoverageMeasurement, type CoverageSignal, type CoverageSource, type MeasuredPages, type MutantRerun, type RerunBudget, type SurvivedMutant, type SurvivorClosure } from "@contexts/objective-signal/application/index.ts";
+import { changedCodeFiles, isReadTrouble, renderBranchGap, renderCoverageGap, renderSurvivedMutants, renderUntakenDecision, untakenDecisions, rerunEstimateMs, rerunFits, survivorClosureOf, survivorFindings, survivorRechecks, testOfCase, testSupportFiles, unreachableByDesign, type BundleMutationResult, type CoverageExclusions, type CoverageMeasurement, type CoverageSignal, type CoverageSource, type MeasuredPages, type MutantRerun, type RerunBudget, type SurvivedMutant, type SurvivorClosure } from "@contexts/objective-signal/application/index.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import type { StepOutcome } from "../run-flow.ts";
 import type { RunContext, WorkspaceRunContext } from "../run-context.ts";
@@ -620,7 +620,7 @@ function groupBy<T>(items: readonly T[], key: (item: T) => string): Map<string, 
 }
 
 /*
- * The gap as separate units, one per file with uncovered changed lines and one per decision arm no test ran: the lead routes findings
+ * The gap as separate units, one per file with uncovered changed lines and one per decision (with the arms of it no test ran): the lead routes findings
  * by number, so each number must name one unit it can hand to a flow, and each unit names its file so the orchestrator can route it by
  * the use case that file seeds, and the spec files whose tests ran that file (`ranBy`, from the dumps the measurement read), which settle
  * the flow of a file several flows hold. Every unit is kept: files are listed across use cases and arms across files, so what comes first
@@ -639,10 +639,10 @@ export function gapUnits(uncovered: CoverageOutcome["uncovered"], arms: Coverage
       const text = renderCoverageGap([u], candidates);
       return { text, finding: { text, file: u.file, ...ran(u.file) } };
     }),
-    ...interleave(groupBy(arms, (u) => u.file)).map((u) => {
+    ...interleave(groupBy(untakenDecisions(arms), (d) => d.file)).map((u) => {
       const pages = onEmptyPages.find((a) => a.file === u.file && a.line === u.line)?.pages ?? [];
-      const empty = pages.length > 0 ? ` (on ${pages.join(", ")}, which DEV served as a confirmed empty state: the data that takes this arm may be what DEV lacks there)` : "";
-      const text = `decision arm on a changed line that NO test ran: ${u.file}:${u.line} ${u.kind}: ${u.arm}${empty}`;
+      const empty = pages.length > 0 ? ` (on ${pages.join(", ")}, which DEV served as a confirmed empty state: the data that takes ${u.arms.length === 1 ? "this arm" : "these arms"} may be what DEV lacks there)` : "";
+      const text = `decision on a changed line with ${u.arms.length === 1 ? "an arm" : "arms"} that NO test ran: ${renderUntakenDecision(u)}${empty}`;
       return { text, finding: { text, file: u.file, line: u.line, ...ran(u.file) } };
     }),
   ];

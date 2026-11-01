@@ -1149,7 +1149,10 @@ that catches nothing. The objective signal that breaks the circle is **change-co
   implicit else, `?:`, `&&`/`||`/`??`, switch clauses) are placed through the same maps, and an arm is
   taken when V8's block counts say it ran. The arms on changed lines go on the coverage span
   (`qayaba.coverage.changed_branches`/`taken_branches`) and `gateSignals.branchCoverage`; the ones that
-  never ran join the enforce regeneration's gap. A happy-path suite shows a high line ratio and a low
+  never ran join the enforce regeneration's gap. A decision is identified by its file, line, column and
+  kind (`BranchHit`), and an untaken arm carries that identity (`UntakenArm.column`): the gap's unit is the
+  decision with the arms of it no test ran (`untakenDecisions`), so two decisions of one line never read alike
+  and the arms of one decision are one finding. A happy-path suite shows a high line ratio and a low
   branch one.
 - **Verified coverage**: what a killed mutant made run, a test checked, so it counts as covered. The dumps of a
   killed mutant's re-run (only those of the spec files whose tests failed) are read with its edit undone

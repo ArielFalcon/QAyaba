@@ -9226,8 +9226,8 @@ test("the fix_loop phase span says what made the triage re-read a failure and wh
 /* ── The branch cases: one regeneration from the arms of the changed code no test ran, in signal mode too ── */
 
 const ARMS = [
-  { file: "src/a.ts", line: 3, kind: "if", arm: "else" },
-  { file: "src/a.ts", line: 7, kind: "logical", arm: "right of || evaluated" },
+  { file: "src/a.ts", line: 3, column: 0, kind: "if", arm: "else" },
+  { file: "src/a.ts", line: 7, column: 0, kind: "logical", arm: "right of || evaluated" },
 ];
 
 test("signal mode: a green run with arms no test ran regenerates once with those arms as the missing cases, recounts the coverage from the dumps on disk and records both counts", async () => {
@@ -9255,7 +9255,7 @@ test("signal mode: a green run with arms no test ran regenerates once with those
 
     assert.equal(out.decision.sideEffect, "pr", "the branch cases never block");
     assert.equal(turns.length, 2, "the first pass and one regeneration");
-    assert.ok(turns[1]!.includes("src/a.ts:3 if: else") && turns[1]!.includes("src/a.ts:7 logical: right of || evaluated"), "the regeneration is given the arms");
+    assert.ok(turns[1]!.includes("src/a.ts:3:1 if: else") && turns[1]!.includes("src/a.ts:7:1 logical: right of || evaluated"), "the regeneration is given the arms");
     assert.ok(!turns[1]!.includes("all changed lines are covered"), "an arms-only gap says nothing of the lines");
     assert.deepEqual(recounts, [[true, [{ namespace: `${acceptanceNamespace("branch-cases-signal", 0)}-measure`, specFiles: ["a.spec.ts"] }], { caseFiles: ["a.spec.ts"] }]], "the kept file is read from its own measurement execution, told the passing spec files the recounted dumps belong to");
     assert.deepEqual(savedOutcomes.at(-1)!.gateSignals.branchCases, { outcome: "accepted", armsBefore: 2, armsAfter: 1, kept: 1, restored: 0 });

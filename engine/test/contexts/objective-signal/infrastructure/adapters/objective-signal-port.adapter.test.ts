@@ -434,7 +434,7 @@ test("measure() reports the branches on the changed lines and the arms that neve
   assert.equal(result.status, "pass");
   assert.equal(result.measurement?.changedBranches, 2);
   assert.equal(result.measurement?.takenBranches, 1);
-  assert.deepEqual(result.untakenArms, [{ file: "src/checkout.ts", line: 1, kind: "if", arm: "else" }]);
+  assert.deepEqual(result.untakenArms, [{ file: "src/checkout.ts", line: 1, column: 0, kind: "if", arm: "else" }]);
 });
 
 test("measure() hands the mutants on the changed lines to the mutation oracle, with the spec files that reached them, and reports what it found", async () => {
@@ -654,7 +654,7 @@ test("recount() measures the change again over the dumps of the sources it is gi
   assert.equal(result?.status, "pass");
   assert.equal(result?.ratio, 1);
   assert.deepEqual(result?.uncovered, []);
-  assert.deepEqual(result?.untakenArms, [{ file: "src/checkout.ts", line: 2, kind: "if", arm: "else" }]);
+  assert.deepEqual(result?.untakenArms, [{ file: "src/checkout.ts", line: 2, column: 0, kind: "if", arm: "else" }]);
   assert.equal(result?.measurement?.changedBranches, 2);
 });
 

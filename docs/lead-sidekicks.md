@@ -418,7 +418,7 @@ the sidekick's instruction (`CORRECTION_ORIGIN`, `lead-correction.ts`):
 | `pre-exec` | one per selector contradiction, citing the spec it was attributed to when only one was |
 | `static-gate` | one per error block the gate reported (each names its file) |
 | `execution` | one per failing case of the fix loop, citing its spec |
-| `coverage` | one per file with uncovered change lines and one per decision arm no test ran (every one, listed across use cases and files), each naming its changed file, citing no spec |
+| `coverage` | one per file with uncovered change lines and one per decision with arms no test ran (a decision is identified by file, line, column and kind and carries all its untaken arms; every one, listed across use cases and files), each naming its changed file, citing no spec |
 
 These are facts the run observed: the lead is not offered a rebuttal, and one it gives anyway is not taken. What no flow takes
 gets a maintenance flow or stays unrouted, as above, and is not regenerated; the turn's findings are told apart by their position, never by their text, and

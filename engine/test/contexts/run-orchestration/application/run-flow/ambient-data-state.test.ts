@@ -8,7 +8,7 @@ import type { AmbientDataPin } from "@kernel/page-data-read.ts";
 import { pageCandidate } from "../../../../support/use-case-candidate.ts";
 
 const PIN: AmbientDataPin = { file: "flows/listing.spec.ts", test: "listing › renders the empty listing", pages: ["/listing/madrid"] };
-const arm = (file: string, line: number) => ({ file, line, kind: "if", arm: "then" });
+const arm = (file: string, line: number) => ({ file, line, column: 0, kind: "if", arm: "then" });
 const seeded = (route: string, file: string) => pageCandidate(route, undefined, { seeds: [{ file, symbol: "render" }] });
 
 test("an untaken arm whose file seeds a use case on a pinned page is attributed to that page, and one on no pinned page is not", () => {

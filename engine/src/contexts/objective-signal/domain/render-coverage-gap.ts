@@ -4,6 +4,8 @@ import type { ObservedDifference } from "@kernel/observed-difference.ts";
 import type { UseCaseCandidate } from "@kernel/use-case-candidate.ts";
 import { entryKey } from "@kernel/change-reach.ts";
 import { candidateSeeds } from "@kernel/change-map.ts";
+import type { UntakenArm } from "./objective-signal.ts";
+import { renderUntakenDecision, untakenDecisions } from "./untaken-decisions.ts";
 
 type Uncovered = { file: string; lines: number[] }[];
 
@@ -63,12 +65,10 @@ export function renderCoverageGap(uncovered: Uncovered, candidates: readonly Use
   return `changed lines NOT exercised by any test:\n${lines.join("\n")}`;
 }
 
-type Untaken = { file: string; line: number; kind: string; arm: string }[];
-
-/* Renders the arms on changed lines no test ran, for a coverage or branch-case regeneration; empty when every arm ran. */
-export function renderBranchGap(untaken: Untaken): string {
+/* Renders the decisions on changed lines with arms no test ran, one line each, for a coverage or branch-case regeneration; empty when every arm ran. */
+export function renderBranchGap(untaken: readonly UntakenArm[]): string {
   if (untaken.length === 0) return "";
-  const lines = untaken.map((u) => `- ${u.file}:${u.line} ${u.kind}: ${u.arm}`);
+  const lines = untakenDecisions(untaken).map((d) => `- ${renderUntakenDecision(d)}`);
   return `decision arms on changed lines that NO test ran (each is a behaviour the change decides, reached by a test when the page can be brought to that state through the UI against DEV):\n${lines.join("\n")}`;
 }
 

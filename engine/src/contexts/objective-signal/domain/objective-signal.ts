@@ -41,6 +41,7 @@ export interface CoverageMeasurement {
 export interface UntakenArm {
   file: string;
   line: number;
+  column: number;
   kind: string;
   arm: string;
 }

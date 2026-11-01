@@ -553,7 +553,7 @@ test("a coverage gap reaches the lead as one finding per changed file and per un
   r = rig(() => delivered(kept.pass));
   kept = keptPass(r, () => ({ readable: true, specs: ["flows/a.spec.ts"], rebuttals: [], unrouted: [] }));
   let measures = 0;
-  const arm = (line: number, text: string) => ({ file: "src/list.ts", line, kind: "if", arm: text });
+  const arm = (line: number, text: string) => ({ file: "src/list.ts", line, column: 0, kind: "if", arm: text });
   const objectiveSignal = {
     measure: async () => (measures++ === 0
       ? { status: "fail" as const, ratio: 0.2, uncovered: [{ file: "src/list.ts", lines: [4, 5] }, { file: "src/detail.ts", lines: [9] }], untakenArms: [arm(4, "the else"), arm(7, "the then")] }
@@ -670,7 +670,7 @@ test("survivors join the arms no test ran in the same regeneration instead of op
   const { r, kept } = coordinatedRig();
   const objectiveSignal = {
     blocks: () => false,
-    measure: async () => ({ status: "pass" as const, ratio: 1, untakenArms: [{ file: "src/list.ts", line: 7, kind: "if", arm: "the then" }], bundleMutation: { applied: 1, killed: 0, survived: [survivor(4, ["flows/a.spec.ts"])] } }),
+    measure: async () => ({ status: "pass" as const, ratio: 1, untakenArms: [{ file: "src/list.ts", line: 7, column: 0, kind: "if", arm: "the then" }], bundleMutation: { applied: 1, killed: 0, survived: [survivor(4, ["flows/a.spec.ts"])] } }),
   };
   await new RunQaUseCase(r.deps({ objectiveSignal, config: SIGNAL_BRANCH_CASES })).run(INPUT);
   assert.equal(kept.seen.corrected.length, 1);

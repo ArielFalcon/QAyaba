@@ -74,11 +74,11 @@ function changedBranches(changed: CoveredLines, hits: readonly BranchHit[]): Pic
     for (const arm of hit.arms) {
       total++;
       if (arm.taken) taken++;
-      else untakenArms.push({ file: hit.file, line: hit.line, kind: hit.kind, arm: arm.label });
+      else untakenArms.push({ file: hit.file, line: hit.line, column: hit.column, kind: hit.kind, arm: arm.label });
     }
   }
   if (total === 0) return { branches: null };
-  untakenArms.sort((a, b) => a.file.localeCompare(b.file) || a.line - b.line);
+  untakenArms.sort((a, b) => a.file.localeCompare(b.file) || a.line - b.line || a.column - b.column);
   return { branches: { changedBranches: total, takenBranches: taken, ratio: taken / total }, untakenArms };
 }
 

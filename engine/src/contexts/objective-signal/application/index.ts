@@ -6,6 +6,7 @@ export { DecideCoverageService } from "../domain/decide-coverage.service.ts";
 export { DEFAULT_COVERAGE_BRANCH_CASES, DEFAULT_COVERAGE_MIN_RATIO, DEFAULT_COVERAGE_MODE, bundleMutationEnabled, resolveCoveragePolicy } from "../domain/coverage-policy.ts";
 export type { BranchCasesMode, ChangeCoverageDeclaration, ResolvedCoveragePolicy } from "../domain/coverage-policy.ts";
 export type { ChangeCoverage, CoveragePolicy } from "../domain/decide-coverage.service.ts";
+export { untakenDecisions, renderUntakenDecision, type UntakenDecision } from "../domain/untaken-decisions.ts";
 export { renderBranchGap, renderCoverageGap, renderSurvivedMutant, renderSurvivedMutants, survivorFindings } from "../domain/render-coverage-gap.ts";
 export { diffObservations, movedBySpecFile, type ObservedDifference, type SpecFileDifference, type UnmutatedPages } from "../domain/observed-difference.ts";
 export { MAX_OBSERVED_DOM_LINES, MAX_OBSERVED_LINE_CHARS, MAX_OBSERVED_REQUESTS, type MeasuredPages, type ObservedPage, type ObservedRequest } from "../domain/observed-page.ts";

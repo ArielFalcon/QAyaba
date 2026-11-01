@@ -376,8 +376,22 @@ test("branches count the arms of the decisions on changed lines, and name the ar
   const cc = assembleChangeCoverage(BRANCH_DIFF, report);
 
   assert.deepEqual(cc.branches, { changedBranches: 4, takenBranches: 3, ratio: 0.75 });
-  assert.deepEqual(cc.untakenArms, [{ file: "src/store.ts", line: 10, kind: "if", arm: "else" }]);
+  assert.deepEqual(cc.untakenArms, [{ file: "src/store.ts", line: 10, column: 4, kind: "if", arm: "else" }]);
   assert.equal(cc.overall.ratio, 1, "every changed line ran: the line ratio cannot tell the else that never did");
+});
+
+test("two decisions on one line with the same kind and arm label stay two untaken arms that differ by their column", () => {
+  const report: CoverageReport = {
+    covered: [{ file: "src/store.ts", lines: [12] }],
+    branches: [
+      { file: "src/store.ts", line: 12, column: 30, kind: "logical", arms: [{ label: "right of ?? evaluated", taken: false }, { label: "?? short-circuited", taken: true }] },
+      { file: "src/store.ts", line: 12, column: 14, kind: "logical", arms: [{ label: "right of ?? evaluated", taken: false }, { label: "?? short-circuited", taken: true }] },
+    ],
+  };
+
+  const arms = assembleChangeCoverage(BRANCH_DIFF, report).untakenArms!;
+
+  assert.deepEqual(arms.map((a) => [a.line, a.column, a.arm]), [[12, 14, "right of ?? evaluated"], [12, 30, "right of ?? evaluated"]]);
 });
 
 test("branches are null when the report saw no decisions, or none on a changed line; they never decide the status", () => {
