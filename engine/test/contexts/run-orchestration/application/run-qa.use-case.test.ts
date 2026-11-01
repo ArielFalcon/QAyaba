@@ -1,4 +1,5 @@
 import type { ServiceLink } from "@kernel/service-links";
+import { submittingRuntime } from "../../../support/submission.ts";
 import { mock, test } from "node:test";
 import { inspect } from "node:util";
 import assert from "node:assert/strict";
@@ -5444,8 +5445,8 @@ function fakeAuthoringPortsForAntiInert(capture: { input?: OpencodeRunInput }): 
     },
     verdicts: {
       /* The tests below read the generator's input only; a declared no-op ends the run without touching anything else. */
-      parseGenerator: () => ({ specs: [], noopReason: "the test only inspects what the generator was given" }),
-      parseReview: () => ({ approved: true, findings: [], parsed: true, valid: true, issues: [] }),
+      readGenerator: () => ({ specs: [], noopReason: "the test only inspects what the generator was given" }),
+      readReview: () => ({ approved: true, findings: [], parsed: true, valid: true, issues: [] }),
     },
     manifest: { read: async () => [], reconcile: async (_d, entries) => [...entries] },
   };
@@ -8486,12 +8487,12 @@ async function runReviewed(runId: string, review: ReviewPort["review"]) {
 
 test("a reviewer answer the engine could not read is a parse miss that names its issues, and never an approval", async () => {
   const issues = ["corrections.0.severity: Invalid option: expected one of \"blocking\"|\"advisory\""];
-  /* The real review port over a parser that found the answer invalid: nothing of the answer may stand as a judgment. */
+  /* The real review port over the real submit contract, which refuses the entry: nothing of the answer may stand as a judgment. */
   const port = new ReviewPortAdapter(
     {
-      runtime: { openSession: async () => ({ prompt: async () => ({ output: '{"approved":false,"corrections":[{"text":"x"}]}' }), dispose: async () => {} }) },
+      runtime: submittingRuntime({ openSession: async () => ({ prompt: async () => ({ output: '{"approved":false,"corrections":[{"text":"x"}]}' }), dispose: async () => {} }) }),
       rendering: { render: () => "", renderMain: () => ({ text: "", sectionSizes: {} }), renderReviewer: () => ({ text: "reviewer-prompt", sectionSizes: {} }), specFileForFlow: (flow: string) => `flows/${flow}.spec.ts` },
-      verdicts: { parseGenerator: () => ({ specs: [] }), parseReview: () => ({ approved: false, findings: [], parsed: true, valid: false, issues }) },
+      verdicts: { readGenerator: () => ({ specs: [] }), readReview: () => ({ approved: true, findings: [], parsed: true, valid: true, issues: [] }) },
     },
     { diff: "", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e", appName: "app", mode: "diff" },
   );

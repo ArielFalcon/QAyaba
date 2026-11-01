@@ -20,12 +20,12 @@ Branch: `worktree-agent-a15277ccb6ad0d93e`. Delivery: ask-on-risk (single branch
 
 | ID | Specs | Route | Status | Commit |
 |---|---|---|---|---|
-| T1 | S5, S6, S7 | inline | RFC-0018 with the feasibility findings | pending |
-| T2 | S3, S4, S5, S9 | inline | submission mechanism: kernel types and continuation helper, registry, endpoint, adapter, transport tool maps | pending |
+| T1 | S5, S6, S7 | inline | done: RFC-0018 with the feasibility findings | 9468f86e |
+| T2 | S3, S4, S5, S9 | inline | done: submission mechanism: kernel types and continuation helper, registry, endpoint, adapter, transport tool maps | 1c897622 |
 | T3 | S3, S6, S8 | inline | the authority commit: submit tool, client, generated argument schemas, roster grants, pins | pending |
-| T4 | S4, S5, S10 | inline | the lead's plan, its re-ask and its amendment | pending |
-| T5 | S4, S5, S10 | inline | the lead's review of the flows and its corrections | pending |
-| T6 | S4, S5, S10 | inline | the sidekick's result | pending |
+| T4 | S4, S5, S10 | inline | done: the lead's plan, its re-ask and its amendment | aab944c4 |
+| T5 | S4, S5, S10 | inline | done: the lead's review of the flows and its corrections | be92092d |
+| T6 | S4, S5, S10 | inline | done: the sidekick's result | efa8ea6b |
 | T7 | S4, S5, S10 | inline | the reviewer's verdict and the generator's verdict | pending |
 | T8 | S4, S5, S10 | inline | the proposer's profiles | pending |
 | T9 | S6, S7 | inline | retire the scanner where no consumer is left; AGENTS.md and RFC-0006 rows | pending |

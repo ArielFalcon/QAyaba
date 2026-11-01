@@ -24,7 +24,7 @@ export type FactId =
   /* The bounded snapshot of a service's contracts a cross-repo run reads instead of the service's source. */
   | "staged-service-snapshot"
   /* The reviewer's reply is one bare JSON object, and an empty corrections list beside an approval is a complete answer. */
-  | "bare-json-reply"
+  | "submitted-reply"
   | "empty-corrections-valid"
   /* The reviewer's specs section holds the spec contents themselves, not only the names of the files. */
   | "spec-contents-inline";

@@ -1,5 +1,6 @@
 /* The task block of a generator prompt: what this turn is asked to do, per mode, target and turn kind. The "how" lives in agents/agent/*.md. Never import platform/. */
 
+import { SUBMIT_TOOL } from "@kernel/submission.ts";
 import { sanitizeText } from "../../../../shared-infrastructure/redaction/pattern-redaction.adapter.ts";
 import { diffStat, type DiffStat } from "@contexts/generation/domain/diff-stat.ts";
 import { PROMPT_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
@@ -93,7 +94,7 @@ export function buildContextTask(input: OpencodeRunInput): string {
     `- Keep the map small: this is an E2E authoring aid, not exhaustive documentation.`,
     ``,
     `## Output`,
-    `End with ONLY this JSON (no other text). \`specs\` names the map relative to ${input.e2eRelDir}/, like every spec path:`,
+    `Call ${SUBMIT_TOOL.SPECS} with this, nothing else. \`specs\` names the map relative to ${input.e2eRelDir}/, as every spec path:`,
     `{"specs":[".qa/context.json"],"note":"built architecture map with X routes, Y api operations, Z links"}`,
   ].join("\n");
 }

@@ -1,4 +1,4 @@
-/* Generate-tests use case. One bounded generator repair. Every generation ends in exactly one classified way (GenerationResult.end): with specs the run continues, without them the end says why. */
+/* Generate-tests use case. Every generation ends in exactly one classified way (GenerationResult.end): with specs the run continues, without them the end says why. */
 import { engineLog } from "@kernel/ports/process-logger.ts";
 import type { AgentRuntimePort, AgentTurnStats } from "@kernel/ports/agent-runtime.port.ts";
 import { AUTHOR_SIDEKICK, LEAD_AGENT, openSidekickSession } from "@kernel/sidekick-session.ts";
@@ -8,7 +8,7 @@ import { submitTurn } from "@kernel/submit-turn.ts";
 import type { DeliveredSpec } from "@kernel/delivered-spec.ts";
 import { GENERATION_END, type GenerationEndKind } from "@kernel/generation-end.ts";
 import type { PromptRenderingPort } from "./ports/prompt-rendering.port.ts";
-import type { VerdictParserPort } from "./ports/verdict-parser.port.ts";
+import type { GeneratorDelivery, VerdictParserPort } from "./ports/verdict-parser.port.ts";
 import type { ManifestRepositoryPort } from "./ports/manifest-repository.port.ts";
 import type { ManifestEntry } from "@kernel/manifest/manifest-entry.ts";
 import type { GeneratorDeliverable } from "../domain/manifest-repository.ts";
@@ -18,23 +18,14 @@ import { classifyGenerationEnd, renderGenerationNote } from "../domain/generatio
 import { declareSpecs } from "../domain/declared-specs.ts";
 import { isReGenTurn } from "../domain/regen-turn.ts";
 import { promptFactsOpts } from "../domain/prompt-facts.ts";
-import { REPAIR_TURN_TIMEOUT_MS, renderRepairTimeoutNote } from "../domain/repair-turn.ts";
+import { endedOnMissingDecision, generatorVerdictContract } from "../domain/generator-verdict.contract.ts";
 import type { NoopKind } from "@kernel/noop-kind.ts";
-
-export interface RepairPort {
-  checkGenerator(text: string): { valid: boolean; issues: string[] };
-  instruction(kind: "generator" | "reviewer", issues: string[], opts?: { priorResponseTail?: string }): string;
-}
 
 export interface AuthoringPorts {
   runtime: AgentRuntimePort;
   rendering: PromptRenderingPort;
   verdicts: VerdictParserPort;
   manifest: ManifestRepositoryPort;
-
-  repair?: RepairPort;
-  /** The longest one contract-repair prompt may run, whatever time is left. Absent: `REPAIR_TURN_TIMEOUT_MS`. */
-  repairTimeoutMs?: number;
 }
 
 export interface GenerationResult {
@@ -44,7 +35,7 @@ export interface GenerationResult {
   declaredSpecs?: DeliveredSpec[];
   /** For a generation that ended without specs, the explanation the run records: the agent's own reason for a declared no-op, otherwise what happened, what the turn measured and the end of its output. */
   note?: string;
-  /* parsed: did the GENERATOR emit a parseable closing verdict at all (VerdictParserPort.parseGenerator's own `parsed`)? FALSE means the agent runtime returned no usable output — an empty/errored session (provider quota exhausted, timeout, model refusal, runtime outage), NOT a deliberate agent no-op. */
+  /* parsed: did the GENERATOR deliver an accepted submission at all (VerdictParserPort.readGenerator's own `parsed`)? FALSE means the turn ended without one, even after its continuation — an empty/errored session (provider quota exhausted, timeout, model refusal, runtime outage) or an answer never submitted — NOT a deliberate agent no-op. */
   parsed?: boolean;
   /** How the generation ended. Only a declared no-op is a decision to write nothing; a generation that ran out of steps or decided nothing never reads as one. */
   end: GenerationEndKind;
@@ -60,7 +51,6 @@ export interface GenerationResult {
 
 export interface GenerateOpts {
   signal?: AbortSignal;
-  onRepair?: () => void;
 }
 
 /**
@@ -173,9 +163,9 @@ export class GenerateTestsUseCase {
     return { ...submitted(first), timedOut: false, ...(turn ? { turn } : {}), lead };
   }
 
-  /* One turn of an author sidekick over a run's own authoring. Orchestrates the deterministic shell: 1. Build the authoring prompt (via PromptRenderingPort). 2. Open a session of the author kind and fire the prompt (via AgentRuntimePort); every turn opens a session of its own, so a regeneration is told everything it needs. 3. Check generator contract; if invalid, fire ONE bounded repair re-prompt. 4. Parse the deliverable (via VerdictParserPort). 5. Reconcile the manifest (via ManifestRepositoryPort). The independent review is the `review` sidekick kind, dispatched by the run's review step. */
+  /* One turn of an author sidekick over a run's own authoring. Orchestrates the deterministic shell: 1. Build the authoring prompt (via PromptRenderingPort). 2. Open a session of the author kind and fire the prompt (via AgentRuntimePort); every turn opens a session of its own, so a regeneration is told everything it needs. 3. The author delivers by calling its submit tool; a turn that ends without an accepted submission gets one continuation in the same session. 4. Read the deliverable (via VerdictParserPort). 5. Reconcile the manifest (via ManifestRepositoryPort). The independent review is the `review` sidekick kind, dispatched by the run's review step. */
   async author(input: OpencodeRunInput, opts?: GenerateOpts): Promise<GenerationResult> {
-    const { runtime, rendering, verdicts, manifest, repair } = this.ports;
+    const { runtime, rendering, verdicts, manifest } = this.ports;
 
     const assembled = rendering.renderMain(input);
 
@@ -184,53 +174,32 @@ export class GenerateTestsUseCase {
       ...(opts?.signal ? { signal: opts.signal } : {}),
       descriptor: { runId: input.runId },
     });
-    let generatorOutput = "";
     let mainTurn: AgentTurnStats | undefined;
-    let repairTurn: AgentTurnStats | undefined;
-    /* The repair prompt ran past its own cap: the first turn's output stands and says nothing readable. */
-    let repairTimedOutMs: number | undefined;
-    const repairCapMs = this.ports.repairTimeoutMs ?? REPAIR_TURN_TIMEOUT_MS;
+    let delivery: SubmittedTurn<Record<string, unknown>>;
     try {
-      /* The verdict is read from the final step's text alone: what the agent recalled or quoted on the way is not its conclusion. */
-      const result = await session.prompt(assembled.text, {
-        sectionSizes: assembled.sectionSizes,
-        ...promptFactsOpts(assembled),
-        ...(assembled.providedPaths ? { providedPaths: assembled.providedPaths } : {}),
-        ...(input.stepLimit !== undefined ? { stepLimit: input.stepLimit } : {}),
-        finalStepOnly: true,
-        onTurnStats: (stats) => { mainTurn = stats; },
-      });
-      generatorOutput = result.output;
-
-      /* A session that ran out of steps is never asked to re-emit its verdict: it cannot act on the request. The repair runs in the same session under the same step limit, so it is sent the number the prompt it repairs stated. */
-      if (repair && mainTurn?.exhausted !== true) {
-        const genCheck = repair.checkGenerator(generatorOutput);
-        if (!genCheck.valid) {
-          opts?.onRepair?.();
-          try {
-            const repairResult = await session.prompt(
-              repair.instruction("generator", genCheck.issues, { priorResponseTail: generatorOutput }),
-              { isRepair: true, withoutTools: true, ...(input.stepLimit !== undefined ? { stepLimit: input.stepLimit } : {}), finalStepOnly: true, timeoutMs: repairCapMs, timeLimit: "repair-cap", onTurnStats: (stats) => { repairTurn = stats; } },
-            );
-            generatorOutput = repairResult.output;
-          } catch (err) {
-            /* The first turn's output stands: a repair that did not finish changes nothing it said. */
-            if (!isAgentTimeoutError(err)) throw err;
-            repairTimedOutMs = repairCapMs;
-            engineLog.error(`[qa] the generator's contract-repair turn timed out after ${repairCapMs}ms (tools disabled); its first answer stands`);
-          }
-        }
-      }
+      /* A session that ran out of steps is never asked again: it cannot act on the request, so its turn ends as it stands. */
+      delivery = await submitTurn(
+        session,
+        assembled.text,
+        {
+          sectionSizes: assembled.sectionSizes,
+          ...promptFactsOpts(assembled),
+          ...(assembled.providedPaths ? { providedPaths: assembled.providedPaths } : {}),
+          ...(input.stepLimit !== undefined ? { stepLimit: input.stepLimit } : {}),
+          onTurnStats: (stats) => { mainTurn = stats; },
+        },
+        generatorVerdictContract,
+        () => mainTurn?.exhausted !== true,
+      );
     } finally {
       await session.dispose();
     }
     /* Only a turn known to have hit its limit counts: an unknown exhaustion is not exhaustion. */
     const mainExhausted = mainTurn?.exhausted === true;
-    const repairExhausted = repairTurn?.exhausted === true;
 
     /* Spec paths are suite-relative (as the runner reports failing files). */
     const specDir = `${input.mirrorDir}/${input.e2eRelDir}`;
-    const deliverable = verdicts.parseGenerator(generatorOutput, specDir);
+    const deliverable = verdicts.readGenerator(deliveryOf(delivery), specDir);
 
     /* A spec in specs[] with no specMetas[] entry gets no manifest row — silent, because the spec file is what execution needs. */
     /* mutation-scope:begin intent-change-type */
@@ -251,13 +220,9 @@ export class GenerateTestsUseCase {
       specCount: deliverable.specs.length,
       parsed: deliverable.parsed !== false,
       noopReason: deliverable.noopReason,
-      exhausted: mainExhausted || repairExhausted,
+      exhausted: mainExhausted,
     });
-    const endNote = noteFor(end, deliverable, mainTurn, mainExhausted ? false : repairExhausted);
-    /* A repair that timed out explains an end that has no specs to show for it; with specs delivered, or a no-op declared, it changed nothing. */
-    const note = repairTimedOutMs !== undefined && (end === GENERATION_END.NO_VERDICT || end === GENERATION_END.UNDECIDED_EMPTY)
-      ? [endNote, renderRepairTimeoutNote(repairTimedOutMs)].filter(Boolean).join(" ")
-      : endNote;
+    const note = noteFor(end, deliverable, mainTurn);
     const outcome = {
       end,
       note,
@@ -281,14 +246,21 @@ export class GenerateTestsUseCase {
   }
 }
 
+/* What a generator turn delivered. A turn that ended on the refusal of an empty verdict that decided nothing delivered exactly that: an author that wrote no specs and no decision. */
+function deliveryOf(turn: SubmittedTurn<Record<string, unknown>>): GeneratorDelivery {
+  if (turn.submitted) return { answer: turn.value, output: turn.output };
+  if (endedOnMissingDecision(turn.errors)) return { answer: { specs: [] }, output: turn.output };
+  return { noSubmission: describeNoSubmission(turn), output: turn.output };
+}
+
 /** The note a generation carries: an explanation for the ends that stop a run without specs, otherwise whatever the agent noted. */
-function noteFor(end: GenerationEndKind, deliverable: GeneratorDeliverable, turn: AgentTurnStats | undefined, repairExhausted: boolean): string | undefined {
+function noteFor(end: GenerationEndKind, deliverable: GeneratorDeliverable, turn: AgentTurnStats | undefined): string | undefined {
   switch (end) {
     case GENERATION_END.DECLARED_NOOP:
       return renderGenerationNote({ end, noopReason: deliverable.noopReason ?? "" });
     case GENERATION_END.EXHAUSTED:
     case GENERATION_END.UNDECIDED_EMPTY:
-      return renderGenerationNote({ end, ...(turn ? { turn } : {}), outputTail: deliverable.outputTail ?? "", repairExhausted });
+      return renderGenerationNote({ end, ...(turn ? { turn } : {}), outputTail: deliverable.outputTail ?? "" });
     case GENERATION_END.DELIVERED:
     case GENERATION_END.NO_VERDICT:
     /* A time-budget end is worded by the caller, which holds the budget; it never reaches here. */

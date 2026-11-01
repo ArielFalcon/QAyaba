@@ -151,7 +151,6 @@
   "engine/test/contexts/generation/domain/tool-sequence.test.ts": 1,
   "engine/test/contexts/generation/domain/turn-efficiency-summary.test.ts": 1,
   "engine/test/contexts/generation/domain/unchanged-lines.test.ts": 1,
-  "engine/test/contexts/generation/domain/verdict-narration.test.ts": 3,
   "engine/test/contexts/generation/domain/verdict-parse.noop-kind.test.ts": 1,
   "engine/test/contexts/generation/domain/verdict-validate.test.ts": 17,
   "engine/test/contexts/generation/infrastructure/adapters/context-map-capture-port.adapter.test.ts": 20,

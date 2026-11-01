@@ -58,8 +58,8 @@ function build(...turns: Turn[]): { ports: AuthoringPorts; seen: Seen } {
       specFileForFlow: (flow) => `flows/${flow}.spec.ts`,
     },
     verdicts: {
-      parseGenerator: () => { throw new Error("a planning turn reads no free text"); },
-      parseReview: () => ({ approved: true, findings: [], valid: true, issues: [], parsed: true }),
+      readGenerator: () => { throw new Error("a planning turn reads no free text"); },
+      readReview: () => ({ approved: true, findings: [], valid: true, issues: [], parsed: true }),
     },
     manifest: { read: async () => [], reconcile: async (_d, e) => [...e] as ManifestEntry[] },
   };

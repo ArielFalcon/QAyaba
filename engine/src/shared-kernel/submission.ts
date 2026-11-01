@@ -17,6 +17,11 @@ export interface SubmissionError {
   readonly reason: string;
 }
 
+/** Validation issues (zod's, read structurally) as the errors a contract returns inside the turn: where in the answer, and why. */
+export function submissionErrorsOf(error: { readonly issues: ReadonlyArray<{ readonly path: ReadonlyArray<PropertyKey>; readonly message: string }> }, within: readonly string[] = []): SubmissionError[] {
+  return error.issues.map((issue) => ({ path: [...within, ...issue.path.map(String)].join(".") || "(root)", reason: issue.message }));
+}
+
 export type SubmissionCheck<T> = { readonly ok: true; readonly value: T } | { readonly ok: false; readonly errors: readonly SubmissionError[] };
 
 /** What one turn must deliver: the tool it calls and the owning context's judgment of what the call carried. */

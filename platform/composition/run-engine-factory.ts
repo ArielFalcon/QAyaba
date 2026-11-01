@@ -127,11 +127,10 @@ import {
   buildReviewerPromptAssembled,
   specFileForFlow,
 } from "@contexts/generation/infrastructure/prompt-builders/prompts";
-import { checkGeneratorVerdict, parseReviewerVerdict, parseVerdict, repairInstruction } from "@contexts/generation/application/index";
+import { readVerdict } from "@contexts/generation/application/index";
 import type { StepLimitFor, StepLimitRole } from "@contexts/generation/application/index.ts";
 import { MultiRepoCheckoutAdapter } from "@contexts/workspace-and-publication/infrastructure/adapters/multi-repo-checkout.adapter";
 import { RunContextBudget, WORKING_ROOM_HISTORY_TURNS, type RecordedTurnRow } from "../agent-runtime/run-context-budget";
-import type { RepairPort } from "@contexts/generation/application/index.ts";
 
 import {
   runE2E,
@@ -384,12 +383,6 @@ export function gitChangedFiles(repoDir: string, fromSha: string, toSha: string)
 }
 
 /* The app commits a run has already asked a context-map rebuild for, in this process: the next run at the same commit does not ask again. */
-/* Bounded contract-repair for a malformed generator/reviewer verdict: one tools-disabled re-prompt, fail-closed if still invalid. */
-const contractRepair: RepairPort = {
-  checkGenerator: (text) => checkGeneratorVerdict(text),
-  instruction: (kind, issues, opts) => repairInstruction(kind, issues, opts),
-};
-
 const contextHealRequested = new Set<string>();
 
 /* Persist a context run's validated map; a fresh map replaces the one the stale flag condemned. */
@@ -582,8 +575,7 @@ export function buildAcceptanceHarness(input: AcceptanceHarnessInput): Acceptanc
         {
           runtime: new AgentRuntimeAdapter({ open: async (agent, cwd, opts) => getAgentDeps(acceptanceTurn).open(agent, cwd, { ...(opts?.signal ? { signal: opts.signal } : {}), ...(opts?.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}), ...(opts?.timeLimit ? { timeLimit: opts.timeLimit } : {}), ...(opts?.onUsage ? { onUsage: opts.onUsage } : {}), ...(opts?.descriptor ? { descriptor: opts.descriptor } : {}) }) }, roleToAgentName),
           rendering: new PromptRenderingAdapter({ buildPromptAssembled, buildReviewerPromptAssembled, specFileForFlow }),
-          verdicts: new VerdictParserAdapter({ parseVerdict, parseReviewerVerdict }),
-          repair: contractRepair,
+          verdicts: new VerdictParserAdapter({ readVerdict }),
         },
         { diff: "", mirrorDir: copyDir, e2eRelDir, appName: app.name, mode: "diff", baseUrl, timeoutMs: reviewerTimeoutMs() },
       )
@@ -807,14 +799,13 @@ export function buildEngineRootDeps(
   /* Run-level round per role: numbers each role's generated turns across sessions, so a regeneration's turn reads round 1, not the transport's session-local 0. */
   const roundRuntime = new RunRoundRuntime(boundedRuntime);
   const rendering = new PromptRenderingAdapter({ buildPromptAssembled, buildReviewerPromptAssembled, specFileForFlow }, runContext?.budget);
-  const verdicts = new VerdictParserAdapter({ parseVerdict, parseReviewerVerdict });
+  const verdicts = new VerdictParserAdapter({ readVerdict });
 
   const generationUseCase = new GenerateTestsUseCase({
     runtime: roundRuntime,
     rendering,
     verdicts,
     manifest: new ManifestRepositoryAdapter({ readManifest, reconcileManifest }),
-    repair: contractRepair,
   });
 
 
@@ -947,7 +938,6 @@ export function buildEngineRootDeps(
       runtime: roundRuntime,
       rendering,
       verdicts,
-      repair: contractRepair,
     },
     reviewTimeoutMs: reviewerTimeoutMs(),
     validationStrategies: { e2e: staticGate },

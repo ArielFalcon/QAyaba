@@ -5,6 +5,7 @@ import { AUTHOR_SIDEKICK } from "@kernel/sidekick-session.ts";
 import type { ManifestEntry } from "@kernel/manifest/manifest-entry.ts";
 import type { AgentRole } from "@kernel/agent-role.ts";
 import type { OpenSessionOpts } from "@kernel/ports/agent-runtime.port.ts";
+import { submittingRuntime } from "../../../support/submission.ts";
 
 interface Opened { role: AgentRole; cwd: string; opts?: OpenSessionOpts }
 
@@ -12,16 +13,16 @@ function author(): { turn(): Promise<unknown>; opened: Opened[]; disposed: () =>
   const opened: Opened[] = [];
   let disposed = 0;
   const ports: AuthoringPorts = {
-    runtime: {
+    runtime: submittingRuntime({
       openSession: async (role, cwd, opts) => {
         opened.push({ role, cwd, ...(opts ? { opts } : {}) });
         return { prompt: async () => ({ output: '{"specs":["flows/a.spec.ts"]}' }), dispose: () => { disposed++; } };
       },
-    },
+    }),
     rendering: { render: () => "", renderMain: () => ({ text: "MAIN", sectionSizes: {} }), renderReviewer: () => ({ text: "", sectionSizes: {} }), specFileForFlow: (f) => `flows/${f}.spec.ts` },
     verdicts: {
-      parseGenerator: (text) => ({ specs: ["flows/a.spec.ts"], parsed: true, outputTail: text }),
-      parseReview: () => ({ approved: true, findings: [], valid: true, issues: [] }),
+      readGenerator: ({ output }) => ({ specs: ["flows/a.spec.ts"], parsed: true, outputTail: output }),
+      readReview: () => ({ approved: true, findings: [], valid: true, issues: [] }),
     },
     manifest: { read: async () => [], reconcile: async (_d, e) => [...e] as ManifestEntry[] },
   };

@@ -65,6 +65,17 @@ test("a turn with no submission after its continuation is a typed end with the l
   assert.match(describeNoSubmission(turn), /flows: it is not a list/);
 });
 
+test("a caller that knows the session cannot act on a continuation ends the turn as it stands", async () => {
+  const errors = [{ path: "answer", reason: "not text" }];
+  const { session, prompts } = scripted({ output: "a", submission: open("stopped", errors, 1) }, { output: "b", submission: accepted("late") });
+  const turn = await submitTurn(session, "plan it", {}, contract, () => false);
+  assert.equal(prompts.length, 1);
+  assert.equal(turn.submitted, false);
+  if (turn.submitted) return;
+  assert.deepEqual({ errors: turn.errors, continued: turn.continued }, { errors, continued: false });
+  assert.match(describeNoSubmission(turn), /no continuation was asked/);
+});
+
 test("a continuation that runs out of the time its purpose is allotted is typed, and the first turn's rejection stands", async () => {
   const errors = [{ path: "answer", reason: "not text" }];
   const { session } = scripted({ output: "a", submission: open("stopped", errors, 3) }, new AgentTimeoutError("allotment spent"));

@@ -8,7 +8,6 @@ import {
   buildPrompt,
   buildPromptAssembled,
   buildContextTask,
-  parseVerdict,
   specFileForFlow,
   renderArchitectureContext,
   buildReviewerPrompt,
@@ -196,136 +195,7 @@ test("buildPrompt manual mode: includes the user guidance", () => {
   assert.match(p, /contact form validation/);
 });
 
-test("parseVerdict reads the closing JSON (in a ```json block)", () => {
-  const v = parseVerdict('blah blah\n```json\n{ "approved": true, "specs": ["a.spec.ts"], "note": "" }\n```');
-  assert.equal(v.approved, true);
-  assert.deepEqual(v.specs, ["a.spec.ts"]);
-});
-
-test("parseVerdict takes the LAST valid object", () => {
-  const v = parseVerdict('{"approved": true}\nthen\n{ "approved": false, "note": "did not converge" }');
-  assert.equal(v.approved, false);
-  assert.equal(v.note, "did not converge");
-});
-
-test("parseVerdict with no verdict fails closed (approved=false) and flags the parse miss", () => {
-  const v = parseVerdict("the agent said nothing structured");
-  assert.equal(v.approved, false);
-  assert.equal(v.parsed, false); /* distinguishes a parse miss from an explicit rejection */
-});
-
-test("parseVerdict flags a successfully parsed verdict", () => {
-  assert.equal(parseVerdict('{ "approved": false, "specs": [] }').parsed, true);
-});
-
-test("parseVerdict reads the new generator contract (specs, no approved) — approval is the reviewer's job", () => {
-  /* The generator no longer self-reports `approved`: the independent reviewer is the gate.
-     The closing block is identified by its `specs` array, and a MISSING `approved` must not be
-     read as a rejection (that would fail-close every run under the new contract).
-   */
-  const v = parseVerdict(
-    'done.\n{ "specs": ["login.spec.ts"], "specMetas": [{"file":"login.spec.ts","flow":"login","objective":"valid creds reach the dashboard","targets":[]}], "note": "" }',
-  );
-  assert.equal(v.parsed, true);
-  assert.deepEqual(v.specs, ["login.spec.ts"]);
-  assert.equal(v.approved, true); /* default for the specs-only contract; the reviewer decides for real */
-  assert.equal(v.specMetas?.length, 1);
-});
-
-test("parseVerdict reads a declared no-op's reason", () => {
-  const v = parseVerdict('done.\n{"specs":[],"noop":{"reason":"The diff only renames an internal helper."}}');
-  assert.equal(v.parsed, true);
-  assert.deepEqual(v.specs, []);
-  assert.equal(v.noopReason, "The diff only renames an internal helper.");
-});
-
-test("parseVerdict trims a no-op's reason and reads a blank or missing one as no decision", () => {
-  assert.equal(parseVerdict('{"specs":[],"noop":{"reason":"  because  "}}').noopReason, "because");
-  for (const noop of ['{"reason":"   "}', "{}", "true", '"because"', '{"reason":5}']) {
-    const v = parseVerdict(`{"specs":[],"noop":${noop}}`);
-    assert.equal(v.parsed, true, noop);
-    assert.equal(v.noopReason, undefined, noop);
-  }
-});
-
-test("parseVerdict finds a closing verdict that carries only a no-op", () => {
-  const v = parseVerdict('{"noop":{"reason":"nothing to test"}}');
-  assert.equal(v.parsed, true);
-  assert.equal(v.noopReason, "nothing to test");
-});
-
-test("parseVerdict never reads `approved` as a no-op decision", () => {
-  for (const text of ['{"approved":true}', '{"approved":true,"specs":[]}']) {
-    const v = parseVerdict(text);
-    assert.equal(v.parsed, true, text);
-    assert.deepEqual(v.specs, [], text);
-    assert.equal(v.noopReason, undefined, text);
-  }
-});
-
-test("parseVerdict reads the specs and the reason of a verdict that carries both", () => {
-  const v = parseVerdict('{"specs":["a.spec.ts"],"noop":{"reason":"also nothing"}}');
-  assert.deepEqual(v.specs, ["a.spec.ts"]);
-  assert.equal(v.noopReason, "also nothing");
-});
-
-test("parseVerdict handles a verdict with a NESTED object (regression: old regex truncated it)", () => {
-  const v = parseVerdict('done.\n{"approved": true, "specs": ["a.spec.ts"], "meta": {"changeRef": {"sha": "x"}}}');
-  assert.equal(v.parsed, true);
-  assert.equal(v.approved, true);
-  assert.deepEqual(v.specs, ["a.spec.ts"]);
-});
-
-test("parseVerdict reads past a brace inside a string, and an object after the verdict leaves no verdict", () => {
-  const v = parseVerdict('{"approved": true, "note": "use the } char"}');
-  assert.equal(v.approved, true);
-  assert.equal(v.note, "use the } char");
-  assert.equal(parseVerdict('{"approved": true, "note": "use the } char"}\nlater: {"unrelated": 1}').parsed, false);
-});
-
-test("parseVerdict extracts specMetas with flow, objective, and targets", () => {
-  const v = parseVerdict(`{
-    "approved": true,
-    "specs": ["login.spec.ts", "checkout.spec.ts"],
-    "specMetas": [
-      {"file": "login.spec.ts", "flow": "login", "objective": "given valid credentials, when login, then redirect to dashboard", "targets": ["LoginComponent", "/api/auth"]},
-      {"file": "checkout.spec.ts", "flow": "checkout", "objective": "given items in cart, when checkout, then order is created", "targets": ["CheckoutPage", "createOrder"]}
-    ]
-  }`);
-  assert.equal(v.approved, true);
-  assert.equal(v.specs.length, 2);
-  assert.ok(v.specMetas);
-  assert.equal(v.specMetas!.length, 2);
-  assert.deepEqual(v.specMetas![0], {
-    file: "login.spec.ts",
-    flow: "login",
-    objective: "given valid credentials, when login, then redirect to dashboard",
-    targets: ["LoginComponent", "/api/auth"],
-  });
-});
-
-test("parseVerdict drops specMetas entries missing required fields", () => {
-  const v = parseVerdict(`{
-    "approved": true,
-    "specMetas": [
-      {"file": "ok.spec.ts", "flow": "ok", "objective": "test something", "targets": ["X"]},
-      {"file": "", "flow": "bad", "objective": "nope", "targets": []},
-      {"flow": "no-file", "objective": "nothing"},
-      "not-an-object"
-    ]
-  }`);
-  assert.ok(v.specMetas);
-  assert.equal(v.specMetas!.length, 1);
-  assert.equal(v.specMetas![0]!.file, "ok.spec.ts");
-});
-
 /* itself migrated there; LiveActivity/activityRouter/registerRunSession/unregisterRunSession/ */
-
-test("parseVerdict returns undefined specMetas when absent or empty", () => {
-  assert.equal(parseVerdict('{"approved": true, "specs": ["a.spec.ts"]}').specMetas, undefined);
-  assert.equal(parseVerdict('{"approved": true, "specMetas": "not-array"}').specMetas, undefined);
-  assert.equal(parseVerdict('{"approved": true, "specMetas": []}').specMetas, undefined);
-});
 
 test("buildPrompt surfaces reviewer corrections as the highest-priority block", () => {
   const p = buildPrompt({ ...input, reviewCorrections: ["a.spec.ts: scope the selector to the header"] });

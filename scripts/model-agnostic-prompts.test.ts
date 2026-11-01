@@ -1,4 +1,4 @@
-/* The model-agnostic prompt guard: no prompt names a model. A limit, a tier or a budget comes from the runtime or from a named constant, never from which model runs, so a text that names a model id or a family is a defect wherever it stands. The guard scans the static role and shared layers, the skills and every prompt the harness sends to an agent (generator, context task, reviewer, verdict repair, sidekick, assistant, proposer), in three layers:
+/* The model-agnostic prompt guard: no prompt names a model. A limit, a tier or a budget comes from the runtime or from a named constant, never from which model runs, so a text that names a model id or a family is a defect wherever it stands. The guard scans the static role and shared layers, the skills and every prompt the harness sends to an agent (generator, context task, reviewer, submission continuation, sidekick, assistant, proposer), in three layers:
    - derived: every id and label a declared model source holds (the runtime agent config and its fallbacks, each provider's role defaults), so a model configured later is caught with no edit here. An id is forbidden anywhere, its family only next to a version chunk;
    - fixed list: well-known vendor and family names, forbidden anywhere. The list only forbids: nothing selects a prompt, a limit or a rule by it;
    - headings: the parenthetical of a role's title holds no version-like token and no letter segment of a declared id.
@@ -29,7 +29,8 @@ import { buildRunChatContext, buildRunContext, type AssistantTextDeps } from "@c
 import { infraErrorGloss } from "../platform/entrypoints/infra-error-gloss.ts";
 import { LlmProfileProposerAdapter } from "@contexts/service-topology/infrastructure/llm-profile-proposer.adapter.ts";
 import type { RunRecord } from "../platform/persistence/types.ts";
-import { PROMPT_HEADINGS, repairInstruction } from "@contexts/generation/application/index.ts";
+import { PROMPT_HEADINGS } from "@contexts/generation/application/index.ts";
+import { SUBMIT_TOOLS, submissionContinuationPrompt } from "@kernel/submission.ts";
 import { DIMENSIONS, MATRIX_STEP_LIMIT, allValidSpecs, buildInput, cellName, type CellSpec } from "./prompt-contract-matrix.ts";
 import { PatternRedactionAdapter, sanitizeText } from "../engine/src/shared-infrastructure/redaction/pattern-redaction.adapter.ts";
 
@@ -503,12 +504,12 @@ async function contextPrompts(subject: string): Promise<PromptText[]> {
   ];
 }
 
-/* What the generator and the reviewer are asked when their closing verdict is unreadable, with and without the tail of their last reply. */
-async function repairPrompts(subject: string): Promise<PromptText[]> {
-  const issues = [`no closing JSON block after the ${subject} note`];
-  return (["generator", "reviewer"] as const).flatMap((kind) => [
-    { source: `${kind} repair`, text: repairInstruction(kind, issues) },
-    { source: `${kind} repair with the prior reply`, text: repairInstruction(kind, issues, { priorResponseTail: "...and that is the end of my last reply" }) },
+/* What every role is asked when its turn ended without an accepted submission, after a stop and after a cut, each with the last rejection. */
+async function continuationPrompts(subject: string): Promise<PromptText[]> {
+  const errors = [{ path: "specs", reason: `no decision after the ${subject} note` }];
+  return SUBMIT_TOOLS.flatMap((tool) => [
+    { source: `${tool} continuation after a stop`, text: submissionContinuationPrompt(tool, { end: "stopped", errors }) },
+    { source: `${tool} continuation after a cut`, text: submissionContinuationPrompt(tool, { end: "output-length", errors }) },
   ]);
 }
 
@@ -591,7 +592,7 @@ const PROMPT_KINDS: readonly PromptKind[] = [
   { kind: "generator", roles: ["author"], prompts: generatorPrompts },
   { kind: "context task", roles: ["author"], prompts: contextPrompts },
   { kind: "reviewer", roles: ["reviewer"], prompts: reviewerPrompts },
-  { kind: "verdict repair", roles: ["author", "reviewer"], prompts: repairPrompts },
+  { kind: "submission continuation", roles: ["author", "reviewer", "lead", "proposer"], prompts: continuationPrompts },
   { kind: "lead", roles: ["lead"], prompts: leadPrompts },
   { kind: "author", roles: ["author"], prompts: sidekickPrompts },
   { kind: "assistant", roles: ["chat"], prompts: assistantPrompts },

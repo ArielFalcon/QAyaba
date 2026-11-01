@@ -1,5 +1,6 @@
 /* The sections of a reviewer prompt, in prompt order, and the context they render from. The reviewer is independent of the generator: it sees the diff, the specs and the orchestrator's evidence, never the generator's reasoning. Never import platform/. */
 
+import { SUBMIT_TOOL } from "@kernel/submission.ts";
 import { sanitizeText } from "../../../../shared-infrastructure/redaction/pattern-redaction.adapter.ts";
 import { claim, SPEC_CONTENTS_INLINE_FACT, type PromptClaim } from "@contexts/generation/domain/prompt-contract-lint.ts";
 import {
@@ -103,9 +104,8 @@ function renderInstructions(ctx: ReviewerContext): SectionRender {
 function renderOutputContract(ctx: ReviewerContext): SectionRender {
   const { obj } = ctx;
   const outputContractContent = [
-    `## Output — one JSON object, nothing else`,
-    `Your ENTIRE reply is the JSON object below: no prose before or after it, no markdown fence, no`,
-    `restatement of the specs, no analysis of your process. Text outside the object is discarded.`,
+    `## Output — one ${SUBMIT_TOOL.REVIEW} call, nothing else`,
+    `Deliver your verdict by calling ${SUBMIT_TOOL.REVIEW} as the last thing you do; its arguments are the verdict below. The orchestrator checks them and answers with what to correct. Words outside the call are not read.`,
     `- "rationale": 1-2 sentences, ${REVIEW_RATIONALE_MAX_CHARS} characters at most, on APPROVAL too —`,
     `  name ${obj.targetNoun} and what these tests do or fail to do about it.`,
     `- "corrections": at most ${REVIEW_CORRECTIONS_MAX} entries, each "text" at most ${REVIEW_CORRECTION_MAX_CHARS}`,
@@ -124,9 +124,10 @@ function renderOutputContract(ctx: ReviewerContext): SectionRender {
     `- "dom": a fact from the DOM section above; ref is the "<spec path>" it concerns (always advisory).`,
     `A correction with no citation cannot block: the orchestrator treats it as advisory at most.`,
     `An empty "corrections" list beside "approved": true is a complete answer — never invent a finding to look thorough.`,
+    `Arguments, as in this example:`,
     `{"approved":false,"rationale":"why, in 1-2 sentences","corrections":[{"text":"[fragile-selector] file.spec.ts: specific actionable fix","severity":"blocking","citation":{"kind":"execution","ref":"file.spec.ts"}}]}`,
   ].join("\n");
-  return { content: outputContractContent, claims: [claim.provides("bare-json-reply"), claim.provides("empty-corrections-valid")] };
+  return { content: outputContractContent, claims: [claim.provides("submitted-reply"), claim.provides("empty-corrections-valid")] };
 }
 
 /* Live DEV DOM: actual roles + accessible names on the routes this spec targets. Captured by the orchestrator (reviewer independence). Model-mode sanitization — this is prompt text, never an Issue body. */
@@ -345,5 +346,5 @@ export const REVIEWER_SECTIONS: readonly PromptSectionDef<ReviewerContext>[] = [
     applies: ({ input }) => input.stepLimit !== undefined,
     render: ({ input }) => ({ content: renderStepLimit(input.stepLimit!), claims: [claim.provides("step-limit")] }),
   },
-  { id: "reviewer-output-contract", tier: "critical-recap", priority: 1, stability: "static", reason: "One bare JSON verdict with tagged, cited corrections; an uncited finding cannot block (evidence-bound review)", applies: () => true, render: renderOutputContract },
+  { id: "reviewer-output-contract", tier: "critical-recap", priority: 1, stability: "static", reason: "One submit_review call with tagged, cited corrections; an uncited finding cannot block (evidence-bound review)", applies: () => true, render: renderOutputContract },
 ];

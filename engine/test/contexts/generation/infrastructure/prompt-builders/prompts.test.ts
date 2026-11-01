@@ -1133,7 +1133,7 @@ test("reviewer prompt: the reply is one bare JSON object, and an empty correctio
     appName: "testapp",
     mode: "diff",
   });
-  assert.deepEqual(claimsOf(assembled, "reviewer-output-contract"), [claim.provides("bare-json-reply"), claim.provides("empty-corrections-valid")]);
+  assert.deepEqual(claimsOf(assembled, "reviewer-output-contract"), [claim.provides("submitted-reply"), claim.provides("empty-corrections-valid")]);
 });
 
 test("reviewer prompt: a second round carries the spec change since the rejection, a first round does not", () => {

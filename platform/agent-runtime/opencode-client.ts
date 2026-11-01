@@ -35,11 +35,7 @@ import {
 export { activityRouter, registerRunSession, unregisterRunSession, startActivitySink };
 export type { LiveActivity };
 
-/* Re-export so control-plane importers keep resolving parseVerdict here. */
-import { parseVerdict } from "@contexts/generation/application/index";
 import { causeChain } from "./net";
-export { parseVerdict };
-
 import {
   specFileForFlow,
   buildPrompt,

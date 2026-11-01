@@ -17,8 +17,8 @@ function portsReturning(deliverable: GeneratorDeliverable): AuthoringPorts {
       specFileForFlow: (flow: string) => `flows/${flow}.spec.ts`,
     },
     verdicts: {
-      parseGenerator: () => deliverable,
-      parseReview: () => ({ approved: true, findings: [], parsed: true, valid: true, issues: [] }),
+      readGenerator: () => deliverable,
+      readReview: () => ({ approved: true, findings: [], parsed: true, valid: true, issues: [] }),
     },
     manifest: { read: async () => [], reconcile: async (_dir, entries) => [...entries] },
   };

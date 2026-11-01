@@ -22,8 +22,8 @@ function generate(deliverable: GeneratorDeliverable, options: Options = {}): Pro
       specFileForFlow: (flow) => `flows/${flow}.spec.ts`,
     },
     verdicts: {
-      parseGenerator: () => deliverable,
-      parseReview: () => ({ approved: true, findings: [], blockingCount: 0, parsed: true, valid: true, issues: [] }),
+      readGenerator: () => deliverable,
+      readReview: () => ({ approved: true, findings: [], blockingCount: 0, parsed: true, valid: true, issues: [] }),
     },
     manifest: { read: async () => [], reconcile: async (_root, entries) => (options.reconcile ? options.reconcile([...entries]) : [...entries]) },
   };
