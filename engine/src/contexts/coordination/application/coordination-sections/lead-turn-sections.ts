@@ -74,7 +74,7 @@ export interface CorrectionFinding {
   /* The changed source file the finding is about (a coverage gap names code, not a spec), and the line when it names one. */
   file?: string;
   line?: number;
-  /* The spec files (relative to the spec directory) whose tests' coverage dumps ran a line of `file`: what the run executed, which settles the flow of a file several flows hold. */
+  /* The spec files (relative to the spec directory) whose tests' coverage dumps ran what the finding is about, a line of `file` or, for a decision, one of its arms (`evaluatedBy`): what the run executed, which settles the flow of a finding several flows could take. */
   ranBy?: readonly string[];
 }
 

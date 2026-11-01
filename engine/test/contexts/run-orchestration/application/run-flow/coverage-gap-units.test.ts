@@ -44,7 +44,7 @@ test("a file a hub shares with a use case is listed under that use case, not wit
 
 test("a unit about a file several flows hold goes to the flow whose spec's tests ran the file, not to the first flow of the plan", () => {
   const ranBy = [{ file: "src/store.ts", specFiles: ["flows/login.spec.ts"] }];
-  const units = gapUnits([{ file: "src/store.ts", lines: [4, 5] }], [arm("src/store.ts", 7), arm("src/other.ts", 2)], [], ranBy);
+  const units = gapUnits([{ file: "src/store.ts", lines: [4, 5] }], [{ ...arm("src/store.ts", 7), evaluatedBy: ["flows/login.spec.ts"] }, arm("src/other.ts", 2)], [], ranBy);
   const flows = [
     { id: "cart", objective: "the cart", specFile: "flows/cart.spec.ts", sessionOpen: true, seedFiles: ["src/store.ts", "src/other.ts"] },
     { id: "login", objective: "sign in", specFile: "flows/login.spec.ts", sessionOpen: true, seedFiles: ["src/store.ts", "src/other.ts"] },
@@ -62,4 +62,14 @@ test("a decision with several untaken arms is one unit that names them all, and 
   assert.ok(units[0]!.text.includes("case 'open'") && units[0]!.text.includes("default"));
   assert.equal(new Set(units.map((u) => u.text)).size, 3);
   assert.deepEqual(units.map((u) => [u.finding.file, u.finding.line]), [["src/a.ts", 8], ["src/a.ts", 9], ["src/a.ts", 9]]);
+});
+
+test("an arm's finding carries the spec files that evaluated its decision, not the ones that ran its file; a decision no spec evaluated carries none", () => {
+  const ranBy = [{ file: "src/store.ts", specFiles: ["flows/cart.spec.ts", "flows/login.spec.ts"] }];
+  const evaluated = { ...arm("src/store.ts", 7), evaluatedBy: ["flows/login.spec.ts"] };
+  const never = arm("src/store.ts", 9);
+
+  const units = gapUnits([{ file: "src/store.ts", lines: [3] }], [evaluated, never], [], ranBy);
+
+  assert.deepEqual(units.map((u) => [u.finding.line, u.finding.ranBy]), [[undefined, ["flows/cart.spec.ts", "flows/login.spec.ts"]], [7, ["flows/login.spec.ts"]], [9, undefined]]);
 });

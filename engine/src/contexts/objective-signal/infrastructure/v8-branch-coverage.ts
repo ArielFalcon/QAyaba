@@ -389,12 +389,14 @@ export class BranchSink implements BranchAdder {
     for (const d of read.decisions) {
       const id = `${d.file}:${d.line}:${d.column}:${d.kind}`;
       const known = this.hits.get(id);
+      const evaluated = d.taken.some(Boolean);
       if (!known) {
-        this.hits.set(id, { file: d.file, line: d.line, column: d.column, kind: d.kind, arms: d.labels.map((label, i) => ({ label, taken: d.taken[i]! })) });
+        this.hits.set(id, { file: d.file, line: d.line, column: d.column, kind: d.kind, arms: d.labels.map((label, i) => ({ label, taken: d.taken[i]! })), ranIn: evaluated ? [this.dump] : [] });
       } else if (known.arms.length === d.taken.length) {
         known.arms.forEach((arm, i) => {
           arm.taken ||= d.taken[i]!;
         });
+        if (evaluated && !known.ranIn.includes(this.dump)) known.ranIn.push(this.dump);
       }
     }
   }

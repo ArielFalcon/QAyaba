@@ -74,7 +74,7 @@ function changedBranches(changed: CoveredLines, hits: readonly BranchHit[]): Pic
     for (const arm of hit.arms) {
       total++;
       if (arm.taken) taken++;
-      else untakenArms.push({ file: hit.file, line: hit.line, column: hit.column, kind: hit.kind, arm: arm.label });
+      else untakenArms.push({ file: hit.file, line: hit.line, column: hit.column, kind: hit.kind, arm: arm.label, ranIn: hit.ranIn });
     }
   }
   if (total === 0) return { branches: null };

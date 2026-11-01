@@ -622,8 +622,9 @@ function groupBy<T>(items: readonly T[], key: (item: T) => string): Map<string, 
 /*
  * The gap as separate units, one per file with uncovered changed lines and one per decision (with the arms of it no test ran): the lead routes findings
  * by number, so each number must name one unit it can hand to a flow, and each unit names its file so the orchestrator can route it by
- * the use case that file seeds, and the spec files whose tests ran that file (`ranBy`, from the dumps the measurement read), which settle
- * the flow of a file several flows hold. Every unit is kept: files are listed across use cases and arms across files, so what comes first
+ * the use case that file seeds, and the spec files whose tests ran what it is about (`ranBy`, from the dumps the measurement read: for a
+ * file's lines the specs that ran the file, for a decision the specs that evaluated it, `evaluatedBy`), which settle the flow of a finding
+ * several flows could take. Every unit is kept: files are listed across use cases and arms across files, so what comes first
  * is the breadth of the gap, and the lead's turn gives them up as references to their files only when its window cannot hold them. An arm
  * on a page a passing case checked only as DEV served it empty (`onEmptyPages`, from `armsOnPinnedPages`) says so: the data that takes
  * it may be what DEV lacks there.
@@ -643,7 +644,7 @@ export function gapUnits(uncovered: CoverageOutcome["uncovered"], arms: Coverage
       const pages = onEmptyPages.find((a) => a.file === u.file && a.line === u.line)?.pages ?? [];
       const empty = pages.length > 0 ? ` (on ${pages.join(", ")}, which DEV served as a confirmed empty state: the data that takes ${u.arms.length === 1 ? "this arm" : "these arms"} may be what DEV lacks there)` : "";
       const text = `decision on a changed line with ${u.arms.length === 1 ? "an arm" : "arms"} that NO test ran: ${renderUntakenDecision(u)}${empty}`;
-      return { text, finding: { text, file: u.file, line: u.line, ...ran(u.file) } };
+      return { text, finding: { text, file: u.file, line: u.line, ...(u.evaluatedBy ? { ranBy: u.evaluatedBy } : {}) } };
     }),
   ];
 }

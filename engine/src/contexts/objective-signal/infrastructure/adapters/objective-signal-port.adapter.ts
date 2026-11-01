@@ -3,8 +3,8 @@
 import type { BlastRadius } from "@kernel/blast-radius.ts";
 import type { CoverageMeasurement } from "../../domain/objective-signal.ts";
 import type { ObjectiveSignalPort } from "../../application/ports/objective-signal.port.ts";
-import type { CoverageRecount, CoverageSource, FileRanBy } from "../../domain/objective-signal.ts";
-import { isDumpOfSpecFile } from "../../domain/dump-names.ts";
+import type { CoverageRecount, CoverageSource, FileRanBy, UntakenArm } from "../../domain/objective-signal.ts";
+import { specFilesWritingAny } from "../../domain/dump-names.ts";
 import type { BundleMutationPort, MutantRerun } from "../../application/ports/bundle-mutation.port.ts";
 import type { CoverageCollectorPort } from "../../application/ports/coverage-collector.port.ts";
 import type { BundleMutationResult, CoverageRead, CoverageReport, DumpSource, MutantProof, MutantRun } from "../../domain/coverage-collector.ts";
@@ -113,10 +113,17 @@ function changeDiffOf(diff: string | undefined, exclusions: CoverageExclusions |
  */
 function ranByOf(report: CoverageReport | null | undefined, specFiles: readonly string[]): FileRanBy[] | undefined {
   if (!report?.ranBy) return undefined;
-  const files = [...new Set(specFiles)].sort();
   return report.ranBy.flatMap(({ file, dumps }) => {
-    const ran = files.filter((spec) => dumps.some((dump) => isDumpOfSpecFile(dump, spec)));
+    const ran = specFilesWritingAny(dumps, specFiles);
     return ran.length > 0 ? [{ file, specFiles: ran }] : [];
+  });
+}
+
+/* The arms no test ran with the spec files that evaluated their decision, told by the same dump-to-spec mapping as `ranByOf`. */
+function untakenArmsOf(cc: ChangeCoverage | null, specFiles: readonly string[]): UntakenArm[] | undefined {
+  return cc?.untakenArms?.map(({ ranIn, ...arm }) => {
+    const evaluatedBy = specFilesWritingAny(ranIn, specFiles);
+    return evaluatedBy.length > 0 ? { ...arm, evaluatedBy } : arm;
   });
 }
 
@@ -277,11 +284,12 @@ export class ObjectiveSignalPortAdapter implements ObjectiveSignalPort {
     const measurement: CoverageMeasurement = candidates.length > 0
       ? { ...aggregate, ...recordedExclusions(asked.exclusions), perCandidate: perCandidateCoverage({ candidates, diff: m.changeDiff, coverage: cc, aggregate: aggregate.unmeasured, crossRepo: asked.crossRepo === true }) }
       : { ...aggregate, ...recordedExclusions(asked.exclusions) };
+    const untakenArms = untakenArmsOf(cc, asked.caseFiles);
     return {
       status,
       ratio,
       ...(m.willAssemble && cc?.uncovered ? { uncovered: cc.uncovered } : {}),
-      ...(cc?.untakenArms ? { untakenArms: cc.untakenArms } : {}),
+      ...(untakenArms ? { untakenArms } : {}),
       measurement,
       ...(m.ranBy ? { ranBy: m.ranBy } : {}),
     };
@@ -362,7 +370,7 @@ export class ObjectiveSignalPortAdapter implements ObjectiveSignalPort {
       status: this.deps.decide.decide(cc, this.ctx.policy),
       ratio: cc.measured ? cc.overall.ratio : null,
       uncovered: cc.uncovered,
-      untakenArms: cc.untakenArms ?? [],
+      untakenArms: untakenArmsOf(cc, opts?.caseFiles ?? []) ?? [],
       measurement: { ...measurementOf(cc, undefined, report.scripts, undefined, undefined, readTroubleOf(report)), ...recordedExclusions(opts?.exclusions) },
       ...(ranBy ? { ranBy } : {}),
     };

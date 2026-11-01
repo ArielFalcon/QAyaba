@@ -1594,7 +1594,7 @@ function mutationRig(o: MutationRigOptions = {}) {
     covered: [{ file: "src/checkout.ts", lines }],
     executable: [{ file: "src/checkout.ts", lines: [1, 2, 3, 4] }],
     scripts: { total: 1, withSourceMap: 1 },
-    branches: [{ file: "src/checkout.ts", line: 3, column: 0, kind: "if" as const, arms: [{ label: "then", taken: false }, { label: "else", taken: true }] }],
+    branches: [{ file: "src/checkout.ts", line: 3, column: 0, kind: "if" as const, ranIn: [], arms: [{ label: "then", taken: false }, { label: "else", taken: true }] }],
     mutationSites: [site(1), site(2), site(3)],
     ranBy: [{ file: "src/checkout.ts", dumps: [PASS_DUMP] }],
   });

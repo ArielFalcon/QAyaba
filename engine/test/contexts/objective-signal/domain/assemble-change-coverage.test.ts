@@ -367,16 +367,16 @@ test("branches count the arms of the decisions on changed lines, and name the ar
   const report: CoverageReport = {
     covered: [{ file: "src/store.ts", lines: [10, 11, 12] }],
     branches: [
-      { file: "src/store.ts", line: 10, column: 4, kind: "if", arms: [{ label: "then", taken: true }, { label: "else", taken: false }] },
-      { file: "src/store.ts", line: 12, column: 14, kind: "logical", arms: [{ label: "right of && evaluated", taken: true }, { label: "&& short-circuited", taken: true }] },
-      { file: "src/store.ts", line: 30, column: 2, kind: "if", arms: [{ label: "then", taken: false }, { label: "else", taken: false }] },
+      { file: "src/store.ts", line: 10, column: 4, kind: "if", ranIn: [], arms: [{ label: "then", taken: true }, { label: "else", taken: false }] },
+      { file: "src/store.ts", line: 12, column: 14, kind: "logical", ranIn: [], arms: [{ label: "right of && evaluated", taken: true }, { label: "&& short-circuited", taken: true }] },
+      { file: "src/store.ts", line: 30, column: 2, kind: "if", ranIn: [], arms: [{ label: "then", taken: false }, { label: "else", taken: false }] },
     ],
   };
 
   const cc = assembleChangeCoverage(BRANCH_DIFF, report);
 
   assert.deepEqual(cc.branches, { changedBranches: 4, takenBranches: 3, ratio: 0.75 });
-  assert.deepEqual(cc.untakenArms, [{ file: "src/store.ts", line: 10, column: 4, kind: "if", arm: "else" }]);
+  assert.deepEqual(cc.untakenArms, [{ file: "src/store.ts", line: 10, column: 4, kind: "if", arm: "else", ranIn: [] }]);
   assert.equal(cc.overall.ratio, 1, "every changed line ran: the line ratio cannot tell the else that never did");
 });
 
@@ -384,8 +384,8 @@ test("two decisions on one line with the same kind and arm label stay two untake
   const report: CoverageReport = {
     covered: [{ file: "src/store.ts", lines: [12] }],
     branches: [
-      { file: "src/store.ts", line: 12, column: 30, kind: "logical", arms: [{ label: "right of ?? evaluated", taken: false }, { label: "?? short-circuited", taken: true }] },
-      { file: "src/store.ts", line: 12, column: 14, kind: "logical", arms: [{ label: "right of ?? evaluated", taken: false }, { label: "?? short-circuited", taken: true }] },
+      { file: "src/store.ts", line: 12, column: 30, kind: "logical", ranIn: [], arms: [{ label: "right of ?? evaluated", taken: false }, { label: "?? short-circuited", taken: true }] },
+      { file: "src/store.ts", line: 12, column: 14, kind: "logical", ranIn: [], arms: [{ label: "right of ?? evaluated", taken: false }, { label: "?? short-circuited", taken: true }] },
     ],
   };
 
@@ -401,13 +401,13 @@ test("branches are null when the report saw no decisions, or none on a changed l
 
   const elsewhere = assembleChangeCoverage(BRANCH_DIFF, {
     covered: [{ file: "src/store.ts", lines: [10, 11, 12] }],
-    branches: [{ file: "src/store.ts", line: 40, column: 0, kind: "if", arms: [{ label: "then", taken: false }, { label: "else", taken: false }] }],
+    branches: [{ file: "src/store.ts", line: 40, column: 0, kind: "if", ranIn: [], arms: [{ label: "then", taken: false }, { label: "else", taken: false }] }],
   });
   assert.equal(elsewhere.branches, null);
 
   const allUntaken = assembleChangeCoverage(BRANCH_DIFF, {
     covered: [{ file: "src/store.ts", lines: [10, 11, 12] }],
-    branches: [{ file: "src/store.ts", line: 10, column: 4, kind: "if", arms: [{ label: "then", taken: false }, { label: "else", taken: false }] }],
+    branches: [{ file: "src/store.ts", line: 10, column: 4, kind: "if", ranIn: [], arms: [{ label: "then", taken: false }, { label: "else", taken: false }] }],
   });
   assert.equal(new DecideCoverageService().decide(allUntaken, { mode: "enforce", minRatio: 0.7 }), "pass", "the line ratio alone decides");
 });
@@ -540,4 +540,15 @@ test("a changed file whose language tells no syntax counts its non-blank added l
   assert.equal(cc.overall.changedLines, 4);
   assert.deepEqual(cc.notLoaded, [{ file: "src/shared/index.ts", lines: [2] }, { file: "src/lazy.ts", lines: [1, 2] }]);
   assert.equal(cc.noCode, undefined);
+});
+
+test("an untaken arm carries the dumps that evaluated its decision, and the taken ones and the counts are the same whatever the dumps are", () => {
+  const decision = (ranIn: string[]) => ({ file: "src/store.ts", line: 10, column: 4, kind: "if" as const, ranIn, arms: [{ label: "then", taken: true }, { label: "else", taken: false }] });
+
+  const named = assembleChangeCoverage(BRANCH_DIFF, { covered: [{ file: "src/store.ts", lines: [10] }], branches: [decision(["flows-a-0-0.json"])] });
+  const never = assembleChangeCoverage(BRANCH_DIFF, { covered: [{ file: "src/store.ts", lines: [10] }], branches: [{ ...decision([]), arms: [{ label: "then", taken: false }, { label: "else", taken: false }] }] });
+
+  assert.deepEqual(named.untakenArms, [{ file: "src/store.ts", line: 10, column: 4, kind: "if", arm: "else", ranIn: ["flows-a-0-0.json"] }]);
+  assert.deepEqual(never.untakenArms!.map((a) => a.ranIn), [[], []]);
+  assert.deepEqual(named.branches, { changedBranches: 2, takenBranches: 1, ratio: 0.5 });
 });

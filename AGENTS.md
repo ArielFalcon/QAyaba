@@ -1152,7 +1152,11 @@ that catches nothing. The objective signal that breaks the circle is **change-co
   never ran join the enforce regeneration's gap. A decision is identified by its file, line, column and
   kind (`BranchHit`), and an untaken arm carries that identity (`UntakenArm.column`): the gap's unit is the
   decision with the arms of it no test ran (`untakenDecisions`), so two decisions of one line never read alike
-  and the arms of one decision are one finding. A happy-path suite shows a high line ratio and a low
+  and the arms of one decision are one finding. A decision also records the dumps in which one of its arms ran
+  (`BranchHit.ranIn`, the way `MutationSite.ranIn` does; in memory only), and the measurement tells, per untaken
+  arm, the spec files among the run's cases whose dumps those are (`UntakenArm.evaluatedBy`, through the one
+  dump-to-spec mapping `ranByOf` uses, `specFilesWritingAny`): the specs that evaluated the decision. It adds no
+  count: the line ratio and the taken arms are those of the same dumps. A happy-path suite shows a high line ratio and a low
   branch one.
 - **Verified coverage**: what a killed mutant made run, a test checked, so it counts as covered. The dumps of a
   killed mutant's re-run (only those of the spec files whose tests failed) are read with its edit undone

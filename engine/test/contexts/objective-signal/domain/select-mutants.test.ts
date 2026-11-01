@@ -68,7 +68,7 @@ test("the decisions of changed lines an arm of which no test ran come first, eac
     site("src/a.ts", 12, 6, undefined, "&& → ||"),
     site("src/b.ts", 5, 0),
   ];
-  const decision = (file: string, line: number, column: number, kind: "if" | "logical", taken: boolean[]) => ({ file, line, column, kind, arms: taken.map((t, i) => ({ label: `arm ${i}`, taken: t })) });
+  const decision = (file: string, line: number, column: number, kind: "if" | "logical", taken: boolean[]) => ({ file, line, column, kind, ranIn: [] as string[], arms: taken.map((t, i) => ({ label: `arm ${i}`, taken: t })) });
   const decisions = [
     decision("src/a.ts", 10, 2, "if", [true, true]),
     decision("src/a.ts", 12, 6, "logical", [true, false]),

@@ -7,16 +7,18 @@ export interface UntakenDecision {
   column: number;
   kind: string;
   arms: string[];
+  /** The spec files that evaluated the decision, as its arms carry them. */
+  evaluatedBy?: string[];
 }
 
 /* The untaken arms gathered by the decision they belong to, in the order the decisions first appear. */
 export function untakenDecisions(arms: readonly UntakenArm[]): UntakenDecision[] {
   const decisions = new Map<string, UntakenDecision>();
-  for (const { file, line, column, kind, arm } of arms) {
+  for (const { file, line, column, kind, arm, evaluatedBy } of arms) {
     const key = `${file}:${line}:${column}:${kind}`;
     const known = decisions.get(key);
     if (known) known.arms.push(arm);
-    else decisions.set(key, { file, line, column, kind, arms: [arm] });
+    else decisions.set(key, { file, line, column, kind, arms: [arm], ...(evaluatedBy ? { evaluatedBy } : {}) });
   }
   return [...decisions.values()];
 }

@@ -422,7 +422,7 @@ test("measure() of a commit that only changes the repo's tests has no changed li
 test("measure() reports the branches on the changed lines and the arms that never ran beside the line ratio, which alone decides", async () => {
   const report: CoverageReport = {
     covered: [{ file: "src/checkout.ts", lines: [1, 2] }],
-    branches: [{ file: "src/checkout.ts", line: 1, column: 0, kind: "if", arms: [{ label: "then", taken: true }, { label: "else", taken: false }] }],
+    branches: [{ file: "src/checkout.ts", line: 1, column: 0, kind: "if", ranIn: [], arms: [{ label: "then", taken: true }, { label: "else", taken: false }] }],
   };
   const adapter = new ObjectiveSignalPortAdapter(
     { collector: fakeCollector(report), decide: new DecideCoverageService() },
@@ -642,7 +642,7 @@ test("recount() measures the change again over the dumps of the sources it is gi
     collect: async () => ({ covered: [] }),
     recollect: async (specDir, sources) => {
       asked.push([specDir, sources]);
-      return { covered: [{ file: "src/checkout.ts", lines: [1, 2] }], branches: [{ file: "src/checkout.ts", line: 2, column: 0, kind: "if", arms: [{ label: "then", taken: true }, { label: "else", taken: false }] }] };
+      return { covered: [{ file: "src/checkout.ts", lines: [1, 2] }], branches: [{ file: "src/checkout.ts", line: 2, column: 0, kind: "if", ranIn: [], arms: [{ label: "then", taken: true }, { label: "else", taken: false }] }] };
     },
   };
   const adapter = new ObjectiveSignalPortAdapter({ collector, decide: new DecideCoverageService() }, { policy: { mode: "signal", minRatio: 0.7 }, repoDir: "/mirrors/org/app", assembleChangeCoverage });
@@ -685,7 +685,7 @@ const PROOF = { namespace: "run-7-mut0", specFiles: ["flows/pay.spec.ts"], url: 
 function provingAdapter(verified: CoverageReport, asked: unknown[] = []) {
   const first: CoverageReport = {
     covered: [{ file: "src/checkout.ts", lines: [1] }],
-    branches: [{ file: "src/checkout.ts", line: 1, column: 0, kind: "if", arms: [{ label: "then", taken: false }, { label: "else", taken: true }] }],
+    branches: [{ file: "src/checkout.ts", line: 1, column: 0, kind: "if", ranIn: [], arms: [{ label: "then", taken: false }, { label: "else", taken: true }] }],
     mutationSites: [{ file: "src/checkout.ts", line: 1, column: 0, operator: "negate condition", script: { url: "https://dev/main.js", sha256: "h" }, edit: { start: 0, end: 1, replacement: "!" }, original: "x", sourceLine: "if (x) pay();", ranIn: ["flows-pay-spec-ts-x-0-0.json"] }],
   };
   const collector: CoverageCollectorPort = {
@@ -706,7 +706,7 @@ test("measure() counts what a killed mutant made run as covered, says how much t
   const asked: unknown[] = [];
   const verified: CoverageReport = {
     covered: [{ file: "src/checkout.ts", lines: [1, 2] }],
-    branches: [{ file: "src/checkout.ts", line: 1, column: 0, kind: "if", arms: [{ label: "then", taken: true }, { label: "else", taken: true }] }],
+    branches: [{ file: "src/checkout.ts", line: 1, column: 0, kind: "if", ranIn: [], arms: [{ label: "then", taken: true }, { label: "else", taken: true }] }],
   };
 
   const result = await provingAdapter(verified, asked).measure(BlastRadius.of(Sha.of("abc1234"), ["src/checkout.ts"]), "/e2e", SAMPLE_DIFF, ["pays"], { caseFiles: ["flows/pay.spec.ts"] });
@@ -775,7 +775,7 @@ function excludedRig(onCollect?: (files?: string[]) => void) {
   const report: CoverageReport = {
     covered: [{ file: "src/checkout.ts", lines: [1, 2] }],
     executable: [{ file: "src/checkout.ts", lines: [1, 2] }],
-    branches: [{ file: "src/preview.page.ts", line: 1, column: 0, kind: "if", arms: [{ label: "then", taken: false }, { label: "else", taken: false }] }],
+    branches: [{ file: "src/preview.page.ts", line: 1, column: 0, kind: "if", ranIn: [], arms: [{ label: "then", taken: false }, { label: "else", taken: false }] }],
     mutationSites: [
       { file: "src/preview.page.ts", line: 1, column: 0, operator: "negate condition", script: { url: "https://dev/main.js", sha256: "h" }, edit: { start: 0, end: 1, replacement: "!" }, original: "native", sourceLine: "if (native) open();", ranIn: ["flows-a-spec-ts-x-0-0.json"] },
     ],
@@ -991,4 +991,28 @@ test("measure() and recount() tell which spec ran each changed file only from du
 
   for (const result of [measured.ranBy, recounted?.ranBy]) assert.deepEqual(result, [{ file: "src/checkout.ts", specFiles: ["flows/pay.spec.ts"] }]);
   assert.equal((await adapter.measure(br, "/e2e", SAMPLE_DIFF, ["pays"])).ranBy?.length, 0, "without case files no dump is attributed");
+});
+
+test("measure() and recount() name the spec files that evaluated each untaken decision through the one dump-to-spec mapping, and say nothing of a decision no case file evaluated", async () => {
+  const decision = (line: number, ranIn: string[]) => ({ file: "src/checkout.ts", line, column: 0, kind: "if" as const, ranIn, arms: [{ label: "then", taken: ranIn.length > 0 }, { label: "else", taken: false }] });
+  const report: CoverageReport = {
+    covered: [{ file: "src/checkout.ts", lines: [1, 2] }],
+    branches: [decision(1, ["flows-pay-spec-ts-pays-0-0.json", "stray-0-0.json"]), decision(2, ["stray-0-0.json"])],
+  };
+  const collector: CoverageCollectorPort = { collect: async () => report, recollect: async () => report };
+  const adapter = new ObjectiveSignalPortAdapter({ collector, decide: new DecideCoverageService() }, { policy: { mode: "signal", minRatio: 0.7 }, repoDir: "/r", assembleChangeCoverage });
+  const br = BlastRadius.of(Sha.of("abc1234"), ["src/checkout.ts"]);
+  const caseFiles = ["flows/cart.spec.ts", "flows/pay.spec.ts"];
+
+  const measured = await adapter.measure(br, "/e2e", SAMPLE_DIFF, ["pays"], { caseFiles });
+  const recounted = await adapter.recount!(br, "/e2e", SAMPLE_DIFF, [{ namespace: "r-acc0-measure", specFiles: ["flows/pay.spec.ts"] }], { caseFiles });
+
+  for (const arms of [measured.untakenArms, recounted?.untakenArms]) {
+    assert.deepEqual(arms, [
+      { file: "src/checkout.ts", line: 1, column: 0, kind: "if", arm: "else", evaluatedBy: ["flows/pay.spec.ts"] },
+      { file: "src/checkout.ts", line: 2, column: 0, kind: "if", arm: "else" },
+    ]);
+  }
+  assert.equal(measured.ratio, 1);
+  assert.equal(measured.measurement?.changedBranches, 4);
 });
