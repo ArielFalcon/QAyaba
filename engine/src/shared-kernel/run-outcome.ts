@@ -133,8 +133,6 @@ export interface RunOutcome {
     coverageByCandidate?: Array<{ candidateId: string; changedLines: number; coveredChanged: number; ratio: number | null; unmeasured?: string }>;
     /* Why the routes the Context Pack's capture could not show at their own address were not, by class. Absent when the pack did not classify. Persist-only: it reads nothing back into a verdict. */
     routeAvailability?: RouteAvailabilityGateSignal;
-    /* The delivered tests that fulfil a stated response instead of reading DEV: how many spec files and tests, and the guards they broke (a fulfil no GET check guards, a changed request, a replay of every method, a spec file with no live test). Absent when no delivered test is stubbed and no guard broke. Persist-only: it reads nothing back into a verdict. */
-    stubbedState?: { specFiles: number; tests: number; violations?: Array<{ file: string; kind: string }> };
     /* Which fields the consumer's own code expects of an operation's answer that no response the captured pages received carries at any depth, and what the provider's contract says of each (`provider-undeclared`, `provider-declared-absent`, `no-provider-contract`). Runs stored before the consumer rule list `carriedBy`/`missingFrom` on a fact instead. Absent when no page had a shape to read. Persist-only: it reads nothing back into a verdict. */
     dataContradictions?: DataContradictionGateSignal;
     /* The passing cases whose every assertion ran on a page as it loaded, before any step of their own, on a page the Context Pack read as a confirmed empty state (`cases`), those pages (`pages`), and the untaken arms of the changed code on them (`arms`). Absent when no case was pinned. Persist-only: it reads nothing back into a verdict. */

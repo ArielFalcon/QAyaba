@@ -57,6 +57,8 @@ export const BANNED_RULES: BannedRule[] = [
   /* The configuration key is `qa.changeCoverage.mode` (ADR-0005); `qa.coveragePolicy` is the spelling the documents drifted to. The records quote it on purpose. */
   { id: "coverage-policy-key", patterns: [/\bqa\.coveragePolicy\b/], exemptPrefixes: [RECORDS_PREFIX] },
   { id: "claude-md", patterns: [/CLAUDE\.md/i] },
+  /* The stubbed-test exception is retired (ADR-0025): a delivered spec never intercepts requests. The tests that pin what a stored run keeps of it write the names. */
+  { id: "stubbed-tests", patterns: [/\[stubbed:/, /\bstubbedState\b/, /\bStubbed(?:Test|State|Violation)/, /\bstubbed[- _]state\b/i, /Tested against a stated response/, /qayaba\.stubbed/], exemptPrefixes: [RECORDS_PREFIX, ...RETIRED_FIELD_TESTS] },
   { id: "codebase-memory", patterns: [/codebase-memory/i] },
   { id: "shell-error-taxonomy", patterns: [/\bsrc\/errors\b/], exemptPrefixes: [RECORDS_PREFIX] },
   {

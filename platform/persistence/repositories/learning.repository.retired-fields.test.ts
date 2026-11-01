@@ -4,6 +4,32 @@ import { join } from "node:path";
 import Database from "better-sqlite3";
 import { getHistory } from "../index";
 
+test("a stored outcome that still carries the retired stubbed-state signal is read with the signal and its other fields intact", () => {
+  const app = "hist-retired-stubbed-state";
+  getHistory().purgeApp(app);
+  const dbPath = process.env.HISTORY_DB_PATH ?? join(process.env.QAYABA_ROOT ?? process.cwd(), "data", "qayaba.db");
+  const gateSignals = {
+    static: true, coverageRatio: 0.9, reviewerApproved: true, reviewerCorrections: [], flaky: false, retries: 0,
+    stubbedState: { specFiles: 1, tests: 2, violations: [{ file: "flows/a.spec.ts", kind: "fulfil-without-get-guard" }] },
+  };
+  const raw = new Database(dbPath);
+  try {
+    raw.prepare("INSERT INTO run_outcomes (id, app, sha, mode, target, verdict, error_class, gate_signals, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .run("run-retired-stubbed", app, "abcdef1234", "diff", "e2e", "pass", null, JSON.stringify(gateSignals), "2026-10-31T00:00:00.000Z");
+  } finally {
+    raw.close();
+  }
+  try {
+    const read = getHistory().learning.getRunOutcome("run-retired-stubbed")!;
+    assert.equal(read.verdict, "pass");
+    assert.equal(read.gateSignals.coverageRatio, 0.9);
+    assert.equal(read.gateSignals.reviewerApproved, true);
+    assert.deepEqual((read.gateSignals as Record<string, unknown>)["stubbedState"], gateSignals.stubbedState, "the retired signal is kept as it was stored");
+  } finally {
+    getHistory().purgeApp(app);
+  }
+});
+
 test("a stored outcome that still carries the retired value fields and the class E-VALUE-SURVIVED is read with its other fields intact", () => {
   const app = "hist-retired-value-fields";
   getHistory().purgeApp(app);

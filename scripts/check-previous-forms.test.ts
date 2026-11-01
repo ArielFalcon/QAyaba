@@ -25,6 +25,7 @@ test("each banned family is matched, case-insensitively where it says so", () =>
     ["router-kind", 'kind: "router"'],
     ["claude-md", "see CLAUDE.md"],
     ["codebase-memory", "the codebase-memory graph"],
+    ["stubbed-tests", "gateSignals.stubbedState"],
     ["narration", "a frozen oracle"],
   ];
   for (const [rule, text] of samples) {

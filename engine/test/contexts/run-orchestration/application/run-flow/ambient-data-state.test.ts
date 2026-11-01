@@ -39,8 +39,8 @@ test("each pinned case is a finding for the flow that owns its spec, naming the 
   for (const part of [PIN.test, ...PIN.pages, "north", "south", "set_geolocation"]) assert.ok(finding!.finding.text.includes(part), part);
 });
 
-test("with no place declared, the pinned case's finding names the stubbed-test route instead of a place", () => {
+test("with no place declared, the pinned case's finding says the state is DEV's and never to intercept requests", () => {
   const [finding] = ambientPinFindings([PIN], []);
-  assert.ok(finding!.finding.text.includes("[stubbed:"), "it names the stubbed-test route");
+  assert.ok(finding!.finding.text.includes("Never intercept requests"), "it forbids the faked route");
   assert.equal(finding!.finding.text.includes("set_geolocation"), false, "it names no place");
 });

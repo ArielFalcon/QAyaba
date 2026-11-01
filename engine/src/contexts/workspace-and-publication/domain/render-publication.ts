@@ -35,7 +35,6 @@ const CAP_FLOW = 120;
 const CAP_OBJECTIVE = 300;
 /* A data contradiction names two operations by their address and says what each returned: longer than an objective. */
 const CAP_CONTRADICTION = 900;
-const MAX_STUBS_PER_GAP = 3;
 
 /* A field of the body bounded to `max`: redacted first, then cut, with the marker saying how long it was. */
 type Bound = (value: string, max: number) => string;
@@ -104,45 +103,6 @@ function renderReviewerNoteSection(note: string): string {
   return ["Reviewer unavailable", note].join("\n");
 }
 
-/* The tests that fulfil a stated response instead of reading DEV, and the guards they broke, as the run recorded them. */
-export interface StubbedStateView {
-  tests: ReadonlyArray<{ file: string; name: string; response?: string; routes: readonly string[]; fulfils?: readonly string[] }>;
-  violations?: ReadonlyArray<{ file: string; kind: string; test?: string }>;
-}
-
-const STUB_MARKER_PREFIX = /^\s*\[stubbed:[^\]]*\]\s*/i;
-
-const GUARD_MEANING: Record<string, string> = {
-  "fulfil-without-get-guard": "a fulfil no explicit GET check guards would answer a write too",
-  "unverifiable-handler": "its route handler is not in the file, so it cannot be shown to fulfil only reads",
-  "override-changes-request": "a continue or fallback sets the request's method or body",
-  "har-replay": "a HAR replay answers every method it recorded",
-  "no-live-test": "every test of the spec file is stubbed: no live test sits beside them",
-};
-
-function renderStubbedTest(t: StubbedStateView["tests"][number], bound: Bound): string {
-  const title = t.response !== undefined ? t.name.replace(STUB_MARKER_PREFIX, "") : t.name;
-  const routes = t.routes.length > 0 ? ` (${t.routes.map((r) => `\`${bound(r, CAP_FLOW)}\``).join(", ")})` : "";
-  const against =
-    t.response !== undefined ? bound(t.response, CAP_OBJECTIVE) + routes
-    : t.routes.length > 0 ? `the response its handler fulfils${routes}`
-    : "a helper it calls could not be read, so it is counted as stubbed";
-  return `- \`${bound(t.file, CAP_FLOW)}\` › ${bound(title, CAP_NAME)} — ${against}`;
-}
-
-/* The stubbed tests as a section of their own, and the guards they broke: what the reader must know about a test that holds for a stated response and not for what DEV returns. Empty when there is neither. A record for the reader, never a gate. */
-function renderStubbedSection(state: StubbedStateView | undefined, bound: Bound): string {
-  const tests = (state?.tests ?? []).slice(0, MAX_ITEMS);
-  const violations = (state?.violations ?? []).slice(0, MAX_ITEMS);
-  const blocks: string[] = [];
-  if (tests.length > 0) blocks.push(`**Tested against a stated response, not DEV** (these tests fulfil the responses they state through the browser's route interception: they hold for those responses, not for what DEV returns; a signal, not a gate):\n${tests.map((t) => renderStubbedTest(t, bound)).join("\n")}`);
-  if (violations.length > 0) {
-    const line = (v: NonNullable<StubbedStateView["violations"]>[number]): string => `- \`${bound(v.file, CAP_FLOW)}\`${v.test !== undefined ? ` › ${bound(v.test, CAP_NAME)}` : ""} — ${v.kind}: ${GUARD_MEANING[v.kind] ?? "a guard of the stubbed-state rules"}`;
-    blocks.push(`**Guards these tests broke** (the stubbed-state rules: only reads are fulfilled, a write is never faked, and a live test sits beside; a signal, not a gate):\n${violations.map(line).join("\n")}`);
-  }
-  return blocks.join("\n\n");
-}
-
 export interface RenderIssueInput {
   verdict: RunVerdict;
   cases: readonly QaCase[];
@@ -157,7 +117,6 @@ export interface RenderIssueInput {
   /* The routes the change made unavailable and the possible regressions, from the run's availability classification. */
   routeAvailability?: readonly RouteAvailabilityFact[];
   /* The delivered tests that fulfil a stated response instead of reading DEV, and the guards they broke. */
-  stubbedState?: StubbedStateView;
   /* The fields the consumer's code expects of an answer that the run's captured pages' answers lack, from the response shapes the capture read. */
   dataContradictions?: readonly DataContradiction[];
   /* The passing cases that checked a page only as DEV served it confirmed empty, and the untaken arms on those pages. */
@@ -221,22 +180,14 @@ function renderAvailabilitySection(facts: readonly RouteAvailabilityFact[] | und
   return blocks.join("\n\n");
 }
 
-/* The stubbed tests that fulfil a field a gap lacks, as lines under the gap: a test that states a response carrying the field the live answers do not corroborates the gap, but it is a test of the stated response, not of DEV. A test whose body the spec does not state is linked to none. */
-function corroboratingStubs(fact: DataContradiction, state: StubbedStateView | undefined, bound: Bound): string[] {
-  return (state?.tests ?? [])
-    .filter((t) => t.fulfils?.includes(fact.key))
-    .slice(0, MAX_STUBS_PER_GAP)
-    .map((t) => `  - also tested against a stated response that fulfils "${bound(fact.key, CAP_NAME)}": \`${bound(t.file, CAP_FLOW)}\` › ${bound(t.response !== undefined ? t.name.replace(STUB_MARKER_PREFIX, "") : t.name, CAP_NAME)}`);
-}
-
 /* The data contradictions of the run's pages: a field the consumer's own code expects of an answer that no response of the operation carries. A possible defect of the app's data (or of the provider's contract), which a test written around it would hide; a record for the reader, never a gate. */
-function renderDataContradictionsSection(facts: readonly DataContradiction[] | undefined, stubbed: StubbedStateView | undefined, bound: Bound): string {
+function renderDataContradictionsSection(facts: readonly DataContradiction[] | undefined, bound: Bound): string {
   const shown = (facts ?? []).slice(0, MAX_ITEMS);
   if (shown.length === 0) return "";
   const page = (fact: DataContradiction): string => printedRoute(fact, (part) => `\`${bound(part, CAP_FLOW)}\``);
   const more = (facts ?? []).length - shown.length;
   const omitted = more > 0 ? `\n_…and ${more} more omitted._` : "";
-  const lines = shown.flatMap((fact) => [`- ${page(fact)}: ${bound(dataContradictionStatement(fact), CAP_CONTRADICTION)}`, ...corroboratingStubs(fact, stubbed, bound)]);
+  const lines = shown.map((fact) => `- ${page(fact)}: ${bound(dataContradictionStatement(fact), CAP_CONTRADICTION)}`);
   return `**Possible data contradictions** (a field the consumer's own code expects of an answer, that its declared type holds and its code reads and never writes, is absent from every response the page received; it may be a defect of the app's data or of the provider's contract, not of the tests; a signal, not a gate):\n${lines.join("\n")}${omitted}`;
 }
 
@@ -295,9 +246,7 @@ export function renderIssue(input: RenderIssueInput, redact: (text: string) => s
   if (missing) blocks.push(missing);
   const availability = renderAvailabilitySection(input.routeAvailability, bound);
   if (availability) blocks.push(availability);
-  const stubbed = renderStubbedSection(input.stubbedState, bound);
-  if (stubbed) blocks.push(stubbed);
-  const contradictions = renderDataContradictionsSection(input.dataContradictions, input.stubbedState, bound);
+  const contradictions = renderDataContradictionsSection(input.dataContradictions, bound);
   if (contradictions) blocks.push(contradictions);
   const ambient = renderAmbientDataStateSection(input.ambientDataState, bound);
   if (ambient) blocks.push(ambient);
@@ -318,7 +267,6 @@ export interface RenderPrBodyInput {
   /* The routes the change made unavailable and the possible regressions, from the run's availability classification. */
   routeAvailability?: readonly RouteAvailabilityFact[];
   /* The delivered tests that fulfil a stated response instead of reading DEV, and the guards they broke. */
-  stubbedState?: StubbedStateView;
   /* The fields the consumer's code expects of an answer that the run's captured pages' answers lack, from the response shapes the capture read. */
   dataContradictions?: readonly DataContradiction[];
   /* The passing cases that checked a page only as DEV served it confirmed empty, and the untaken arms on those pages. */
@@ -343,9 +291,7 @@ export function renderPrBody(input: RenderPrBodyInput, redact: (text: string) =>
   if (missing) blocks.push(missing);
   const availability = renderAvailabilitySection(input.routeAvailability, bound);
   if (availability) blocks.push(availability);
-  const stubbed = renderStubbedSection(input.stubbedState, bound);
-  if (stubbed) blocks.push(stubbed);
-  const contradictions = renderDataContradictionsSection(input.dataContradictions, input.stubbedState, bound);
+  const contradictions = renderDataContradictionsSection(input.dataContradictions, bound);
   if (contradictions) blocks.push(contradictions);
   const ambient = renderAmbientDataStateSection(input.ambientDataState, bound);
   if (ambient) blocks.push(ambient);

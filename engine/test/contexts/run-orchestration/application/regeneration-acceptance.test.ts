@@ -33,12 +33,12 @@ interface Harness {
   execute: ExecutionPort["execute"];
 }
 
-function harness(gone: readonly string[] = []): Harness {
+function harness(gone: readonly string[] = [], texts: Readonly<Record<string, string>> = {}): Harness {
   const restores: Harness["restores"] = [];
   const executed: Harness["executed"] = [];
   const ledgered: Harness["ledgered"] = [];
   const snapshot: SuiteRestorePort = {
-    snapshot: async (_dir, files) => ({ files: new Map(files.filter((f) => !gone.includes(f)).map((f) => [f, bytesOf(`now:${f}`)])) }),
+    snapshot: async (_dir, files) => ({ files: new Map(files.filter((f) => !gone.includes(f)).map((f) => [f, bytesOf(texts[f] ?? `now:${f}`)])) }),
     restore: async (_dir, snap, created) => { restores.push({ created, files: [...snap.files.keys()] }); },
   };
   const service = new RegenerationAcceptance({
@@ -471,6 +471,48 @@ test("a regeneration that changed a file the specs import is judged whole: a spe
 
   assert.equal(outcome.kind, "rejected");
   assert.deepEqual(h.restores, [{ created: [], files: ["flows/green.spec.ts", "flows/silent.spec.ts"] }]);
+});
+
+const STUBS = 'import { test } from "./fixtures";\ntest.describe("geo", () => { test("stubs the chips", async ({ page }) => { await page.route("**/geo", (route) => route.fulfill({ json: [] })); }); });\n';
+
+test("a regenerated file whose tests intercept requests gets its prior bytes back even when they pass and even when the prior bytes did the same, and the clean file stands", async () => {
+  const h = harness([], { "flows/stubs.spec.ts": STUBS });
+  const stubCase = { ...caseOf("flows/stubs.spec.ts", "pass"), name: "flows/stubs.spec.ts › geo › stubs the chips" };
+  const outcome = await h.service.accept({
+    specDir: "/w/e2e",
+    changedSpecFiles: ["flows/green.spec.ts", "flows/stubs.spec.ts"],
+    namespace: NAMESPACE,
+    snapshot: snapshotOf(["flows/green.spec.ts", "flows/stubs.spec.ts"]),
+    prior: { cases: [stubCase], interceptedTests: [{ file: "flows/stubs.spec.ts", name: "geo › stubs the chips" }] },
+    independentSpecs: true,
+    deadline: deadline(60_000),
+    validate,
+    execute: async () => ({ verdict: "pass", cases: [caseOf("flows/green.spec.ts", "pass"), stubCase], logs: "" }),
+  });
+
+  assert.equal(outcome.kind, "accepted");
+  if (outcome.kind === "accepted") {
+    assert.deepEqual(outcome.kept, ["flows/green.spec.ts"]);
+    assert.deepEqual(outcome.restored, ["flows/stubs.spec.ts"]);
+  }
+  assert.deepEqual(h.restores.map((r) => r.files), [["flows/stubs.spec.ts"]]);
+});
+
+test("a regeneration judged whole is rejected when a changed file intercepts requests", async () => {
+  const h = harness([], { "flows/stubs.spec.ts": STUBS });
+  const outcome = await h.service.accept({
+    specDir: "/w/e2e",
+    changedSpecFiles: ["flows/stubs.spec.ts"],
+    namespace: NAMESPACE,
+    snapshot: snapshotOf(["flows/stubs.spec.ts"]),
+    deadline: deadline(60_000),
+    validate,
+    execute: async () => ({ verdict: "pass", cases: [{ ...caseOf("flows/stubs.spec.ts", "pass"), name: "flows/stubs.spec.ts › geo › stubs the chips" }], logs: "" }),
+  });
+
+  assert.equal(outcome.kind, "rejected");
+  if (outcome.kind === "rejected") assert.match(outcome.reason, /intercepting requests/);
+  assert.equal(h.ledgered.length, 0, "nothing of a refused file reaches the proof ledger");
 });
 
 /* A skipped test that was already in a file's prior bytes: the regeneration did not make it, so it neither blocks the file nor proves it. */

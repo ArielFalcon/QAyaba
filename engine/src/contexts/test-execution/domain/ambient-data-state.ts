@@ -3,10 +3,10 @@
 
 import ts from "typescript";
 import type { QaCase } from "@kernel/qa-case.ts";
-import { isRealPass } from "@kernel/case-proof.ts";
+import { TITLE_SEPARATOR, isRealPass, titlePathOf } from "@kernel/case-proof.ts";
 import { sameSpecPath } from "@kernel/spec-path.ts";
 import type { AmbientDataPin } from "@kernel/page-data-read.ts";
-import { chainOf, isFn, literalText, memberName, structuralCall, unwrap, type Fn, type SpecText } from "./stubbed-state.ts";
+import { chainOf, isFn, literalText, memberName, structuralCall, unwrap, type Fn, type SpecText } from "./spec-syntax.ts";
 
 /* The fixtures a test may take without arranging any state: the page itself and options it only reads. */
 const READ_ONLY_FIXTURES = new Set(["page", "baseURL", "browserName", "isMobile"]);
@@ -17,7 +17,6 @@ const PAGE_READS = new Set(["count", "textContent", "innerText", "innerHTML", "g
 /* Calls that wait on the page and change nothing. */
 const PAGE_WAITS = new Set(["waitFor", "waitForLoadState", "waitForURL", "waitForResponse", "waitForSelector"]);
 const TEST_ROOTS = new Set(["test", "it"]);
-const TITLE_SEPARATOR = " › ";
 
 /* The identifier a chain of property accesses and calls starts at: `expect(x).not.toBe` and `page.getByRole(...).first` give `expect` and `page`. */
 function baseOf(expression: ts.Expression): string | undefined {
@@ -324,12 +323,6 @@ function readTests(spec: SpecText): ReadTest[] {
   const counts = new Map<string, number>();
   for (const t of tests) counts.set(t.titlePath, (counts.get(t.titlePath) ?? 0) + 1);
   return tests.filter((t) => t.titlePath !== "" && counts.get(t.titlePath) === 1);
-}
-
-/* The title path a case's name holds after the file's own title: the report names a case `<file title> › <describe titles> › <test title>`. */
-function titlePathOf(c: QaCase): string | undefined {
-  const at = c.name.indexOf(TITLE_SEPARATOR);
-  return at === -1 ? undefined : c.name.slice(at + TITLE_SEPARATOR.length);
 }
 
 /*

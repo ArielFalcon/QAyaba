@@ -330,7 +330,7 @@ function captureStateLabel(page: CapturedPage): string {
  * What a confirmed empty page is to an author: DEV's data at the time of the read, not the change's outcome. A test that asserts the page
  * as it loads proves only that DEV had no data there (T38: run-ed28973-mvwe1bcz-26750e38 delivered such a case as the change's test).
  */
-export const AMBIENT_EMPTY_STATE_NOTE = "that is DEV's data, not an outcome of the change: do not assert this page as it loads; assert an empty state only as the result of a step the test takes, and reach the results the change handles at a declared place where the page has data or with a stubbed test";
+export const AMBIENT_EMPTY_STATE_NOTE = "that is DEV's data, not an outcome of the change: do not assert this page as it loads; assert an empty state only as the result of a step the test takes, and reach the results the change handles at a declared place where the page has data";
 
 /* One "Capture state" line for a page whose dev.dataState route matched: its result count, effective location and, when the state could not be confirmed, the explicit warning that an empty tree is not proof. */
 /* mutation-scope:begin capture-state-line */

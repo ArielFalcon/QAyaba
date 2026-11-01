@@ -47,12 +47,7 @@ export interface PublicationPort {
     missingCases?: readonly string[];
     /** The routes the change made unavailable and the possible regressions: listed in the PR or Issue, never a gate. */
     routeAvailability?: readonly RouteAvailabilityFact[];
-    /** The delivered tests that fulfil a stated response instead of reading DEV, and the guards they broke: listed in the PR or Issue as tested against that response, never a gate. */
-    stubbedState?: {
-      tests: ReadonlyArray<{ file: string; name: string; response?: string; routes: readonly string[]; fulfils?: readonly string[] }>;
-      violations?: ReadonlyArray<{ file: string; kind: string; test?: string }>;
-    };
-    /** The fields the consumer's code expects of an answer that the captured pages' answers lack: listed in the PR or Issue as possible defects of the app's data, with the stubbed tests that fulfil them, never a gate. */
+    /** The fields the consumer's code expects of an answer that the captured pages' answers lack: listed in the PR or Issue as possible defects of the app's data, never a gate. */
     dataContradictions?: readonly DataContradiction[];
     /** The passing cases that checked a page only as DEV served it confirmed empty, and the untaken arms of the changed code on those pages: listed in the PR or Issue, never a gate. */
     ambientDataState?: {

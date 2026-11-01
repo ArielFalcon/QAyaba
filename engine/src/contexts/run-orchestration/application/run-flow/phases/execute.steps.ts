@@ -7,12 +7,13 @@ import type { QaCase } from "@kernel/qa-case.ts";
 import { refuseOutright, verdictAfterRefusal } from "@kernel/case-proof.ts";
 import { MAX_STATIC_FIX_ROUNDS } from "../../../domain/derive-cycle-backstop.ts";
 import { staticFixAction } from "../../../domain/static-fix.ts";
-import type { ExecutionPort, ValidationPort } from "@contexts/test-execution/application/index.ts";
+import { detectInterceptedTests, type ExecutionPort, type ValidationPort } from "@contexts/test-execution/application/index.ts";
 import { end, goto, type StepOutcome } from "../run-flow.ts";
 import type { WorkspaceRunContext } from "../run-context.ts";
 import type { RunState } from "../run-state.ts";
 import { addRetries, withRun } from "../reducers.ts";
 import { awaitEntryHealth } from "./opening.steps.ts";
+import { deliveredSpecTexts } from "../ambient-data-state.ts";
 import { closedLoopSignal, loopClosedNow, regenerate, staticGateFindings } from "./generation-services.ts";
 
 type Result = Promise<StepOutcome<RunState>>;
@@ -217,13 +218,14 @@ export async function executeSpecs(state: Readonly<RunState>, ctx: WorkspaceRunC
   const reported = input.mode === "context"
     ? { verdict: "pass" as const, cases: [] as QaCase[], logs: state.generation.generated.note ?? "" }
     : await deps.execution.execute(workspace.specDir, liveExecutionOptions(ctx));
-  /* The engine is the one authority on a skipped test and a test marked to fail in the files this run delivered, whatever the app's own lint: they are not a pass, so the run fails on them and the fix loop is told which they are. */
-  const judged = refuseOutright(reported, state.generation.delivered.map((d) => d.file).filter((file) => file.endsWith(".spec.ts")));
+  /* The engine is the one authority on a skipped test, a test marked to fail and a test that intercepts requests in the files this run delivered, whatever the app's own lint: they are not a pass, so the run fails on them and the fix loop is told which they are. */
+  const delivered = state.generation.delivered.map((d) => d.file).filter((file) => file.endsWith(".spec.ts"));
+  const judged = refuseOutright({ ...reported, interceptedTests: detectInterceptedTests(deliveredSpecTexts(state, ctx)) }, delivered);
   const run =
     judged.refused.length === 0
       ? reported
       : { ...reported, verdict: verdictAfterRefusal(reported.verdict, judged), cases: [...judged.cases, ...judged.refused], skippedTests: judged.skippedTests };
-  if (judged.refused.length > 0) deps.observer?.onEvent({ type: "log.line", level: "info", text: `[qa] ${judged.refused.length} skipped or test.fail() test(s) in the delivered specs are not a pass and are handed to the fix loop as failures` });
+  if (judged.refused.length > 0) deps.observer?.onEvent({ type: "log.line", level: "info", text: `[qa] ${judged.refused.length} skipped, test.fail() or request-intercepting test(s) in the delivered specs are not a pass and are handed to the fix loop as failures` });
   /* The primary pass just ran: its bytes fix the contract every later regeneration is measured against (A5). */
   await services.primeIntentBaseline();
   return { update: { execution: withRun(state.execution, run) } };

@@ -1,7 +1,7 @@
 /*
  * What the run does with a passing case that checked a page only as DEV served it confirmed empty (an ambient pin): the change's
  * untaken arms on that page are attributed to the data DEV lacks there, and the flow that owns the case's spec is told how to give the
- * page data: a place the app declares, when it declares any, else a stubbed test beside the live one. A signal: nothing here reads or
+ * page data: a place the app declares, when it declares any, else to assert only what its own steps produce. A signal: nothing here reads or
  * changes a verdict, a decision or a publication route.
  */
 
@@ -71,11 +71,11 @@ export function armsOnPinnedPages<A extends { file: string }>(arms: readonly A[]
   });
 }
 
-/* What the flow is told to do so the case tests the change and not DEV's data: move to a declared place that has data, or state the data in a stubbed test. */
+/* What the flow is told to do so the case tests the change and not DEV's data: move to a declared place that has data, or leave the state it cannot reach unmet. */
 function remedyOf(places: readonly string[]): string {
   return places.length > 0
     ? `Give the page data: with set_geolocation, try the places the app declares (${places.join(", ")}) until the page shows results where you read it, pin that place in the spec with setLocation(context, latitude, longitude), and assert what the change does with the results.`
-    : `Cover the state the change handles with a stubbed test ("[stubbed: <the response it states>]", fulfilling only the GET responses the page needs, beside the live test of the page) and assert what the change does with that data.`;
+    : `The app declares no place that has data, so the state the change handles is DEV's to give: assert only what a step of the test produces, and report the criterion unmet with the cause dev-state when no step reaches it. Never intercept requests to fake that data.`;
 }
 
 /*

@@ -10,6 +10,7 @@ import { hasRealPass, refuseOutright, verdictAfterRefusal, type RefusedTests } f
 import { createHash } from "node:crypto";
 import { MAX_SPEC_SOURCE_BYTES, type SpecFilesPort, type SpecRoot } from "@kernel/ports/spec-files.port.ts";
 import { dropOpaqueTokens } from "../domain/output-token-filter.ts";
+import { detectInterceptedTests } from "../domain/intercepted-tests.ts";
 import type { RunDeadlineView } from "@kernel/run-deadline.ts";
 import type { Attrs } from "@kernel/telemetry/attribute-registry.ts";
 import { failureUnsettled, type QaCase } from "@kernel/qa-case.ts";
@@ -231,7 +232,7 @@ export class RunSpecUseCase {
           if (typeof timeoutMs !== "number") return timeoutMs;
           tell({ "qayaba.limit.applied": capability.heldFor(this.timeAllowed()).limit, "qayaba.limit.applied_ms": timeoutMs });
           began = true;
-          const ran = await this.executeAndClean(rel, grep, reservation.namespace, timeoutMs, stop);
+          const ran = await this.executeAndClean(rel, source, grep, reservation.namespace, timeoutMs, stop);
           if (ran.writesUncounted) capability.chargeRunRemainder();
           else capability.chargeRunWrites(ran.devWrites);
           return ran;
@@ -268,7 +269,7 @@ export class RunSpecUseCase {
     return { ok: true, report: { status, tests, passedTests, budget: capability.budget(this.timeAllowed()), ...(loadErrors.length > 0 ? { loadErrors } : {}), ...(note !== undefined ? { note } : {}), ...(sessionLost ? { sessionLost: true as const } : {}) } };
   }
 
-  private async executeAndClean(rel: string, grep: string | undefined, namespace: string, timeoutMs: number, stop: AbortSignal | undefined): Promise<{ status: RunSpecStatus; tests: RunSpecTestReport[]; passedTests: number; devWrites: number; devWriteRequests?: readonly DevWriteRequest[]; controlRequests?: readonly DevWriteRequest[]; writesUncounted?: true; failures: RunSpecFailureFact[]; loadErrors?: RunSpecLoadError[]; note?: string; sessionLost?: boolean }> {
+  private async executeAndClean(rel: string, source: string, grep: string | undefined, namespace: string, timeoutMs: number, stop: AbortSignal | undefined): Promise<{ status: RunSpecStatus; tests: RunSpecTestReport[]; passedTests: number; devWrites: number; devWriteRequests?: readonly DevWriteRequest[]; controlRequests?: readonly DevWriteRequest[]; writesUncounted?: true; failures: RunSpecFailureFact[]; loadErrors?: RunSpecLoadError[]; note?: string; sessionLost?: boolean }> {
     let result: SpecExecutionResult | undefined;
     let failure: string | undefined;
     try {
@@ -284,15 +285,15 @@ export class RunSpecUseCase {
     }
     if (result === undefined) return { status: RUN_SPEC_STATUS.ERROR, tests: [], passedTests: 0, devWrites: 0, failures: [], note: failure ?? "the spec could not be run" };
 
-    /* The engine is the one authority on tests that do not stand as a pass, whatever the app's lint: a skipped test and a test marked to fail are listed as failures the author can read, and they are no pass. */
-    const judged = refuseOutright({ cases: result.cases, ...(result.skippedTests !== undefined ? { skippedTests: result.skippedTests } : {}) });
+    /* The engine is the one authority on tests that do not stand as a pass, whatever the app's lint: a skipped test, a test marked to fail and a test that intercepts requests are listed as failures the author can read, and they are no pass. */
+    const judged = refuseOutright({ cases: result.cases, interceptedTests: detectInterceptedTests([{ file: rel, text: source }]), ...(result.skippedTests !== undefined ? { skippedTests: result.skippedTests } : {}) });
     const failing = [...judged.cases.filter((c) => c.status !== "pass"), ...judged.refused];
     const passedTests = judged.cases.length - judged.cases.filter((c) => c.status !== "pass").length;
     const failures = failing.slice(0, MAX_REPORTED_TESTS).map((c) => this.failureFact(c));
     const tests = failing.slice(0, MAX_REPORTED_TESTS).map((c) => this.testReport(c));
     const status = this.statusOf(result, judged);
     const notes: string[] = [];
-    if (judged.refused.length > 0) notes.push(`${judged.refused.length} test(s) are skipped or marked test.fail(): they are not a pass and are listed as failed`);
+    if (judged.refused.length > 0) notes.push(`${judged.refused.length} test(s) are skipped, marked test.fail() or intercept requests: they are not a pass and are listed as failed`);
     if (status === RUN_SPEC_STATUS.TIMED_OUT) notes.push(`the spec did not finish within ${Math.round(timeoutMs / 1000)}s and was stopped`);
     /* A report that holds no test but names load errors says why: the spec did not load, which is neither a wrong path nor a grep that matched nothing. */
     const loadErrors = result.cases.length === 0 ? this.loadErrorFacts(result.loadErrors ?? []) : [];

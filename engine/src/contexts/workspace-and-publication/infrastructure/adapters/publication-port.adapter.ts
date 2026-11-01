@@ -8,7 +8,7 @@ import type { QaCase } from "@kernel/qa-case.ts";
 import { SecretLeakError } from "@kernel/ports/redaction.port.ts";
 import type { PublicationPort } from "../../application/ports/publication.port.ts";
 import type { WorkspaceHandle } from "../../domain/workspace-handle.ts";
-import type { AmbientDataStateView, CoverageReportView, StubbedStateView } from "../../domain/render-publication.ts";
+import type { AmbientDataStateView, CoverageReportView } from "../../domain/render-publication.ts";
 import type { WorkspaceRegistry } from "./workspace-registry.ts";
 
 /* Local structural mirror of workspace-and-publication's PublishContext/PublishDecision (domain/publish-decision.service.ts) — duck-typed, NOT imported, per the security-boundary note. */
@@ -64,7 +64,6 @@ export interface PublicationRenderCollaborator {
     reviewerNote?: string;
     missingCases?: readonly string[];
     routeAvailability?: readonly RouteAvailabilityFact[];
-    stubbedState?: StubbedStateView;
     dataContradictions?: readonly DataContradiction[];
     ambientDataState?: AmbientDataStateView;
   }, redact: (text: string) => string): string;
@@ -75,7 +74,6 @@ export interface PublicationRenderCollaborator {
     coverage?: CoverageReportView;
     missingCases?: readonly string[];
     routeAvailability?: readonly RouteAvailabilityFact[];
-    stubbedState?: StubbedStateView;
     dataContradictions?: readonly DataContradiction[];
     ambientDataState?: AmbientDataStateView;
   }, redact: (text: string) => string): string;
@@ -150,7 +148,6 @@ export class PublicationPortAdapter implements PublicationPort {
     parentRunId?: string;
     missingCases?: readonly string[];
     routeAvailability?: readonly RouteAvailabilityFact[];
-    stubbedState?: StubbedStateView;
     dataContradictions?: readonly DataContradiction[];
     ambientDataState?: AmbientDataStateView;
     coverageReport?: CoverageReportView;
@@ -180,7 +177,6 @@ export class PublicationPortAdapter implements PublicationPort {
           ...(decision.reviewerNote ? { reviewerNote: decision.reviewerNote } : {}),
           ...(decision.missingCases?.length ? { missingCases: decision.missingCases } : {}),
           ...(decision.routeAvailability?.length ? { routeAvailability: decision.routeAvailability } : {}),
-          ...(decision.stubbedState ? { stubbedState: decision.stubbedState } : {}),
           ...(decision.dataContradictions?.length ? { dataContradictions: decision.dataContradictions } : {}),
           ...(decision.ambientDataState?.pins.length ? { ambientDataState: decision.ambientDataState } : {}),
         }, sanitize),
@@ -194,7 +190,6 @@ export class PublicationPortAdapter implements PublicationPort {
           ...(coverage ? { coverage } : {}),
           ...(decision.missingCases?.length ? { missingCases: decision.missingCases } : {}),
           ...(decision.routeAvailability?.length ? { routeAvailability: decision.routeAvailability } : {}),
-          ...(decision.stubbedState ? { stubbedState: decision.stubbedState } : {}),
           ...(decision.dataContradictions?.length ? { dataContradictions: decision.dataContradictions } : {}),
           ...(decision.ambientDataState?.pins.length ? { ambientDataState: decision.ambientDataState } : {}),
         }, sanitize),

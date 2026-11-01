@@ -368,8 +368,8 @@ findings, the run asks the lead, in the same planning session, instead of regene
    joins the round like the flows' deliveries. It is counted in `corrections.maintained`.
    A gap regeneration also carries one finding per passing case that checked a page only as DEV served it confirmed empty (an
    ambient pin, AGENTS.md "Ambient data state"), carrying that case's spec, so it goes to the flow that owns the spec like any
-   finding that names one; it tells the flow to give the page data (a place the app declares, or a stubbed test when it declares
-   none), and the gap's unit of an arm on that page says the data that takes it may be what DEV lacks there. The pins join a
+   finding that names one; it tells the flow to give the page data (a place the app declares; when it declares none, the state is DEV's and is
+   reported unmet, never faked), and the gap's unit of an arm on that page says the data that takes it may be what DEV lacks there. The pins join a
    regeneration the gap starts; they start none of their own.
    A file seeds a use case through one seed definition every reader goes through (`candidateSeeds`, `seedingOf`,
    `candidatesSeededBy` in `shared-kernel/change-map.ts`): one of the use case's own seeds, or a hub's changed code the use case

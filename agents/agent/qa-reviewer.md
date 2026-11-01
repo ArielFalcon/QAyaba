@@ -47,13 +47,6 @@ You must evaluate each spec from TWO independent perspectives:
 | Same-label stand-in | A spec whose assertions only assert pre-existing elements that carry the same label or text as the changed one | It passes whether the change works or not: `[wrong-objective]`, blocking |
 | Unverifiable selector | A selector you cannot confirm resolves (raw text/nth-child/deep CSS) | May match nothing or the wrong element |
 
-## Stubbed tests
-
-A test that fulfils a route (title `[stubbed: <response>]`) is the one allowed mock: judge it by what the
-frontend does with the response it states, as the `test-value-review` skill says. Reject it on sight when no
-live test of the same page sits beside it, when it fulfils or alters anything but a GET behind a method
-check, or when it asserts only what it stubbed.
-
 ## Scope
 
 The "Specs under review" are the specs this run delivered. The "Existing suite" section is context

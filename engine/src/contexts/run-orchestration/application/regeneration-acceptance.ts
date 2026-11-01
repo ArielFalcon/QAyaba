@@ -27,7 +27,7 @@ import { sameSpecPath } from "@kernel/spec-path.ts";
 import { hasProof, modeRefusals, type NamedTest, type ReportedTests } from "@kernel/case-proof.ts";
 import { AllotmentSpentError, RunDeadlineExceededError } from "@kernel/run-deadline.ts";
 import { MAX_ACCEPTANCE_EXECUTIONS } from "../domain/derive-cycle-backstop.ts";
-import type { ExecutionPort, ValidationPort } from "@contexts/test-execution/application/index.ts";
+import { detectInterceptedTests, type ExecutionPort, type InterceptedTest, type ValidationPort } from "@contexts/test-execution/application/index.ts";
 import type { RunDeadlinePort } from "./ports/run-deadline.port.ts";
 import type { SuiteRestorePoint } from "../domain/suite-restore-point.ts";
 import type { SuiteRestorePort } from "./ports/suite-restore.port.ts";
@@ -157,8 +157,8 @@ export class RegenerationAcceptance {
       const failed = result.verdict !== "pass" && (!input.adoptFailures || result.verdict === "infra-error");
       /* 5b. A file that is still there and that the execution reported nothing of (no case, no skipped test) did not load and has no result to stand on, whatever the verdict; a deleted file has no case by nature. */
       const silent = failed ? [] : await this.silentFiles(input, result);
-      /* 5b'. A test that ran before and is now skipped, expected to fail or dropped from the report proves nothing, whatever the app's lint allows. */
-      const refusals = modeRefusals(input.changedSpecFiles, input.prior ?? { cases: [] }, result, input.named);
+      /* 5b'. A test that ran before and is now skipped, expected to fail or dropped from the report proves nothing, and a test that intercepts requests proves nothing about DEV, whatever the app's lint allows. */
+      const refusals = modeRefusals(input.changedSpecFiles, input.prior ?? { cases: [] }, { ...result, interceptedTests: await this.interceptedTestsOf(input) }, input.named);
       const unproven = [...new Set(refusals.map((r) => r.file))];
       if (failed || silent.length > 0 || unproven.length > 0) {
         const split =
@@ -217,6 +217,13 @@ export class RegenerationAcceptance {
   private async silentFiles(input: AcceptanceInput, result: ReportedFiles): Promise<string[]> {
     const now = await this.deps.snapshot.snapshot(input.specDir, [...input.changedSpecFiles]);
     return input.changedSpecFiles.filter((file) => now.files.has(file) && !reports(file, result));
+  }
+
+  /* The tests of the changed spec files, as they stand after the turn, that intercept requests. */
+  private async interceptedTestsOf(input: AcceptanceInput): Promise<InterceptedTest[]> {
+    const now = await this.deps.snapshot.snapshot(input.specDir, [...input.changedSpecFiles]);
+    const decoder = new TextDecoder();
+    return detectInterceptedTests([...now.files].map(([file, bytes]) => ({ file, text: decoder.decode(bytes) })));
   }
 
   private requireTime(deadline: RunDeadlinePort): void {

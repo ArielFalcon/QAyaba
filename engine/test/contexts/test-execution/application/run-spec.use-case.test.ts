@@ -763,6 +763,18 @@ test("a spec with a passing test and a test marked test.fail() is not passed: th
   assert.match(response.report.tests.map((x) => `${x.title}: ${x.error?.message}`).join("\n"), /known bug: .*test\.fail\(\)/);
 });
 
+test("a spec whose test intercepts requests is not passed, whatever the report says: the author is told which test and why", async (t) => {
+  const h = harness(t);
+  h.write("flows/a.spec.ts", 'import { test, expect } from "../fixtures";\ntest.describe("geo", () => {\n  test("stubs the chips", async ({ page }) => { await page.route("**/geo", (route) => route.fulfill({ json: [] })); await expect(page).toHaveTitle(/x/); });\n  test("reads the chips", async ({ page }) => { await page.goto("/"); await expect(page).toHaveTitle(/x/); });\n});\n');
+  h.next.result = { verdict: "pass", cases: [{ name: "flows/a.spec.ts › geo › stubs the chips", status: "pass", expectedStatus: "passed", file: "flows/a.spec.ts" }, { name: "flows/a.spec.ts › geo › reads the chips", status: "pass", expectedStatus: "passed", file: "flows/a.spec.ts" }], logs: "" };
+  const response = await call(h, "flows/a.spec.ts");
+  assert.ok(response.ok);
+  assert.equal(response.report.status, "failed");
+  assert.equal(response.report.passedTests, 1, "the test that reads DEV is still counted");
+  assert.match(response.report.tests.map((x) => `${x.title}: ${x.error?.message}`).join("\n"), /stubs the chips: .*intercepts requests/);
+  assert.equal(h.capability.ledger.at(-1)?.status, "failed", "the closed loop's proof never records the spec as passed");
+});
+
 test("a spec whose only test is marked test.fail() has no real pass and is never recorded as passed", async (t) => {
   const h = harness(t);
   h.next.result = { verdict: "pass", cases: [{ name: "flows/a.spec.ts › known bug", status: "pass", expectedStatus: "failed" }], logs: "" };

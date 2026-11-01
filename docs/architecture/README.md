@@ -122,6 +122,7 @@ Decisions (ADR):
 | [ADR-0022](adr/0022-owner-decisions-platform-step-4.md) | Decisions left open for platform step 4 | Accepted | T13 U6's mapping, under ADR-0015 point 2; carries out ADR-0020 row 1 and OD-16 |
 | [ADR-0023](adr/0023-owner-decisions-rfc-0015.md) | RFC-0015's answers: one execution contract | Accepted | RFC-0015's questions, under ADR-0015 point 2 |
 | [ADR-0024](adr/0024-shell-exceptions-list-stays-frozen.md) | The shell exceptions list stays frozen at 27 | Accepted | Platform step 6's first bullet, under ADR-0015 point 2; amends the migration plan |
+| [ADR-0025](adr/0025-delivered-specs-do-not-intercept-requests.md) | Delivered specs do not intercept requests | Accepted | The owner, 2026-11-01: "Qayaba no debe poder hacer stubs, eso tapa errores." |
 
 Proposals (RFC):
 
@@ -150,7 +151,7 @@ Other:
 |---|---|---|
 | [Rejected explanations](rejected-explanations.md) | The refuted hypotheses and the run index | H03, H05, H10, H13, H14, H26, H27; later N03, N07, Q02, Q03, Q05, Q06, Q07 |
 
-These tables list every record through ADR-0024 and RFC-0016 (Correction 2026-10-31: this sentence said ADR-0017 and RFC-0012 while the tables already held ADR-0022 and RFC-0014; ADR-0023, ADR-0024 and RFC-0015 were missing); a later record is added to its table by the change that adds it.
+These tables list every record through ADR-0025 and RFC-0016 (Correction 2026-10-31: this sentence said ADR-0017 and RFC-0012 while the tables already held ADR-0022 and RFC-0014; ADR-0023, ADR-0024 and RFC-0015 were missing); a later record is added to its table by the change that adds it.
 
 Documents outside this folder that the records build on:
 
