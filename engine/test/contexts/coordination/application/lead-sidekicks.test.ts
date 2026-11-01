@@ -2799,3 +2799,14 @@ test("a flow whose sidekick overruns the share it is allotted ends that flow alo
   }
   assert.ok((deadline.remainingMs() ?? 0) > 0, "the run still has time for the phases after generation");
 });
+
+test("a correction turn tells, per finding, the flow it was sent to and the fact that sent it, and none for a finding no flow took", async () => {
+  const order = JSON.stringify({ corrections: [{ flow: "cart", action: "revise", findings: [2], instruction: "cover the arm" }] });
+  const lead = leadAnswering([ACCEPT_ALL, order]);
+  const r = rig();
+  const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan: lead.plan, closedLoop: undefined }));
+  if (outcome.action !== "fanout") return assert.fail("fanout expected");
+  const corrected = await outcome.pass!.correct([{ text: "the total is never asserted", spec: "e2e/flows/cart.spec.ts" }, { text: "decision arm src/a.ts:4 if: the else" }, { text: "decision arm src/a.ts:9 ?: nothing is asked of it", file: "src/a.ts" }], CORRECTION_ORIGIN.COVERAGE);
+  await outcome.pass!.release();
+  assert.deepEqual(corrected.placements, [{ flowId: "cart", by: "spec" }, { flowId: "cart", by: "lead" }, {}]);
+});

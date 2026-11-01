@@ -345,6 +345,17 @@ Rules, from the brief §2.1 and the OTel spec:
   `gateSignals.ambientDataState { cases, pages, arms }` (`arms`: the untaken arms of the changed code on those pages, while the
   measured arms describe the bytes on disk) and a `qayaba.ambient_data_state` span with `qayaba.ambient.cases`, `.pages` and `.arms`.
   Absent when no case is pinned. Persist-only: it reads nothing back into a verdict.
+- **Branch cases** (RC6 of the coverage-gap analysis). `gateSignals.branchCases` records the one regeneration from the arms no test
+  ran: `outcome`, `armsBefore`, `armsAfter?`, `kept?`, `restored?`, and what it was sent and what became of it. `findings` is the
+  decisions sent (one per decision, not per arm); `armsTaken` the arms the recount no longer lists, counted by each arm's identity
+  (file, line, column, kind, label) and not by how many remain, 0 for a turn that was not accepted and absent when an accepted turn
+  could not be recounted; `maxFlowShare` the largest share of those decisions one flow received (absent when no lead's pass routed
+  them); `survivors { routed, unrouted }` the mutant findings of the same turn the pass took to a flow and those it did not; and
+  `decisions[]`, one entry per decision with its identity, `arms` (its untaken arms), `flow` and `by` (the flow that took it and the
+  fact that sent it: `spec`, `evaluator`, `candidate`, `lead` or `opened`; both absent when no flow took it) and `taken` (how many of its
+  arms the recount found taken, absent when not recounted). The coordination event of a correction turn counts the same routes in
+  `qayaba.coordination.findings_by_evaluator|candidate|lead|spec|candidate_flow`. A run stored before these fields has none of
+  them; nothing reads them back into a verdict.
 - **Impact walk.** The code-graph walks of the change run under one `WalkPolicy` (`shared-kernel/code`): depth, a
   fan-in limit (the index's own in-degree percentile with test-file callers left out, clamped to a floor and a
   ceiling) and a count of caller queries. The phase that walked records `qayaba.code_graph.walk.seeds`,

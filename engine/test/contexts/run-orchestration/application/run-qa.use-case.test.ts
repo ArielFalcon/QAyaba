@@ -246,6 +246,12 @@ function realCoverageWorkspace(): { prepare: WorkspacePort["prepare"]; generate:
   };
 }
 
+/* The counts of a branch-cases record, apart from what it records of the decisions it was sent. */
+const branchCounts = (record: object | undefined) => {
+  const { findings: _findings, armsTaken: _armsTaken, maxFlowShare: _maxFlowShare, survivors: _survivors, decisions: _decisions, ...counts } = (record ?? {}) as Record<string, unknown>;
+  return counts;
+};
+
 test("RunQaUseCase: green-pr — fully stubbed ports, reaches decide, returns pass/pr RunDecision", async () => {
   const { ports } = stubPorts();
   const useCase = new RunQaUseCase(ports);
@@ -9258,8 +9264,12 @@ test("signal mode: a green run with arms no test ran regenerates once with those
     assert.ok(turns[1]!.includes("src/a.ts:3:1 if: else") && turns[1]!.includes("src/a.ts:7:1 logical: right of || evaluated"), "the regeneration is given the arms");
     assert.ok(!turns[1]!.includes("all changed lines are covered"), "an arms-only gap says nothing of the lines");
     assert.deepEqual(recounts, [[true, [{ namespace: `${acceptanceNamespace("branch-cases-signal", 0)}-measure`, specFiles: ["a.spec.ts"] }], { caseFiles: ["a.spec.ts"] }]], "the kept file is read from its own measurement execution, told the passing spec files the recounted dumps belong to");
-    assert.deepEqual(savedOutcomes.at(-1)!.gateSignals.branchCases, { outcome: "accepted", armsBefore: 2, armsAfter: 1, kept: 1, restored: 0 });
+    assert.deepEqual(branchCounts(savedOutcomes.at(-1)!.gateSignals.branchCases), { outcome: "accepted", armsBefore: 2, armsAfter: 1, kept: 1, restored: 0 });
     assert.deepEqual(savedOutcomes.at(-1)!.gateSignals.branchCoverage, { changed: 6, taken: 5 }, "the recount is what the run records");
+    const record = savedOutcomes.at(-1)!.gateSignals.branchCases!;
+    assert.equal(record.findings, 2, "one finding per decision sent");
+    assert.equal(record.armsTaken, 1, "the arm the recount no longer lists, by its identity");
+    assert.deepEqual(record.decisions?.map((d) => [d.line, d.taken]), [[3, 1], [7, 0]]);
     assert.equal(savedOutcomes.at(-1)!.gateSignals.coverageRatio, 1);
   } finally {
     real.cleanup();
@@ -9523,7 +9533,7 @@ test("a branch regeneration whose acceptance fails in one spec file keeps the sp
     assert.equal(readFileSync(join(ws.specDir, "b.spec.ts"), "utf8"), "// b, generation 1\n", "the failing file gets the bytes that last ran green");
     assert.throws(() => readFileSync(join(ws.specDir, "c.spec.ts")), "the failing file the turn created is removed");
     assert.deepEqual(recounts, [[{ namespace: "per-file-measure", specFiles: ["b.spec.ts"] }, { namespace: `${acceptanceNamespace("per-file", 0)}-measure`, specFiles: ["a.spec.ts"] }]], "the kept file is read from its own measurement execution; the file given its prior bytes back from the measurement that ran those bytes");
-    assert.deepEqual(savedOutcomes.at(-1)!.gateSignals.branchCases, { outcome: "accepted", armsBefore: 2, armsAfter: 1, kept: 1, restored: 2 });
+    assert.deepEqual(branchCounts(savedOutcomes.at(-1)!.gateSignals.branchCases), { outcome: "accepted", armsBefore: 2, armsAfter: 1, kept: 1, restored: 2 });
     assert.deepEqual(rechecks, [[[["a.spec.ts"]], ["a works", "a else arm"]]], "the survivor is judged on the kept file and its passing cases only");
     assert.equal(out.decision.verdict, "pass", "the suite on disk is the kept file and the prior bytes, all green");
     assert.equal(out.decision.sideEffect, "pr", "every delivered spec's bytes hold a green proof");
@@ -9544,7 +9554,7 @@ test("a branch regeneration whose acceptance is green in every spec file is acce
     assert.equal(readFileSync(join(ws.specDir, "b.spec.ts"), "utf8"), "// b, generation 2\n");
     assert.equal(readFileSync(join(ws.specDir, "c.spec.ts"), "utf8"), "// c, generation 2\n");
     assert.deepEqual(recounts, [[{ namespace: `${acceptanceNamespace("per-file-green", 0)}-measure`, specFiles: ["a.spec.ts", "b.spec.ts", "c.spec.ts"] }]], "the recount reads every kept file from their measurement execution");
-    assert.deepEqual(savedOutcomes.at(-1)!.gateSignals.branchCases, { outcome: "accepted", armsBefore: 2, armsAfter: 1, kept: 3, restored: 0 });
+    assert.deepEqual(branchCounts(savedOutcomes.at(-1)!.gateSignals.branchCases), { outcome: "accepted", armsBefore: 2, armsAfter: 1, kept: 3, restored: 0 });
     assert.equal(out.decision.sideEffect, "pr");
   } finally {
     ws.cleanup();
@@ -9565,7 +9575,7 @@ test("a branch regeneration whose acceptance fails in every spec file is rejecte
     assert.throws(() => readFileSync(join(ws.specDir, "c.spec.ts")));
     assert.deepEqual(recounts, [], "nothing is recounted");
     assert.deepEqual(rechecks, [], "no survivor is judged");
-    assert.deepEqual(savedOutcomes.at(-1)!.gateSignals.branchCases, { outcome: "rejected", armsBefore: 2, armsAfter: 2, kept: 0, restored: 3 });
+    assert.deepEqual(branchCounts(savedOutcomes.at(-1)!.gateSignals.branchCases), { outcome: "rejected", armsBefore: 2, armsAfter: 2, kept: 0, restored: 3 });
     assert.equal(out.decision.sideEffect, "pr", "the first suite still stands green");
   } finally {
     ws.cleanup();
@@ -9626,7 +9636,7 @@ test("a branch regeneration that delivers nothing keeps the first measurement an
 
     assert.equal(turns, 2);
     assert.equal(recounts, 0);
-    assert.deepEqual(savedOutcomes.at(-1)!.gateSignals.branchCases, { outcome: "empty", armsBefore: 2, armsAfter: 2 });
+    assert.deepEqual(branchCounts(savedOutcomes.at(-1)!.gateSignals.branchCases), { outcome: "empty", armsBefore: 2, armsAfter: 2 });
     assert.deepEqual(savedOutcomes.at(-1)!.gateSignals.branchCoverage, { changed: 6, taken: 4 });
   } finally {
     real.cleanup();
@@ -9646,7 +9656,7 @@ test("an accepted branch regeneration the port cannot recount leaves the arms af
 
     await useCase.run({ ...baseInput, runId: "branch-cases-no-recount" });
 
-    assert.deepEqual(savedOutcomes.at(-1)!.gateSignals.branchCases, { outcome: "accepted", armsBefore: 2, kept: 1, restored: 0 });
+    assert.deepEqual(branchCounts(savedOutcomes.at(-1)!.gateSignals.branchCases), { outcome: "accepted", armsBefore: 2, kept: 1, restored: 0 });
   } finally {
     real.cleanup();
   }

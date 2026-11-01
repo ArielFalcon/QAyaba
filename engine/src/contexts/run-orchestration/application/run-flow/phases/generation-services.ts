@@ -10,6 +10,7 @@ import { normalizeSpecPath } from "@kernel/spec-path.ts";
 import { GENERATION_END } from "@kernel/generation-end.ts";
 import type { ClosedLoopGateSignal } from "@kernel/closed-loop.ts";
 import type { GeolocationFacts } from "@kernel/geolocation.ts";
+import type { FindingPlacement } from "@kernel/finding-placement.ts";
 import { PROBE_REL_DIR } from "@contexts/test-execution/application/index.ts";
 import type { GenerationEnrichment, GenerationOutput } from "@contexts/generation/application/index.ts";
 import type { CoordinatedPass } from "@contexts/coordination/application/index.ts";
@@ -151,6 +152,8 @@ function findingsOf(enrichment: GenerationEnrichment, bound: BoundText): Evidenc
 export interface Regenerated {
   output: GenerationOutput;
   leadCorrections: number;
+  /* What the pass did with each finding it was sent, in their order; absent when none went through it. */
+  placements?: FindingPlacement[];
 }
 
 /* Whether the run's budget of corrections through the lead has room for one more. */
@@ -224,6 +227,7 @@ export async function correctThroughLead(
   const testCorrect = corrected.specs.length === 0 ? corrected.testCorrect : undefined;
   return {
     leadCorrections: 1,
+    ...(corrected.placements ? { placements: corrected.placements } : {}),
     output: {
       ...base,
       specs: byFlows.specs,

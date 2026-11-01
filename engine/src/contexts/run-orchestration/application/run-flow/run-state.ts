@@ -24,7 +24,7 @@ import type { AdjudicatorVerdict } from "../../domain/adjudicate.service.ts";
 import type { FixLoopStage } from "../../domain/fix-loop.aggregate.ts";
 import type { CoordinationGateSignal } from "@kernel/coordination.ts";
 import type { CorrectionFinding } from "@contexts/coordination/application/index.ts";
-import type { RunOutcome } from "@kernel/run-outcome.ts";
+import type { BranchCasesRecord, RunOutcome } from "@kernel/run-outcome.ts";
 import type { BundleMutationOutcome, CandidateCoverage, CausalLabel, CoverageExclusions, CoverageRecount, MutantProof, MutantRun, MutationPass, ObservedPage, SurvivorClosure, UntakenArm } from "@contexts/objective-signal/application/index.ts";
 import type { RunDecision } from "../../domain/run-decision.ts";
 import type { RunEvidence } from "../../domain/run-decision.service.ts";
@@ -156,18 +156,8 @@ export interface FixLoopOutcome {
   devNotRenderedConclusive: boolean;
 }
 
-/**
- * What the one regeneration from the arms no test ran did: its acceptance, the arms before it and the arms after it. `armsAfter` is the
- * recount of an accepted turn, the same count when its bytes were put back, and absent when an accepted turn could not be recounted.
- */
-export interface BranchCasesOutcome {
-  outcome: "accepted" | "empty" | "rejected" | "capped";
-  armsBefore: number;
-  armsAfter?: number;
-  /* The spec files the turn changed whose new bytes stand, and those given their prior bytes back; absent when the turn changed none. */
-  kept?: number;
-  restored?: number;
-}
+/** What the one regeneration from the arms no test ran did (see `BranchCasesRecord`). `armsAfter` is the recount of an accepted turn, the same count when its bytes were put back, and absent when an accepted turn could not be recounted. */
+export type BranchCasesOutcome = BranchCasesRecord;
 
 /* What the flaky triage found and did: the flaky cases by class and the outcome of the correction routed to their flows ("no-pass": no lead's pass to route through). */
 export interface FlakyTriageOutcome {

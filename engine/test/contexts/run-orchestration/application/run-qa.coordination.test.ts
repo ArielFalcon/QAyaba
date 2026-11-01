@@ -570,6 +570,19 @@ test("a coverage gap reaches the lead as one finding per changed file and per un
   assert.equal(texts.filter((t) => t.includes("the else")).length, 1, "an item is one finding only");
 });
 
+test("the branch-cases record names, per decision sent, the flow the lead's pass took it to and the fact that sent it, and the largest share one flow received", async () => {
+  let r!: Rig;
+  let kept!: ReturnType<typeof keptPass>;
+  r = rig(() => delivered(kept.pass));
+  kept = keptPass(r, () => ({ readable: true, specs: [], rebuttals: [], unrouted: [1], placements: [{ flowId: "a", by: "evaluator" }, {}] }));
+  const arm = (line: number) => ({ file: "src/list.ts", line, column: 0, kind: "if", arm: "the else" });
+  const objectiveSignal = { measure: async () => ({ status: "pass" as const, ratio: 0.9, untakenArms: [arm(4), arm(7)] }), blocks: () => false };
+  await new RunQaUseCase(r.deps({ objectiveSignal, config: { needsReview: false, shadow: false, onFailure: "github-issue", maxRetries: 2, coveragePolicyMode: "signal", coverageBranchCases: "regenerate" } })).run(INPUT);
+  const record = r.saved.at(-1)?.gateSignals.branchCases;
+  assert.deepEqual(record?.decisions?.map((d) => [d.line, d.flow, d.by]), [[4, "a", "evaluator"], [7, undefined, undefined]]);
+  assert.equal(record?.maxFlowShare, 1 / 2);
+});
+
 test("a run the lead authored alone still regenerates a coverage gap whole, with the gap as one text", async () => {
   const r = rig();
   const objectiveSignal = {

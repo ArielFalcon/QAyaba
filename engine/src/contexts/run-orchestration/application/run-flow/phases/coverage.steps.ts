@@ -8,7 +8,7 @@ import { hasGreenBytes } from "@kernel/run-verdict.ts";
 import { isAllotmentSpentError } from "@kernel/run-deadline.ts";
 import type { DeadlinePurpose } from "@kernel/deadline-purpose.ts";
 import type { GenerationEnrichment } from "@contexts/generation/application/index.ts";
-import { changedCodeFiles, isReadTrouble, renderBranchGap, renderCoverageGap, renderSurvivedMutants, renderUntakenDecision, untakenDecisions, rerunEstimateMs, rerunFits, survivorClosureOf, survivorFindings, survivorRechecks, testOfCase, testSupportFiles, unreachableByDesign, type BundleMutationResult, type CoverageExclusions, type CoverageMeasurement, type CoverageSignal, type CoverageSource, type MeasuredPages, type MutantRerun, type RerunBudget, type SurvivedMutant, type SurvivorClosure } from "@contexts/objective-signal/application/index.ts";
+import { changedCodeFiles, isReadTrouble, renderBranchGap, renderCoverageGap, renderSurvivedMutants, renderUntakenDecision, untakenDecisions, type UntakenDecision, rerunEstimateMs, rerunFits, survivorClosureOf, survivorFindings, survivorRechecks, testOfCase, testSupportFiles, unreachableByDesign, type BundleMutationResult, type CoverageExclusions, type CoverageMeasurement, type CoverageSignal, type CoverageSource, type MeasuredPages, type MutantRerun, type RerunBudget, type SurvivedMutant, type SurvivorClosure } from "@contexts/objective-signal/application/index.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import type { StepOutcome } from "../run-flow.ts";
 import type { RunContext, WorkspaceRunContext } from "../run-context.ts";
@@ -21,6 +21,8 @@ import { regenerate, type EvidenceFinding } from "./generation-services.ts";
 import { branchCasesAction, coverageRegenAction } from "../../../domain/coverage-regen.ts";
 import { acceptanceNamespace } from "../../../domain/acceptance-namespace.ts";
 import { isRealPass } from "@kernel/case-proof.ts";
+import { branchCasesRecord } from "../branch-cases-record.ts";
+import type { FindingPlacement } from "@kernel/finding-placement.ts";
 import { ambientPinFindings, ambientRecordOf, type AmbientRecord } from "../ambient-data-state.ts";
 
 type Result = Promise<StepOutcome<RunState>>;
@@ -363,6 +365,8 @@ export interface GapRegeneration {
   namespace?: string;
   changedSpecFiles?: string[];
   files?: { kept: number; restored: number };
+  /* What the lead's pass did with each finding the turn was sent, in their order; absent when none went through it. */
+  placements?: FindingPlacement[];
 }
 
 /* What one acceptance kept and gave back, as an event on the open phase's span. Observability never changes the run. */
@@ -432,7 +436,8 @@ async function regenerateWithin(
   let run = runOf(state);
   const regenerated = await regenerate(state, ctx, undefined, enrichment, origin, evidence);
   const regen = regenerated.output;
-  const { leadCorrections } = regenerated;
+  const { leadCorrections, placements } = regenerated;
+  const settled = (regeneration: GapRegeneration): GapRegeneration => (placements ? { ...regeneration, placements } : regeneration);
   await services.confinement.enforce();
   const changedFiles = await suiteChangedFiles(snapshot, regen.specs);
   const changedSpecFiles = acceptanceScope(changedFiles);
@@ -442,9 +447,9 @@ async function regenerateWithin(
       await snapshotPort.restore(workspace.specDir, snapshot, changedFiles.filter((file) => !snapshot.files.has(file)));
     }
     rollbackDelivered(state, deliveredBefore);
-    return { outcome: "empty", run, acceptanceCalls, leadCorrections };
+    return settled({ outcome: "empty", run, acceptanceCalls, leadCorrections });
   }
-  if (changedSpecFiles.length === 0) return { outcome: "empty", run, acceptanceCalls, leadCorrections };
+  if (changedSpecFiles.length === 0) return settled({ outcome: "empty", run, acceptanceCalls, leadCorrections });
   const namespace = acceptanceNamespace(input.runId, acceptanceCalls++);
   const outcome = await acceptance.accept({
     specDir: workspace.specDir,
@@ -464,7 +469,7 @@ async function regenerateWithin(
     else integrityCounters.capHit = true;
     const files = { kept: 0, restored: changedSpecFiles.length };
     traceAcceptedFiles(ctx, origin, files);
-    return { outcome: outcome.kind === "rejected" ? "rejected" : "capped", run, acceptanceCalls, leadCorrections, files };
+    return settled({ outcome: outcome.kind === "rejected" ? "rejected" : "capped", run, acceptanceCalls, leadCorrections, files });
   }
   integrityCounters.acceptances += 1;
   const kept = [...outcome.kept];
@@ -479,7 +484,7 @@ async function regenerateWithin(
     cases: [...run.cases.filter((c) => !keptSet.has(c.file ?? c.name)), ...(outcome.execution?.cases ?? [])],
     skippedTests: [...(run.skippedTests ?? []).filter((t) => !keptSet.has(t.file ?? t.name)), ...(outcome.execution?.skippedTests ?? [])],
   };
-  return { outcome: "accepted", run, acceptanceCalls, leadCorrections, namespace, changedSpecFiles: kept, files };
+  return settled({ outcome: "accepted", run, acceptanceCalls, leadCorrections, namespace, changedSpecFiles: kept, files });
 }
 
 const isSpecFile = (file: string): boolean => file.endsWith(".spec.ts");
@@ -601,6 +606,8 @@ function passingCaseFiles(cases: readonly QaCase[]): string[] {
 export interface GapUnit {
   text: string;
   finding: CorrectionFinding;
+  /* The decision a unit about arms no test ran stands for. */
+  decision?: UntakenDecision;
 }
 
 /* The items of the groups taken one group at a time, round-robin, so the first of each group come first and no group crowds the others out. Every item is kept. */
@@ -644,7 +651,7 @@ export function gapUnits(uncovered: CoverageOutcome["uncovered"], arms: Coverage
       const pages = onEmptyPages.find((a) => a.file === u.file && a.line === u.line)?.pages ?? [];
       const empty = pages.length > 0 ? ` (on ${pages.join(", ")}, which DEV served as a confirmed empty state: the data that takes ${u.arms.length === 1 ? "this arm" : "these arms"} may be what DEV lacks there)` : "";
       const text = `decision on a changed line with ${u.arms.length === 1 ? "an arm" : "arms"} that NO test ran: ${renderUntakenDecision(u)}${empty}`;
-      return { text, finding: { text, file: u.file, line: u.line, ...(u.evaluatedBy ? { ranBy: u.evaluatedBy } : {}) } };
+      return { text, decision: u, finding: { text, file: u.file, line: u.line, ...(u.evaluatedBy ? { ranBy: u.evaluatedBy } : {}) } };
     }),
   ];
 }
@@ -711,15 +718,18 @@ export async function regenerateForBranchCases(state: Readonly<RunState>, ctx: W
   const armsBefore = state.coverage.untakenArms.length;
   const survived = survivorsOf(state);
   const ambient = ambientGapOf(state, ctx);
-  const regen = await regenerateAtCoverageGap(state, ctx, renderBranchGap(state.coverage.untakenArms), gapUnits([], state.coverage.untakenArms, [], state.coverage.ranBy, ambient.arms), survived, ambient.findings);
+  const units = gapUnits([], state.coverage.untakenArms, [], state.coverage.ranBy, ambient.arms);
+  const regen = await regenerateAtCoverageGap(state, ctx, renderBranchGap(state.coverage.untakenArms), units, survived, ambient.findings);
   const measured = await measureKept(state, ctx, regen);
   const survivorClosure = await closeSurvivors(state, ctx, regen, measured);
   const coverage = await recountAfter(state, ctx, regen, measured);
-  const armsAfter = regen.outcome !== "accepted" ? armsBefore : coverage.untakenArmsCurrent ? coverage.untakenArms.length : undefined;
+  const armsLeft = regen.outcome !== "accepted" ? state.coverage.untakenArms : coverage.untakenArmsCurrent ? coverage.untakenArms : undefined;
+  const armsAfter = armsLeft?.length;
+  const recorded = branchCasesRecord({ before: state.coverage.untakenArms, after: armsLeft, units, placements: regen.placements });
   return {
     update: {
       execution: withRun(state.execution, regen.run),
-      coverage: { ...coverage, ...(survivorClosure ? { survivorClosure } : {}), branchCases: { outcome: regen.outcome, armsBefore, ...(armsAfter !== undefined ? { armsAfter } : {}), ...regen.files } },
+      coverage: { ...coverage, ...(survivorClosure ? { survivorClosure } : {}), branchCases: { outcome: regen.outcome, armsBefore, ...(armsAfter !== undefined ? { armsAfter } : {}), ...regen.files, ...recorded } },
       loops: { ...state.loops, leadCorrections: state.loops.leadCorrections + regen.leadCorrections },
     },
   };

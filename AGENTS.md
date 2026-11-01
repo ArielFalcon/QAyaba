@@ -1257,7 +1257,7 @@ that catches nothing. The objective signal that breaks the circle is **change-co
   changed, and that one execution supplies the kept files' cases (new and renamed tests included), the reviewer's scope and
   the fix loop's verdict; the measurement of its kept files supplies the dumps of the recount and the survivor closure's baseline. A file that fails it gets its prior bytes, cases and delivery back by the per-file rule
   below; at the acceptance cap the regeneration is capped and the first measurement stands.
-  `gateSignals.branchCases { outcome, armsBefore, armsAfter?, kept?, restored? }`.
+  `gateSignals.branchCases { outcome, armsBefore, armsAfter?, kept?, restored?, findings?, armsTaken?, maxFlowShare?, survivors?, decisions? }`: the decisions sent (one finding per decision), the arms the recount no longer lists by their identity, the largest share of the findings one flow received, and per decision the flow that took it, the fact that sent it (`spec`, `evaluator`, `candidate`, `lead`, `opened`) and how many of its arms were taken (`branch-cases-record.ts`; a run stored before these fields reads without them; `docs/observability-design.md`).
 - **Per-file acceptance**: a regeneration (gap, flaky or review correction) that changed spec files only is
   accepted file by file (`RegenerationAcceptance`, `independentSpecs`): when its acceptance run fails, every
   spec file whose cases all passed stands, and every other
