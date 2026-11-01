@@ -7,6 +7,7 @@
  */
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { installRedactingProcessLogger } from "../platform/telemetry/redacting-logger";
 import { renderSubmitContracts, SUBMIT_CONTRACTS_PATH } from "./gen-submit-contracts";
 
 /* Pure comparison, unit-testable with a fake reader. Returns the reason the file is stale, or undefined when it is fresh. */
@@ -21,6 +22,7 @@ export function submitContractsStaleness(readCommitted: (path: string) => string
 }
 
 function main(): void {
+  installRedactingProcessLogger();
   const stale = submitContractsStaleness((path) => readFileSync(path, "utf8"));
   if (stale) {
     console.error(`submit-contracts:check — ${stale}`);

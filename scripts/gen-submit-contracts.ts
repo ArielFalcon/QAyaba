@@ -13,6 +13,7 @@ import { DELEGATION_RESULT_WIRE, LEAD_CORRECTION_WIRE, LEAD_PLAN_WIRE, LEAD_REVI
 import { GENERATOR_VERDICT_WIRE, REVIEWER_VERDICT_WIRE } from "../engine/src/contexts/generation/application/index";
 import { PROPOSER_PROFILES_WIRE } from "../engine/src/contexts/service-topology/application/index";
 import { SUBMIT_TOOL, SUBMIT_TOOLS, type SubmitTool } from "../engine/src/shared-kernel/submission";
+import { installRedactingProcessLogger } from "../platform/telemetry/redacting-logger";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 export const SUBMIT_CONTRACTS_PATH = join(ROOT, "agents", "lib", "submit-contracts.json");
@@ -37,6 +38,7 @@ export function renderSubmitContracts(wires: Record<SubmitTool, z.ZodType> = SUB
 }
 
 function main(): void {
+  installRedactingProcessLogger();
   writeFileSync(SUBMIT_CONTRACTS_PATH, renderSubmitContracts(), "utf8");
   console.log(`submit-contracts:gen — wrote ${SUBMIT_CONTRACTS_PATH}`);
 }
