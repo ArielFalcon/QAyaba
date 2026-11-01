@@ -5,13 +5,19 @@ import type { ExecutionConditions } from "@kernel/execution-conditions.ts";
 import type { DevWriteRequest } from "./dev-write-request.ts";
 import type { SpecLoadError } from "./spec-load-error.ts";
 import type { SkippedTest } from "./skipped-test.ts";
+import type { GateDiagnostic } from "./gate-diagnostic.ts";
 
-export interface CheckResult { ok: boolean; output: string; infra?: boolean; }
+/** `diagnostics` is present only when the check's report was read into typed problems. */
+export interface CheckResult { ok: boolean; output: string; infra?: boolean; diagnostics?: GateDiagnostic[]; }
 
 export interface ValidationResult {
   ok: boolean;
   errors: string[];
   infra: boolean;
+  /** Every problem of the checks whose report was read into typed form, warnings included. */
+  diagnostics: GateDiagnostic[];
+  /** The entries of `errors` that have no typed form. */
+  untypedErrors: string[];
 }
 
 export interface ExecutionRequest {

@@ -1,7 +1,7 @@
 /* Never a fifth duplicate copy (process-kill.adapter.ts's own header: "the ONE killTree"). 2. */
 
 import { engineLog } from "@kernel/ports/process-logger.ts";
-import { lstatSync, realpathSync } from "node:fs";
+import { lstatSync } from "node:fs";
 import { isAbsolute, join, relative, sep } from "node:path";
 import { MANIFEST_FILE, MAX_MANIFEST_BYTES, validateManifest as validateManifestShape, type ManifestValidation } from "@kernel/manifest/manifest-entry.ts";
 import { BoundedOutputTail } from "@kernel/process-sandbox/bounded-output-tail.ts";
@@ -10,6 +10,8 @@ import { redactByValue } from "../../../shared-kernel/run-secret-redaction.ts";
 import type { ExecCommandClass, ExecSandboxPort } from "../../../shared-infrastructure/process-sandbox/exec-sandbox.ts";
 import { readConfinedSpecFile, readFailureReason, readOwnedSpecFile, scanSpecTree, writeOwnedSpecFile, type SpecRoot } from "../../../shared-infrastructure/spec-path-confinement.ts";
 import type { CheckResult, ValidationResult } from "../domain/execution-strategy.ts";
+import { errorDiagnostics, type GateDiagnostic } from "../domain/gate-diagnostic.ts";
+import { readLintReport, renderLintReport, suiteBases } from "./eslint-report.ts";
 
 const processKill = new ProcessKillAdapter();
 
@@ -37,13 +39,18 @@ export async function validateSpecs(
     ["manifest", deps.checkManifest],
   ];
   const errors: string[] = [];
+  const untypedErrors: string[] = [];
+  const diagnostics: GateDiagnostic[] = [];
   let allFailuresAreInfra = true;
   const results = await Promise.all(
     checks.map(async ([name, run]) => ({ name, res: await run(specDir) })),
   );
   for (const { name, res } of results) {
+    if (res.diagnostics) diagnostics.push(...res.diagnostics);
     if (!res.ok) {
-      errors.push(`[${name}] ${res.output.trim()}`);
+      const text = `[${name}] ${res.output.trim()}`;
+      errors.push(text);
+      if (!res.diagnostics || errorDiagnostics(res.diagnostics).length === 0) untypedErrors.push(text);
       if (!res.infra) allFailuresAreInfra = false;
     }
   }
@@ -51,10 +58,11 @@ export async function validateSpecs(
   const zeroAssertionErrors = checkZeroAssertionSpecs(specDir);
   for (const e of zeroAssertionErrors) {
     errors.push(e);
+    untypedErrors.push(e);
     allFailuresAreInfra = false;
   }
 
-  return { ok: errors.length === 0, errors, infra: errors.length > 0 && allFailuresAreInfra };
+  return { ok: errors.length === 0, errors, infra: errors.length > 0 && allFailuresAreInfra, diagnostics, untypedErrors };
 }
 
 /* mutation-scope:begin spec-scan */
@@ -164,8 +172,7 @@ export async function fixLintedSpecs(
   }
   if (!Array.isArray(report)) return [];
   const root: SpecRoot = { mirrorDir: specDir, specDir };
-  /* The linter names files by the directory as its process sees it, which may be the resolved one. */
-  const bases = [specDir, realOrSelf(specDir)];
+  const bases = suiteBases(specDir);
   const fixed: string[] = [];
   for (const entry of report) {
     const { filePath, output } = (entry ?? {}) as { filePath?: unknown; output?: unknown };
@@ -182,12 +189,13 @@ export async function fixLintedSpecs(
   return fixed;
 }
 
-function realOrSelf(dir: string): string {
-  try {
-    return realpathSync(dir);
-  } catch {
-    return dir;
-  }
+/* The gate's lint: the linter's JSON report on stdout is read once into typed diagnostics, and the text the agent is shown is rendered from them. A report that cannot be read leaves the linter's own output as the failure, typed as nothing. */
+async function lintSuite(e2eDir: string, exec: ExecSandboxPort, linter: readonly [string, readonly string[]]): Promise<CheckResult> {
+  const res = await runCheck(linter[0], [...linter[1], ...GATE_LINT_OPTIONS, "--format", "json", "."], e2eDir, undefined, exec, "eslint", { stdoutOnly: true });
+  if (res.ok || res.infra) return res;
+  const diagnostics = readLintReport(res.output, e2eDir);
+  if (diagnostics === undefined) return res.output.trim() === "" ? { ...res, output: "the linter failed without a readable report" } : res;
+  return { ok: false, output: renderLintReport(diagnostics), diagnostics };
 }
 
 /* The manifest check reads a file; it starts nothing. */
@@ -218,7 +226,7 @@ export function createValidateDeps(exec: ExecSandboxPort, linter: readonly [stri
   const listEnv = contract ? { PW_BASE_URL: contract.baseUrl, PW_NAMESPACE: contract.namespace, ...(contract.testIdAttribute ? { PW_TEST_ID_ATTRIBUTE: contract.testIdAttribute } : {}) } : undefined;
   return {
     typecheck: (e2eDir) => runCheck("npx", ["tsc", "--noEmit"], e2eDir, undefined, exec, "tsc"),
-    lint: (e2eDir) => runCheck(linter[0], [...linter[1], ...GATE_LINT_OPTIONS, "."], e2eDir, undefined, exec, "eslint"),
+    lint: (e2eDir) => lintSuite(e2eDir, exec, linter),
     listTests: (e2eDir) => runCheck("npx", ["playwright", "test", "--list"], e2eDir, undefined, exec, "playwright-list", { ...(listEnv ? { extraEnv: listEnv } : {}), ...(contract?.geolocation ? { geolocation: contract.geolocation } : {}) }),
     checkManifest: checkManifestFile,
   };

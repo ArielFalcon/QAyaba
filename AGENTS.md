@@ -228,7 +228,7 @@ is the only engine; webhook (`platform/entrypoints/webhook-handler.ts`, wired by
    `--fix-dry-run`, under the same option, written by the orchestrator through the confined writer); what they leave goes to at most
    `MAX_STATIC_FIX_ROUNDS` repair turns, run while the run has delivered specs to repair, whatever the closed loop says (a
    spec `run_spec` saw pass is repaired like any other, and the run's log says so; the bytes a round writes are no longer
-   the ones `run_spec` proved, so the loop is closed for them only once a later call sees them pass). Still failing → `invalid`.
+   the ones `run_spec` proved, so the loop is closed for them only once a later call sees them pass). Still failing → `invalid`. The gate reads ESLint's JSON report once into typed diagnostics (`ValidationResult.diagnostics`: file, severity, rule, location, message) and the lint text in `errors` is rendered from them; each error-severity diagnostic reaches the lead as a finding citing its spec (`staticGateFindings`), so it goes to the flow that owns that spec, and a warning is no finding.
 7. **Execute** — Playwright against DEV → `pass`/`fail`/`flaky` (pass only on retry =
    flaky → quarantine). DEV down → `infra-error`. A flaky run still has green bytes: coverage and review
    run on it (the review is advisory), and `triage-flaky-cases` sends the flaky cases to the lead as

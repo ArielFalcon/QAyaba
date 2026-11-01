@@ -163,7 +163,7 @@ export async function staticFixRound(state: Readonly<RunState>, ctx: WorkspaceRu
   const staticGateErrorDetail = ctx.host.boundText(stripAnsi(validation.errors.join("\n\n")), STATIC_GATE_ERROR_DETAIL_MAX_CHARS);
   const { output: lastGenerated, leadCorrections } = await regenerate(state, ctx, signal, {
     fixCases: [{ name: "static-gate", status: "fail", detail: staticGateErrorDetail }],
-  }, CORRECTION_ORIGIN.STATIC_GATE, staticGateFindings(validation.errors.map(stripAnsi), ctx.host.boundText));
+  }, CORRECTION_ORIGIN.STATIC_GATE, staticGateFindings(validation, ctx.host.boundText));
   await ctx.services.confinement.enforce();
   const revalidated = await withLinterFixes(await deps.validation.validate(workspace.specDir, deliveredNow(state)), state, ctx);
   return goto("static-fix-round", { execution: { ...addRetries(state.execution, 1), validation: revalidated, lastGenerated }, loops: { ...state.loops, staticFix: round, leadCorrections: state.loops.leadCorrections + leadCorrections } });

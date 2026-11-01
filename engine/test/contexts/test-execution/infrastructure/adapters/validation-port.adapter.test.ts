@@ -21,7 +21,7 @@ function e2eAdapter(validateAllResult: ValidationResult): ValidationPortAdapter 
 }
 
 test("validate() delegates to StaticGateAdapter.validateAll and returns {ok, errors, infra} verbatim", async () => {
-  const adapter = e2eAdapter({ ok: true, errors: [], infra: false });
+  const adapter = e2eAdapter({ ok: true, errors: [], infra: false, diagnostics: [], untypedErrors: [] });
 
   const result = await adapter.validate("/mirrors/org/app/e2e");
 
@@ -35,6 +35,8 @@ test("validate() surfaces a failing gate's errors and the infra flag unchanged",
     ok: false,
     errors: ["tsc: Property 'foo' does not exist"],
     infra: false,
+    diagnostics: [],
+    untypedErrors: [],
   });
 
   const result = await adapter.validate("/mirrors/org/app/e2e");
@@ -49,6 +51,8 @@ test("validate() surfaces infra:true when the gate's own failures are all infras
     ok: false,
     errors: ["playwright: browser binary missing"],
     infra: true,
+    diagnostics: [],
+    untypedErrors: [],
   });
 
   const result = await adapter.validate("/mirrors/org/app/e2e");
@@ -58,7 +62,7 @@ test("validate() surfaces infra:true when the gate's own failures are all infras
 
 test("autofix() asks the e2e gate's linter for the run's delivered specs", async () => {
   const asked: Array<[string, readonly string[]]> = [];
-  const checks = { ...fakeChecks({ ok: true, errors: [], infra: false }), autofix: async (dir: string, specs: readonly string[]) => { asked.push([dir, specs]); return [...specs]; } };
+  const checks = { ...fakeChecks({ ok: true, errors: [], infra: false, diagnostics: [], untypedErrors: [] }), autofix: async (dir: string, specs: readonly string[]) => { asked.push([dir, specs]); return [...specs]; } };
   const e2e = new ValidationPortAdapter({ e2e: new StaticGateAdapter(checks) });
   assert.deepEqual(await e2e.autofix("/m/e2e", { deliveredSpecs: ["flows/a.spec.ts"] }), ["flows/a.spec.ts"]);
   assert.deepEqual(asked, [["/m/e2e", ["flows/a.spec.ts"]]]);
