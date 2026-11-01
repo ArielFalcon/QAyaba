@@ -7,7 +7,7 @@ function deps(seen: string[]): TestExecutionDeps {
   return {
     namespace: "ns",
     validationStrategies: {
-      e2e: { validateAll: async () => { seen.push("e2e-validate"); return { ok: true, errors: [], infra: false }; }, autofix: async () => { seen.push("e2e-autofix"); return ["a.spec.ts"]; } },
+      e2e: { validateAll: async () => { seen.push("e2e-validate"); return { ok: true, errors: [], infra: false, diagnostics: [], untypedErrors: [] }; }, autofix: async () => { seen.push("e2e-autofix"); return ["a.spec.ts"]; } },
     },
     executionStrategies: {
       e2e: { run: async () => { seen.push("e2e-run"); return { status: "pass" } as never; } },

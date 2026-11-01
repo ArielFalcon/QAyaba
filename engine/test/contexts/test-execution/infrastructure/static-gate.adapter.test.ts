@@ -17,7 +17,7 @@ function makeChecks(overrides: Partial<{
     lint: overrides.lint ?? (async () => ok),
     listTests: overrides.listTests ?? (async () => ok),
     checkManifest: overrides.checkManifest ?? (async () => ok),
-    validateAll: overrides.validateAll ?? (async () => ({ ok: true, errors: [], infra: false })),
+    validateAll: overrides.validateAll ?? (async () => ({ ok: true, errors: [], infra: false, diagnostics: [], untypedErrors: [] })),
   };
 }
 
@@ -47,7 +47,7 @@ test("a failing typecheck surfaces ok:false with the output", async () => {
 
 /* validateAll delegation: the zero-assertion gate must cross the port boundary. */
 test("validateAll delegates to the injected fn and returns its ValidationResult", async () => {
-  const expected: ValidationResult = { ok: false, errors: ["[zero-assertions] foo.spec.ts: spec has no expect() calls — remove it or add assertions"], infra: false };
+  const expected: ValidationResult = { ok: false, errors: ["[zero-assertions] foo.spec.ts: spec has no expect() calls — remove it or add assertions"], infra: false, diagnostics: [], untypedErrors: [] };
   let calledWith: string | undefined;
   const adapter = new StaticGateAdapter(makeChecks({
     validateAll: async (d) => { calledWith = d; return expected; },
@@ -59,7 +59,7 @@ test("validateAll delegates to the injected fn and returns its ValidationResult"
 
 test("validateAll returning ok:true passes through faithfully", async () => {
   const adapter = new StaticGateAdapter(makeChecks({
-    validateAll: async () => ({ ok: true, errors: [], infra: false }),
+    validateAll: async () => ({ ok: true, errors: [], infra: false, diagnostics: [], untypedErrors: [] }),
   }));
   const result = await adapter.validateAll("/spec-dir");
   assert.equal(result.ok, true);
@@ -71,7 +71,7 @@ test("validateAll returning ok:true passes through faithfully", async () => {
    returns a known non-ok ValidationResult; the adapter must not swallow it.
  */
 test("validateAll parity: a gutted impl that ignores the injected fn would fail", async () => {
-  const injected: ValidationResult = { ok: false, errors: ["[zero-assertions] bad.spec.ts: spec has no expect() calls — remove it or add assertions"], infra: false };
+  const injected: ValidationResult = { ok: false, errors: ["[zero-assertions] bad.spec.ts: spec has no expect() calls — remove it or add assertions"], infra: false, diagnostics: [], untypedErrors: [] };
   const adapter = new StaticGateAdapter(makeChecks({
     validateAll: async () => injected,
   }));

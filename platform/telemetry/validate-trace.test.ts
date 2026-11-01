@@ -10,7 +10,14 @@ import { traceHarness } from "../test-support/trace-harness";
 
 const ok: CheckResult = { ok: true, output: "" };
 const TSC_OUTPUT = "flows/a.spec.ts(3,5): error TS2322: Type 'string' is not assignable to type 'number'.\nflows/b.spec.ts(9,1): error TS2304: Cannot find name 'x'.\n";
-const ESLINT_OUTPUT = "/m/e2e/flows/a.spec.ts\n  4:3  error  Missing await  playwright/missing-playwright-await\n  9:1  warning  x  y\n\n✖ 2 problems (1 error, 1 warning)\n";
+const LINT_FAILURE: CheckResult = {
+  ok: false,
+  output: "flows/a.spec.ts\n  4:3  error  Missing await  playwright/missing-playwright-await",
+  diagnostics: [
+    { file: "flows/a.spec.ts", severity: "warning", rule: "y", line: 2, column: 1, message: "x" },
+    { file: "flows/a.spec.ts", severity: "error", rule: "playwright/missing-playwright-await", line: 4, column: 3, message: "Missing await" },
+  ],
+};
 
 function fakeDeps(over: Partial<Record<keyof ValidateDeps, CheckResult>> = {}): ValidateDeps {
   return {
@@ -27,7 +34,7 @@ function scopeWith(parent: () => import("@kernel/telemetry/telemetry.port").Tele
 
 test("errors of a failed check are counted from the tool's own output", () => {
   assert.equal(countCheckErrors("typecheck", { ok: false, output: TSC_OUTPUT }), 2);
-  assert.equal(countCheckErrors("lint", { ok: false, output: ESLINT_OUTPUT }), 1);
+  assert.equal(countCheckErrors("lint", LINT_FAILURE), 1);
   assert.equal(countCheckErrors("list", { ok: false, output: "Error: No tests found\nError: boom" }), 2);
   assert.equal(countCheckErrors("manifest", { ok: false, output: "a: missing\n\nb: bad" }), 2);
   assert.equal(countCheckErrors("lint", ok), 0);
@@ -35,6 +42,7 @@ test("errors of a failed check are counted from the tool's own output", () => {
 
 test("a failed check whose output no rule counts is one error", () => {
   assert.equal(countCheckErrors("typecheck", { ok: false, output: "something odd" }), 1);
+  assert.equal(countCheckErrors("lint", { ok: false, output: "the linter failed without a readable report" }), 1);
 });
 
 test("each of the four checks is a span under the open phase with its outcome", async () => {
@@ -60,7 +68,7 @@ test("each of the four checks is a span under the open phase with its outcome", 
 });
 
 test("the gate's verdict is the same with the checks traced, with none, and with a telemetry port that throws", async () => {
-  const failing = fakeDeps({ lint: { ok: false, output: ESLINT_OUTPUT } });
+  const failing = fakeDeps({ lint: LINT_FAILURE });
   const plain = await validateSpecs("/nonexistent", failing);
   const traced = await validateSpecs("/nonexistent", traceValidateDeps(failing, traceHarness().telemetry));
   const broken = await validateSpecs("/nonexistent", traceValidateDeps(failing, new ThrowingTelemetry()));
@@ -78,7 +86,7 @@ test("a check that throws is recorded as an infrastructure failure and the excep
 
 test("a failed check names its first error: the file, the line and the rule or code", () => {
   assert.equal(firstCheckError("typecheck", { ok: false, output: TSC_OUTPUT }), "flows/a.spec.ts:3:5 TS2322");
-  assert.equal(firstCheckError("lint", { ok: false, output: ESLINT_OUTPUT }), "/m/e2e/flows/a.spec.ts:4:3 playwright/missing-playwright-await");
+  assert.equal(firstCheckError("lint", LINT_FAILURE), "flows/a.spec.ts:4:3 playwright/missing-playwright-await");
   assert.equal(firstCheckError("lint", { ok: true, output: "" }), undefined);
   assert.equal(firstCheckError("list", { ok: false, output: "Error: no tests found" }), undefined);
 });

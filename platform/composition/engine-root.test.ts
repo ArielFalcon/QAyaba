@@ -85,7 +85,7 @@ function fakeConfig(overrides: Partial<EngineRootDeps> = {}): EngineRootDeps {
       verdicts: { parseReview: () => ({ approved: true, findings: [], parsed: true, valid: true, issues: [] }) },
     },
     validationStrategies: {
-      e2e: { validateAll: async () => ({ ok: true, errors: [], infra: false }) },
+      e2e: { validateAll: async () => ({ ok: true, errors: [], infra: false, diagnostics: [], untypedErrors: [] }) },
     },
     executionStrategies: {
       e2e: { run: async (req) => ({ verdict: "pass", cases: passingCases(req.specDir, req), logs: "" }) },
@@ -217,7 +217,7 @@ test("buildEngine wires cfg.processAudit through to RunQaUseCase — a static-ga
   let auditCallCount = 0;
   const cfg = fakeConfig({
     validationStrategies: {
-      e2e: { validateAll: async () => ({ ok: false, errors: ["[lint] no-wait-for-timeout"], infra: false }) },
+      e2e: { validateAll: async () => ({ ok: false, errors: ["[lint] no-wait-for-timeout"], infra: false, diagnostics: [], untypedErrors: ["[lint] no-wait-for-timeout"] }) },
     },
     processAudit: {
       audit: async () => { auditCallCount++; },

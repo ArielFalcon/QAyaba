@@ -416,7 +416,7 @@ the sidekick's instruction (`CORRECTION_ORIGIN`, `lead-correction.ts`):
 | Origin | Findings |
 |---|---|
 | `pre-exec` | one per selector contradiction, citing the spec it was attributed to when only one was |
-| `static-gate` | one per error block the gate reported (each names its file) |
+| `static-gate` | one per lint error diagnostic, citing the spec it is in (a warning yields none; a file that is no spec cites no flow), and one per error of another check (cites no flow) |
 | `execution` | one per failing case of the fix loop, citing its spec |
 | `coverage` | one per file with uncovered change lines and one per decision arm no test ran (every one, listed across use cases and files), each naming its changed file, citing no spec |
 

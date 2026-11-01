@@ -927,3 +927,79 @@ test("the linter's fixes apply the rules the gate applies, whatever a spec's inl
     p.dispose();
   }
 });
+
+/* ══════════════════════════════════════════════════════════════════════════════════════════════
+   The linter's report is read once into typed diagnostics; `errors` keeps the text
+   ══════════════════════════════════════════════════════════════════════════════════════════════ */
+
+function lintReportRig(report: string): { dir: string; deps: ValidateDeps; dispose(): void } {
+  const root = _mkdtempSync(_join(_tmpdir(), "qa-lint-report-"));
+  const dir = _join(root, "e2e");
+  _mkdirSync(_join(dir, "flows"), { recursive: true });
+  _writeFileSync(_join(dir, "flows", "a.spec.ts"), "expect(1);\n");
+  _writeFileSync(_join(dir, "flows", "b.spec.ts"), "expect(1);\n");
+  const script = _join(root, "linter.mjs");
+  _writeFileSync(script, `process.stdout.write(${JSON.stringify(report)}.replaceAll("<cwd>", process.cwd())); process.exit(1);`);
+  const real = createValidateDeps(sharedTestExec(), [process.execPath, [script]]);
+  const deps: ValidateDeps = { ...real, typecheck: ok, listTests: ok, checkManifest: ok };
+  return { dir, deps, dispose: () => _rmSync(root, { recursive: true, force: true }) };
+}
+
+const LINT_REPORT = JSON.stringify([
+  { filePath: "<cwd>/flows/a.spec.ts", messages: [{ ruleId: "playwright/missing-playwright-await", severity: 2, message: "Missing await", line: 4, column: 3 }, { ruleId: "no-unused-vars", severity: 1, message: "unused", line: 9, column: 1 }] },
+  { filePath: "<cwd>/auth.setup.ts", messages: [{ ruleId: "no-console", severity: 1, message: "no console", line: 1, column: 1 }] },
+  { filePath: "<cwd>/flows/b.spec.ts", messages: [{ ruleId: null, severity: 2, message: "Parsing error", line: 2, column: 5, fatal: true }] },
+]);
+
+test("the lint check yields one typed diagnostic per reported problem, files relative to the suite", async () => {
+  const r = lintReportRig(LINT_REPORT);
+  try {
+    const res = await validateSpecs(r.dir, r.deps);
+    assert.deepEqual(res.diagnostics, [
+      { file: "flows/a.spec.ts", severity: "error", rule: "playwright/missing-playwright-await", line: 4, column: 3, message: "Missing await" },
+      { file: "flows/a.spec.ts", severity: "warning", rule: "no-unused-vars", line: 9, column: 1, message: "unused" },
+      { file: "auth.setup.ts", severity: "warning", rule: "no-console", line: 1, column: 1, message: "no console" },
+      { file: "flows/b.spec.ts", severity: "error", line: 2, column: 5, message: "Parsing error" },
+    ]);
+  } finally {
+    r.dispose();
+  }
+});
+
+test("the lint failure stays one text entry of errors, and has no untyped entry once it is typed", async () => {
+  const r = lintReportRig(LINT_REPORT);
+  try {
+    const res = await validateSpecs(r.dir, r.deps);
+    assert.equal(res.ok, false);
+    assert.equal(res.errors.length, 1);
+    assert.match(res.errors[0]!, /^\[lint\] /);
+    assert.match(res.errors[0]!, /flows\/a\.spec\.ts[\s\S]*Missing await[\s\S]*flows\/b\.spec\.ts[\s\S]*Parsing error/);
+    assert.deepEqual(res.untypedErrors, []);
+  } finally {
+    r.dispose();
+  }
+});
+
+test("a lint failure whose report cannot be read keeps its text as an untyped error and types nothing", async () => {
+  const r = lintReportRig("not json");
+  try {
+    const res = await validateSpecs(r.dir, r.deps);
+    assert.equal(res.ok, false);
+    assert.deepEqual(res.diagnostics, []);
+    assert.equal(res.untypedErrors.length, 1);
+    assert.match(res.untypedErrors[0]!, /^\[lint\] /);
+  } finally {
+    r.dispose();
+  }
+});
+
+test("a failure of another check is an untyped error beside the typed lint ones", async () => {
+  const r = lintReportRig(LINT_REPORT);
+  try {
+    const res = await validateSpecs(r.dir, { ...r.deps, typecheck: async () => ({ ok: false, output: "flows/a.spec.ts(1,1): error TS1" }) });
+    assert.deepEqual(res.untypedErrors, ["[typecheck] flows/a.spec.ts(1,1): error TS1"]);
+    assert.equal(res.errors.length, 2);
+  } finally {
+    r.dispose();
+  }
+});

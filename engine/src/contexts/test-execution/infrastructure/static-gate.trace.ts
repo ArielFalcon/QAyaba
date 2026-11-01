@@ -7,21 +7,18 @@
 import { startRunChildSpan } from "../../../shared-infrastructure/telemetry/run-spans.ts";
 import type { TelemetryPort } from "../../../shared-kernel/telemetry/telemetry.port.ts";
 import type { CheckResult } from "../domain/execution-strategy.ts";
+import { diagnosticLocation, errorDiagnostics } from "../domain/gate-diagnostic.ts";
 import type { ValidateDeps } from "./static-gate.checks.ts";
 
 import type { ForwardsAll } from "@kernel/forwarding.ts";
 export type ValidateCheckName = "typecheck" | "lint" | "list" | "manifest";
 
 const TSC_ERROR = /\berror TS\d+/g;
-const ESLINT_SUMMARY = /✖ \d+ problems? \((\d+) errors?/;
-const ESLINT_LINE = /^\s*\d+:\d+\s+error\b/gm;
 const PLAYWRIGHT_ERROR = /^\s*Error:/gm;
 
 const matches = (re: RegExp, text: string): number => text.match(re)?.length ?? 0;
 
 const TSC_FIRST = /^(\S[^\n(]*)\((\d+),(\d+)\): error (TS\d+)/m;
-const ESLINT_FILE = /^(\S.*)$/;
-const ESLINT_ERROR = /^\s+(\d+):(\d+)\s+error\s+.*?\s{2,}(\S+)\s*$/;
 
 /* Where a failed typecheck or lint's first error is: `file:line:column rule-or-code`. Absent for a check that passed, or whose output names no file and line. */
 export function firstCheckError(check: ValidateCheckName, result: CheckResult): string | undefined {
@@ -31,14 +28,8 @@ export function firstCheckError(check: ValidateCheckName, result: CheckResult): 
     return m ? `${m[1]}:${m[2]}:${m[3]} ${m[4]}` : undefined;
   }
   if (check !== "lint") return undefined;
-  let file: string | undefined;
-  for (const line of result.output.split("\n")) {
-    const error = ESLINT_ERROR.exec(line);
-    if (error && file) return `${file}:${error[1]}:${error[2]} ${error[3]}`;
-    const named = ESLINT_FILE.exec(line);
-    if (named && !line.startsWith("✖")) file = named[1];
-  }
-  return undefined;
+  const first = errorDiagnostics(result.diagnostics ?? [])[0];
+  return first && first.rule ? `${diagnosticLocation(first)} ${first.rule}` : undefined;
 }
 
 /* How many errors a failed check reported, from its output; zero for a check that passed. A failure whose output no rule counts is one error. */
@@ -50,11 +41,9 @@ export function countCheckErrors(check: ValidateCheckName, result: CheckResult):
     case "typecheck":
       counted = matches(TSC_ERROR, output);
       break;
-    case "lint": {
-      const summary = ESLINT_SUMMARY.exec(output);
-      counted = summary ? Number(summary[1]) : matches(ESLINT_LINE, output);
+    case "lint":
+      counted = errorDiagnostics(result.diagnostics ?? []).length;
       break;
-    }
     case "list":
       counted = matches(PLAYWRIGHT_ERROR, output);
       break;

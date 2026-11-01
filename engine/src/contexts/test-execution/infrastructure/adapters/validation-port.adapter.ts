@@ -1,5 +1,5 @@
 /* ValidationPort → the e2e gate. StaticGateAdapter.validateAll is the full gate including the zero-assertion guard — never the granular methods, which would skip that guard. */
-import type { ValidationPort } from "../../application/ports/validation.port.ts";
+import type { ValidationOutcome, ValidationPort } from "../../application/ports/validation.port.ts";
 import type { ValidationRunInfo } from "../../domain/validation.ts";
 import type { StaticGateAdapter } from "@contexts/test-execution/infrastructure/static-gate.adapter.ts";
 
@@ -10,9 +10,9 @@ export interface ValidationPortStrategies {
 export class ValidationPortAdapter implements ValidationPort {
   constructor(private readonly strategies: ValidationPortStrategies) {}
 
-  async validate(specDir: string, _run?: ValidationRunInfo): Promise<{ ok: boolean; errors: string[]; infra?: boolean }> {
+  async validate(specDir: string, _run?: ValidationRunInfo): Promise<ValidationOutcome> {
     const result = await this.strategies.e2e.validateAll(specDir);
-    return { ok: result.ok, errors: result.errors, infra: result.infra };
+    return { ok: result.ok, errors: result.errors, infra: result.infra, diagnostics: result.diagnostics, untypedErrors: result.untypedErrors };
   }
 
   /* Only the e2e gate has a linter with fixes of its own. */

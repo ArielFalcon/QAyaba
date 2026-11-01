@@ -14,7 +14,7 @@ const LEAD = "e2e/flows/login.spec.ts(12,7): error TS2345: ";
 for (const secret of CASES.filter((c) => ["quoted password", "URL userinfo", "bearer token"].includes(c.name))) {
   test(`a static gate error keeps no part of a ${secret.name} that straddles the finding's cut`, () => {
     const error = `${LEAD}${filler(DETAIL_BOUND - LEAD.length - 20)} ${secret.text} more`;
-    const [finding] = staticGateFindings([error], bound);
+    const [finding] = staticGateFindings({ errors: [error] }, bound);
     assert.deepEqual(leaks(finding!.finding.text, secret), []);
   });
 
@@ -26,6 +26,6 @@ for (const secret of CASES.filter((c) => ["quoted password", "URL userinfo", "be
 }
 
 test("a detail past the bound still says it was cut", () => {
-  const [finding] = staticGateFindings([`${LEAD}${filler(DETAIL_BOUND * 2)}`], bound);
+  const [finding] = staticGateFindings({ errors: [`${LEAD}${filler(DETAIL_BOUND * 2)}`] }, bound);
   assert.match(finding!.finding.text, /\(cut\)$/);
 });

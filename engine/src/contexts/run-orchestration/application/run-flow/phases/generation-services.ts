@@ -6,11 +6,12 @@
  */
 
 import { engineLog } from "@kernel/ports/process-logger.ts";
-import { normalizeSpecPath } from "@kernel/spec-path.ts";
+import { normalizeSpecPath, resolveSpecReference } from "@kernel/spec-path.ts";
+import { stripAnsi } from "@kernel/ansi.ts";
 import { GENERATION_END } from "@kernel/generation-end.ts";
 import type { ClosedLoopGateSignal } from "@kernel/closed-loop.ts";
 import type { GeolocationFacts } from "@kernel/geolocation.ts";
-import { PROBE_REL_DIR } from "@contexts/test-execution/application/index.ts";
+import { PROBE_REL_DIR, diagnosticLocation, errorDiagnostics, type ValidationOutcome } from "@contexts/test-execution/application/index.ts";
 import type { GenerationEnrichment, GenerationOutput } from "@contexts/generation/application/index.ts";
 import type { CoordinatedPass } from "@contexts/coordination/application/index.ts";
 import { CORRECTION_ORIGIN, authorTargetOf, dispatchAuthor, type CorrectionOrigin, type CorrectionFinding } from "@contexts/coordination/application/index.ts";
@@ -105,11 +106,15 @@ export interface EvidenceFinding {
   finding: CorrectionFinding;
 }
 
-/* The static gate's errors, one finding each, as the gate reported them: each names the file it refused. */
-export function staticGateFindings(errors: readonly string[], bound: BoundText): EvidenceFinding[] {
-  return errors.map((error) => error.trim()).filter(Boolean).map((error) => ({
-    finding: { text: `the static gate refused the spec: ${cutDetail(bound, error)}` },
-  }));
+/* The static gate's errors, one finding each: a lint error cites the spec it is in, so the lead routes it to that flow; any other error cites none. */
+export function staticGateFindings(validation: Pick<ValidationOutcome, "errors" | "diagnostics" | "untypedErrors">, bound: BoundText): EvidenceFinding[] {
+  const refused = (text: string): string => `the static gate refused the spec: ${cutDetail(bound, stripAnsi(text))}`;
+  const untyped = (validation.untypedErrors ?? validation.errors).map((error) => error.trim()).filter(Boolean).map((error) => ({ finding: { text: refused(error) } }));
+  const typed = errorDiagnostics(validation.diagnostics ?? []).map((d) => {
+    const spec = resolveSpecReference(d.file, "");
+    return { finding: { text: refused(`${diagnosticLocation(d)} ${d.message}${d.rule ? ` (${d.rule})` : ""}`), ...(spec ? { spec } : {}) } };
+  });
+  return [...untyped, ...typed];
 }
 
 /*
