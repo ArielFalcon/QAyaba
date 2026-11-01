@@ -130,3 +130,15 @@ test("routeEvent redacts a command before cutting it: a run secret of several wo
   assert.match(r.activities[0]!.text, /^npx playwright test/);
   assert.doesNotMatch(r.activities[0]!.text, /tangerine|staple|orbit/);
 });
+
+test("routeEvent renders a session error object by its name and message, never as [object Object], and redacts it", () => {
+  const sessionError = (error: unknown) => routeEvent({ type: "session.error", properties: { sessionID: "s1", error } }, sessions()).activities[0]?.text ?? "";
+  const object = sessionError({ name: "APIError", data: { message: "rate limit hit", statusCode: 429 } });
+  assert.match(object, /APIError/);
+  assert.match(object, /rate limit hit/);
+  assert.doesNotMatch(object, /\[object Object\]/);
+  assert.match(sessionError("rate limited"), /rate limited/, "a string error is kept");
+  assert.match(sessionError({ name: "MessageAbortedError" }), /MessageAbortedError/, "an error with no message is named");
+  assert.doesNotMatch(sessionError({ unexpected: true }), /\[object Object\]/, "a shape that names nothing says it is unknown");
+  assert.doesNotMatch(sessionError({ name: "APIError", data: { message: "bad key sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789" } }), /sk-ant-api03-abcdefghijklmnopqrstuvwxyz/);
+});
