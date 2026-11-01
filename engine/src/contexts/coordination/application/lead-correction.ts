@@ -113,6 +113,15 @@ const rebuttable = (origin: CorrectionOrigin): boolean => origin === CORRECTION_
 /* Whether the findings of this origin may be declined: the change-coverage measurement's arms are taken when a test can take them. */
 const declinable = (origin: CorrectionOrigin): boolean => origin === CORRECTION_ORIGIN.COVERAGE;
 
+/* The lists of an answer that make it readable for this origin, in the order the answer's reader names them. */
+const answerLists = (origin: CorrectionOrigin): Array<"corrections" | "rebuttals" | "declines"> => (declinable(origin) ? ["corrections", "rebuttals", "declines"] : ["corrections", "rebuttals"]);
+
+/* The lists as the reader names them to the lead: "`corrections` or `rebuttals`", "`corrections`, `rebuttals` or `declines`". */
+function namedLists(origin: CorrectionOrigin): string {
+  const names = answerLists(origin).map((name) => `\`${name}\``);
+  return `${names.slice(0, -1).join(", ")} or ${names.at(-1)}`;
+}
+
 export interface CorrectionOrder {
   flowId: string;
   action: typeof REVIEW_ACTION.REVISE | typeof REVIEW_ACTION.REPLACE;
@@ -305,7 +314,7 @@ export function admitLeadCorrection(redaction: RedactionPort, answer: unknown, f
   const given = new Map<number, string>();
   const byId = new Map(flows.map((flow) => [flow.id, flow]));
   const listed = typeof answer === "object" && answer !== null ? (answer as { corrections?: unknown; rebuttals?: unknown; declines?: unknown }) : undefined;
-  const raw = listed !== undefined && (Array.isArray(listed.corrections) || Array.isArray(listed.rebuttals) || Array.isArray(listed.declines)) ? listed : undefined;
+  const raw = listed !== undefined && answerLists(origin).some((name) => Array.isArray(listed[name])) ? listed : undefined;
   const readable = raw !== undefined;
   admission.readable = readable;
   const routed = new Map<string, { action: CorrectionOrder["action"]; instruction: string; extra: Set<number> }>();
@@ -315,7 +324,7 @@ export function admitLeadCorrection(redaction: RedactionPort, answer: unknown, f
   const numberOf = (value: unknown): number | undefined => (typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= findings.length ? value - 1 : undefined);
 
   if (!raw) {
-    if (answer !== undefined) admission.unreadable.push({ where: "answer", reason: "it is not an object with a `corrections`, `rebuttals` or `declines` list" });
+    if (answer !== undefined) admission.unreadable.push({ where: "answer", reason: `it is not an object with a ${namedLists(origin)} list` });
   } else {
     /* Each order is read once: a flow of this pass, a revise or a replace, and finding numbers that are findings of the turn. An entry that is not that is unacted on and recorded, never read as a revise. */
     const orders = readEntries(raw.corrections, "corrections", (entry, index) => {

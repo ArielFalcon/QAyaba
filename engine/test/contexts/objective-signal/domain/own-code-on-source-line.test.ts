@@ -56,3 +56,20 @@ test("a decision with no name of its own, or placed beyond its source, stays", (
   assert.equal(buildAddedDecision({ expression: "1 < 2", operator: "<" }, 2, source), undefined);
   assert.equal(buildAddedDecision({ expression: "this.items() ?? []", operator: "??" }, 400, source), undefined);
 });
+
+const NULLISH = ["export function f(a, c) {", "  const v = a.b ?? c;", "  const w = a?.d;", "  const x = a.e;", "  return v + w + x;", "}"].join("\n");
+
+test("a decision that is the lowered form of the author's `??` or `?.` stays: the build writes a null check where the source has no operator of the check", () => {
+  const source = decisionSourceOf(NULLISH);
+
+  assert.equal(buildAddedDecision({ expression: "(tmp = a.b) !== null && tmp !== void 0", operator: "&&" }, 2, source), undefined, "lowered ??");
+  assert.equal(buildAddedDecision({ expression: "(tmp = a) === null || tmp === void 0", operator: "||" }, 3, source), undefined, "lowered ?. as a ternary condition");
+  assert.equal(buildAddedDecision({ expression: "(tmp = a) == null", operator: "==" }, 3, source), undefined, "lowered ?. as a loose comparison");
+});
+
+test("a null check is the author's only where the source line holds `?.` or `??`: elsewhere it, and any other missing operator, is the build's", () => {
+  const source = decisionSourceOf(NULLISH);
+
+  assert.equal(buildAddedDecision({ expression: "(tmp = a.e) == null", operator: "==" }, 4, source), "not-in-source-line", "a line with neither `?.` nor `??`");
+  assert.equal(buildAddedDecision({ expression: "setter(a, $event) || (a = $event)", operator: "||" }, 3, source), "not-in-source-line", "a setter is no null check, whatever else the line holds");
+});

@@ -1,7 +1,7 @@
 /* Whether a piece of the served script is the change's own code, told from the source it is placed in. Pure; no I/O.
    A build adds code of its own to what it serves (a framework's development guard, the lowering of `?.` or `??` to comparisons, a two-way binding's setter, a helper's checks) and its source map places that code on whatever source line it sits beside; a mutant or a decision of it speaks of the build, not of the change, and no test of the change can notice it.
    A mutation site is the change's when the expression it mutates is on the source line its map places it at (`expressionOnSourceLine`): matched loosely, since a build rewrites what it keeps (quotes, spacing, a local's name), and strictly enough that an expression none of whose names is on the line is never taken for it: at least one name of the expression (an identifier or a property, outside its string literals, not a keyword) must be a name of the line, and every comparison or logical operator of the expression (the swapped one included) must stand on the line as that operator. What cannot be matched is no candidate.
-   A branch decision is judged on its evidence of being the build's, never on its absence from one line (`buildAddedDecision`): a decision's operands may hold lowered code and a map places a multi-line decision on any of its lines, so a decision stays unless nothing of it is in its file, or its line holds what it talks about but not the operator that makes it a decision. What cannot be told stays. */
+   A branch decision is judged on its evidence of being the build's, never on its absence from one line (`buildAddedDecision`): a decision's operands may hold lowered code and a map places a multi-line decision on any of its lines, so a decision stays unless nothing of it is in its file, or its line holds what it talks about but not the operator that makes it a decision; the null check a build writes for the author's `?.` or `??` is the author's decision, whatever operator heads it. What cannot be told stays. */
 
 /* Why a site is not a candidate: no source text could be had for its line, or the line does not hold its expression. */
 export type SiteSkipReason = "no-source-line" | "not-in-source-line";
@@ -15,6 +15,11 @@ const OPERATOR_CHARS = "=!<>&|?";
 const OPERATOR_RUN = /[=!<>&|?]+/g;
 /* The operators whose presence a decision of the source shows: a build that lowers `?.` or `??`, or adds a guard, adds them. */
 const DECISION_OPERATORS = new Set(["===", "!==", "==", "!=", "<", "<=", ">", ">=", "&&", "||", "??"]);
+
+/* A comparison with `null`, `undefined` or `void 0`: what a build lowers `?.` and `??` to. */
+const NULL_CHECK = /[=!]==?\s*(?:null|undefined|void\s+0)(?![\p{L}\p{N}_$])/u;
+/* The source forms a null check is lowered from. */
+const NULLISH_SYNTAX = /\?\.(?!\d)|\?\?/;
 
 const namesOf = (text: string): Set<string> => new Set([...text.matchAll(NAME)].map((m) => m[0]).filter((name) => !KEYWORDS.has(name)));
 const escape = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -91,7 +96,8 @@ function lineAndContinuations(source: DecisionSource, line: number): string | un
 /*
  * Why the decision placed at `line` of its source is the build's, or undefined when it may be the change's. Evidence of the build: no name of
  * the decision's expression is a name of the file (a framework's `ngDevMode` guard), or the line it is placed at holds a name of it but
- * not its operator (a two-way binding's `setter(x, $event) || (x = $event)` placed on `[(value)]="x"`). A line holding none of its names says
+ * not its operator (a two-way binding's `setter(x, $event) || (x = $event)` placed on `[(value)]="x"`); a null check on a line that holds
+ * `?.` or `??` is that operator lowered (`(tmp = a) == null`, `(tmp = a.b) !== null && tmp !== void 0`) and stays. A line holding none of its names says
  * nothing: a map places a decision on any line of a multi-line statement, and a template's bindings are placed beside their element. A
  * decision with no name, or no source line to read, stays.
  */
@@ -104,5 +110,6 @@ export function buildAddedDecision(head: DecisionHead, line: number, source: Dec
   if (region === undefined) return undefined;
   const regionNames = namesOf(source.lineAt(line)!);
   if (![...names].some((name) => regionNames.has(name))) return undefined;
-  return holdsOperator(region, head.operator) ? undefined : "not-in-source-line";
+  if (holdsOperator(region, head.operator)) return undefined;
+  return NULL_CHECK.test(head.expression) && NULLISH_SYNTAX.test(region) ? undefined : "not-in-source-line";
 }

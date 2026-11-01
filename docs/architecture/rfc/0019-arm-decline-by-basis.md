@@ -1,6 +1,6 @@
 # RFC-0019: An arm no test can take leaves the regeneration by a decline the engine checks
 
-- **Status:** Accepted, 2026-11-01, under the owner's authorization recorded in [ADR-0026](../adr/0026-owner-authorization-rfc-0019.md) (the recommendation, option B, is taken because the code showed nothing unsafe in it; the check is under "Safety check").
+- **Status:** Accepted, 2026-11-01, by the parent orchestrator under the owner's mandate to fix the branch gap's mechanisms at root, recorded in [ADR-0026](../adr/0026-arm-decline-under-the-root-cause-mandate.md); open to the owner's revision. The recommendation, option B, is taken because the code showed nothing unsafe in it (see "Safety check").
 - **Code references at cb72b618** (the base of this change).
 - **Implementation:** the feature document `odd/tasks/branch-gap-mechanisms.md` (S7, T4).
 - **Related:** [ADR-0001](../adr/0001-design-pillars.md) (P2 the engine/AI boundary by rules, P7 justified complexity), [RFC-0006](./0006-review-answer-crosses-whole.md), [RFC-0018](./0018-agent-answers-are-submissions.md), `plan-coverage.ts` (`honorContradictedDrops`), `shared-kernel/drop-basis.ts`.

@@ -380,7 +380,7 @@ test("a finding the lead also orders to a flow is corrected, and the decline is 
 
 test("declines are read only for the change-coverage measurement: another origin's findings are facts, and a decline of one is not taken", () => {
   const observed = [{ ...armOf(4), spec: "flows/cart.spec.ts" }];
-  const admitted = admitLeadCorrection(redaction, { declines: [decline(1)] }, holders, observed, CORRECTION_ORIGIN.EXECUTION);
+  const admitted = admitLeadCorrection(redaction, { corrections: [], declines: [decline(1)] }, holders, observed, CORRECTION_ORIGIN.EXECUTION);
 
   assert.deepEqual(admitted.declines, []);
   assert.deepEqual(admitted.orders.map((o) => [o.flowId, o.indices]), [["cart", [0]]]);
@@ -392,4 +392,18 @@ test("an answer that holds only declines reads, and a coverage turn offers the d
   const text = renderLeadCorrection(redaction, holders, [armOf(4)], CORRECTION_ORIGIN.COVERAGE);
   assert.match(text, /declines/);
   for (const basis of Object.values(DROP_BASIS)) assert.match(text, new RegExp(basis), basis);
+});
+
+test("an answer that cannot be read names the lists its origin accepts: `declines` only where a decision's arms can be declined", () => {
+  const reasonOf = (origin: Parameters<typeof admitLeadCorrection>[4]) => admitLeadCorrection(redaction, "I think it is fine", holders, [armOf(4)], origin).unreadable[0]!.reason;
+
+  assert.match(reasonOf(CORRECTION_ORIGIN.COVERAGE), /`corrections`, `rebuttals` or `declines` list/);
+  for (const origin of [CORRECTION_ORIGIN.REVIEW, CORRECTION_ORIGIN.EXECUTION, CORRECTION_ORIGIN.STATIC_GATE]) assert.match(reasonOf(origin), /`corrections` or `rebuttals` list$/, origin);
+});
+
+test("an answer that holds only declines is unreadable for an origin that cannot decline", () => {
+  const admitted = admitLeadCorrection(redaction, { declines: [decline(1)] }, holders, [armOf(4)], CORRECTION_ORIGIN.EXECUTION);
+
+  assert.equal(admitted.readable, false);
+  assert.deepEqual(admitted.unreadable.map((u) => u.where), ["answer"]);
 });

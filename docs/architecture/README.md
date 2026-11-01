@@ -123,7 +123,7 @@ Decisions (ADR):
 | [ADR-0023](adr/0023-owner-decisions-rfc-0015.md) | RFC-0015's answers: one execution contract | Accepted | RFC-0015's questions, under ADR-0015 point 2 |
 | [ADR-0024](adr/0024-shell-exceptions-list-stays-frozen.md) | The shell exceptions list stays frozen at 27 | Accepted | Platform step 6's first bullet, under ADR-0015 point 2; amends the migration plan |
 | [ADR-0025](adr/0025-delivered-specs-do-not-intercept-requests.md) | Delivered specs do not intercept requests | Accepted | The owner, 2026-11-01: "Qayaba no debe poder hacer stubs, eso tapa errores." |
-| [ADR-0026](adr/0026-owner-authorization-rfc-0019.md) | The owner authorizes RFC-0019's recommendation for the branch gap | Accepted | The owner, 2026-11-01: "se deben tratar los mecanismos que causan el error de forma transversal y corregirlo de raiz" (feature document `odd/tasks/branch-gap-mechanisms.md`, S1) |
+| [ADR-0026](adr/0026-arm-decline-under-the-root-cause-mandate.md) | The branch gap's arm decline, chosen under the owner's mandate to fix the mechanisms at root | Accepted by the parent orchestrator; open to the owner's revision | The owner, 2026-11-01: "se deben tratar los mecanismos que causan el error de forma transversal y corregirlo de raiz" (feature document `odd/tasks/branch-gap-mechanisms.md`, S1); the decline itself was not requested in those words |
 
 Proposals (RFC):
 
@@ -146,7 +146,7 @@ Proposals (RFC):
 | [RFC-0015](rfc/0015-verdict-from-uninstrumented-execution.md) | One execution contract; the verdict never comes from an instrumented execution | Accepted (ADR-0023) | T40 (feature document L73-L75), implemented as T41 |
 | [RFC-0016](rfc/0016-context-map-precondition.md) | The context map is a precondition of a run; incremental, framework-free rebuild | Proposed | T44, T45 (feature document L83, L85) |
 | [RFC-0017](rfc/0017-defects-from-verified-facts.md) | A defect is a verified fact, not the shape of a failing test | Proposed (implemented under ADR-0015 point 2) | The owner's questions of 2026-11-01 (feature document `odd/tasks/no-stubs-fact-based-defects.md`, L2) |
-| [RFC-0019](rfc/0019-arm-decline-by-basis.md) | An arm no test can take leaves the regeneration by a decline the engine checks | Accepted (ADR-0026) | The branch gap review (feature document `odd/tasks/branch-gap-mechanisms.md`, S7) |
+| [RFC-0019](rfc/0019-arm-decline-by-basis.md) | An arm no test can take leaves the regeneration by a decline the engine checks | Accepted by the parent orchestrator (ADR-0026); open to the owner's revision | The branch gap review (feature document `odd/tasks/branch-gap-mechanisms.md`, S7) |
 
 Other:
 
