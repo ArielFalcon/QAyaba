@@ -2510,17 +2510,17 @@ test("a plan within the run's capacity, answering for every candidate, with flow
 
 const CUISINE_PLAN = { kind: "fanout", flows: [{ id: "cart", objective: "the cuisine filter", acceptance: ["available cuisines toggle the filter"], routes: ["/search"] }] };
 
-/* A rig whose cart flow answers through the real reader, with the facts the executor hands it, as a sidekick's closing block. */
+/* A rig whose cart flow answers through the real reader, with the facts the executor hands it, as a sidekick's submitted result. */
 function cuisineRig(unmet: Record<string, unknown>, reads: readonly string[]): Rig {
   const r = rig({ hasFile: new Set(["cart"]) });
   r.agentBrowser.readsOf = () => reads;
   r.deps.sidekick = {
     open: async (brief, opts) => {
       r.executed.push({ brief, opts, session: ++r.sessionsOpened });
-      const closing = JSON.stringify({
-        delegationId: brief.delegationId, runId: brief.runId, status: "completed-with-concerns", summary: "the spec passes; every cuisine chip is disabled on DEV",
+      const closing = {
+        status: "completed-with-concerns", summary: "the spec passes; every cuisine chip is disabled on DEV",
         filesChanged: brief.scope.writablePaths.map((path) => ({ path })), concerns: [], unresolvedQuestions: [], acceptance: [unmet],
-      });
+      };
       return { first: readDelegationResult(closing, brief, r.deps.redaction, opts.devStateGround?.()), ask: async () => { throw new Error("not asked"); }, dispose: async () => {} };
     },
   };

@@ -1,19 +1,15 @@
 {
   "cells": {
     "flow-author-brief/full": {
-      "bytes": 3624,
+      "bytes": 3558,
       "directives": 5
     },
     "flow-author-brief/plain": {
-      "bytes": 1773,
+      "bytes": 1759,
       "directives": 2
     },
-    "lead-answer-unreadable/review": {
-      "bytes": 379,
-      "directives": 0
-    },
     "lead-correction-refused/plain": {
-      "bytes": 472,
+      "bytes": 433,
       "directives": 0
     },
     "lead-correction/coverage": {
@@ -42,10 +38,6 @@
     },
     "lead-feedback/plain": {
       "bytes": 128,
-      "directives": 0
-    },
-    "lead-plan-rejected/malformed": {
-      "bytes": 305,
       "directives": 0
     },
     "lead-replan/flows-past-capacity-and-oversize": {

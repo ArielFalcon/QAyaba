@@ -9,6 +9,7 @@ import { DEFAULT_COORDINATION_SETTINGS } from "@kernel/coordination.ts";
 import { SessionGoneError } from "@kernel/turn-end.ts";
 import { AgentTimeoutError } from "@kernel/domain-error.ts";
 import { submittingFrom } from "../../../support/lead-session.ts";
+import { submittedBy, type FakeReply } from "../../../support/submission.ts";
 import { LeadSidekicks, type CoordinateInput } from "@contexts/coordination/application/lead-sidekicks.ts";
 import { SidekickExecutor } from "@contexts/coordination/application/sidekick-executor.ts";
 import type { TimerPort } from "@contexts/coordination/application/fan-out-dispatcher.ts";
@@ -21,14 +22,13 @@ import { PatternRedactionAdapter } from "../../../../src/shared-infrastructure/r
 const redaction = new PatternRedactionAdapter();
 
 const FLOW = "run-1-flow-cart";
-const answer = (summary: string): string =>
-  JSON.stringify({ delegationId: FLOW, runId: "run-1", status: "completed", summary, filesChanged: [{ path: "e2e/flows/cart.spec.ts" }], evidence: [], acceptance: [], concerns: [], unresolvedQuestions: [] });
+const answer = (summary: string): Record<string, unknown> => ({ status: "completed", summary, filesChanged: [{ path: "e2e/flows/cart.spec.ts" }], acceptance: [], concerns: [], unresolvedQuestions: [] });
 
 /* A prompt that does not answer: it ends only when its own time runs out (the transport's timeout, which aborts it and keeps the session), when the session's signal aborts it, or when the session is deleted. */
 const HANG = Symbol("hang");
 
 /* What the runtime does with each prompt of the one session the flow's sidekick holds, in order: an answer, a fault the transport raises, or no answer. */
-type Turn = string | Error | typeof HANG;
+type Turn = Record<string, unknown> | Error | typeof HANG;
 
 /*
  * A clock whose armed timers all fire, in the order they were armed, once a prompt hangs: the flow's slot and the prompt's own
@@ -96,8 +96,8 @@ async function run(turns: Turn[], reviews: unknown[][], opts: RunOpts = {}): Pro
             state.prompts.push(text);
             const turn = turns[Math.min(prompts++, turns.length - 1)]!;
             if (turn instanceof Error) throw turn;
-            if (turn !== HANG) return { output: turn };
-            return new Promise<{ output: string }>((_resolve, reject) => {
+            if (turn !== HANG) return submittedBy(turn, promptOpts);
+            return new Promise<FakeReply>((_resolve, reject) => {
               const end = (err: Error): void => { hanging.delete(end); reject(err); };
               hanging.add(end);
               clock.setTimer(promptOpts?.timeoutMs ?? sessionOpts?.timeoutMs ?? 0, () => end(new AgentTimeoutError("OpenCode prompt: timed out")));

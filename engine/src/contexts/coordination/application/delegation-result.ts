@@ -68,8 +68,8 @@ export interface DelegationResult {
   readonly turnEnd?: SidekickTurnEnd;
 }
 
-/** Why the orchestrator holds no answer of the sidekick's: the output held no DelegationResult, or the one it held answered a different brief. */
-export const ANSWER_MISS = { UNREADABLE: "unreadable", FOREIGN_BRIEF: "foreign-brief" } as const;
+/** Why the orchestrator holds no answer of the sidekick's: the turn delivered no accepted result. */
+export const ANSWER_MISS = { UNREADABLE: "unreadable" } as const;
 export type AnswerMiss = (typeof ANSWER_MISS)[keyof typeof ANSWER_MISS];
 
 export function belongsToBrief(result: DelegationResult, delegationId: string, runId: string): boolean {

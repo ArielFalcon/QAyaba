@@ -11,6 +11,7 @@ import { FileCoordinationTelemetryAdapter } from "@contexts/coordination/infrast
 import { SidekickExecutor } from "@contexts/coordination/application/sidekick-executor.ts";
 import type { AgentRuntimePort, AgentSession } from "@kernel/ports/agent-runtime.port.ts";
 import { PatternRedactionAdapter } from "../../src/shared-infrastructure/redaction/pattern-redaction.adapter.ts";
+import { submittedBy } from "../support/submission.ts";
 
 const redaction = new PatternRedactionAdapter();
 
@@ -54,9 +55,8 @@ test("an evidence summary, the brief, and the JSONL sink redact an injected secr
 
 test("an illegal write's replacement summary and concerns redact a secret-bearing path", async () => {
   const session: AgentSession = {
-    async prompt() {
-      return {
-        output: JSON.stringify({
+    async prompt(_text, opts) {
+      return submittedBy({
           delegationId: "d1",
           runId: "r1",
           status: "completed",
@@ -65,8 +65,7 @@ test("an illegal write's replacement summary and concerns redact a secret-bearin
           evidence: [],
           concerns: [],
           unresolvedQuestions: [],
-        }),
-      };
+        }, opts);
     },
     async dispose() {},
   };

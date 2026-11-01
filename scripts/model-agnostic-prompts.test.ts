@@ -465,6 +465,18 @@ const recordingRuntime = (sent: string[]): AgentRuntimePort => ({
   }),
 });
 
+/* A runtime whose agent answers every prompt by submitting `answer`, so the only prompts it records are the turns the harness itself sends. */
+const submittingRuntime = (sent: string[], answer: unknown): AgentRuntimePort => ({
+  openSession: async () => ({
+    prompt: async (text, opts) => {
+      sent.push(text);
+      const checked = opts?.submit?.check(answer);
+      return checked?.ok ? { output: "", submission: { accepted: true, value: checked.value, calls: 1 } } : { output: "" };
+    },
+    dispose: async () => {},
+  }),
+});
+
 const recordingDeps = (sent: string[]): AgentDeps => ({
   open: async () => ({
     id: "recording",
@@ -513,7 +525,8 @@ async function sidekickPrompts(subject: string): Promise<PromptText[]> {
     knownFacts: [{ id: "f1", kind: "execution", source: "runner", summary: "the cart spec timed out", confidence: "observed" }],
     artifactRefs: [{ id: "a1", path: "e2e/flows/cart.spec.ts" }],
   });
-  await new SidekickExecutor({ redaction, runtime: recordingRuntime(sent) }).execute(brief, {
+  const result = { status: "completed", summary: "done", filesChanged: [], acceptance: [{ criterion: 1, status: "met" }] };
+  await new SidekickExecutor({ redaction, runtime: submittingRuntime(sent, result) }).execute(brief, {
     cwd: "/m",
     kind: "author",
     feedback: `the ${subject} total is still missing`,

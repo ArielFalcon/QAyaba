@@ -9,6 +9,7 @@ import type { ClosedLoopLimits } from "@kernel/closed-loop.ts";
 import type { AgentBrowserLimits } from "@kernel/agent-browser.ts";
 import type { GeolocationFacts } from "@kernel/geolocation.ts";
 import type { PlanningLimits } from "@kernel/coordination.ts";
+import { SUBMIT_TOOL } from "@kernel/submission.ts";
 import type { ImpactReach } from "@kernel/service-links.ts";
 import { candidateLine } from "@kernel/use-case-candidate.ts";
 import { PROMPT_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
@@ -48,7 +49,7 @@ export function renderLeadPlan(limits: PlanningLimits): string {
     limits.capacity !== undefined
       ? `The run has time for ${limits.capacity} flows this pass: flows past that many in your plan are not authored and are asked of you once more.`
       : `No limit of the run bounds the number of flows: name the flows the change needs.`,
-    `The orchestrator ends this turn after ${Math.round(limits.budgetMs / 1000)} seconds; a turn ended before its plan JSON delivers no plan, and the run ends with nothing authored.`,
+    `The orchestrator ends this turn after ${Math.round(limits.budgetMs / 1000)} seconds; a turn ended before ${SUBMIT_TOOL.PLAN} delivers no plan, and the run ends with nothing authored.`,
     ...(limits.locations?.length ? [`The app's locations a flow may name: ${limits.locations.join(", ")}.`] : []),
     ...(limits.candidates?.length
       ? [

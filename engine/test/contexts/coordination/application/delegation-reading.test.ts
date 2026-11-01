@@ -1,90 +1,41 @@
-/* How a sidekick's closing answer is read: the last DelegationResult of its output, and an answer that holds none told apart from one that reported failure. */
+/* How a sidekick's submitted result is read: the object its submit tool delivered, under the brief's own identity, and a turn that delivered none told apart from one that reported failure. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createDelegationBrief } from "@contexts/coordination/application/delegation-brief.ts";
-import { readDelegationResult } from "@contexts/coordination/application/delegation-reading.ts";
+import { readDelegationResult, submittedResultErrors, unsubmittedResult } from "@contexts/coordination/application/delegation-reading.ts";
 import { classifyDelegationFailure } from "@contexts/coordination/application/delegation-failure-class.ts";
 import { PatternRedactionAdapter } from "../../../../src/shared-infrastructure/redaction/pattern-redaction.adapter.ts";
 
 const redaction = new PatternRedactionAdapter();
 const brief = createDelegationBrief({ redaction, delegationId: "run-1-flow-cart", runId: "run-1", objective: "o", task: "t", scope: { readablePaths: [], writablePaths: ["e2e/flows/cart.spec.ts"], allowedCommands: [] } });
 
-const closing = (over: Record<string, unknown> = {}): string =>
-  JSON.stringify({ delegationId: brief.delegationId, runId: brief.runId, status: "completed", summary: "done", filesChanged: [{ path: "e2e/flows/cart.spec.ts" }], evidence: [], acceptance: [], concerns: [], unresolvedQuestions: [], ...over });
+const closing = (over: Record<string, unknown> = {}): Record<string, unknown> => ({ status: "completed", summary: "done", filesChanged: [{ path: "e2e/flows/cart.spec.ts" }], acceptance: [], concerns: [], unresolvedQuestions: [], ...over });
 
-test("narration holding brace-bearing code before the closing block does not turn a completed result into a failure", () => {
-  const output = ["The capture gives `{name, value, url}` and my helper is `async ({ page }) => {`.", "The last run_spec passed.", "```json", closing(), "```"].join("\n");
-  const result = readDelegationResult(output, brief, redaction);
-  assert.equal(result.status, "completed");
-  assert.equal(result.readMiss, undefined);
-});
-
-test("an earlier unrelated object does not stand in for the closing DelegationResult", () => {
-  const output = `{"specs":["flows/cart.spec.ts"],"note":""}\nmore work\n${closing({ summary: "the closing block" })}`;
-  const result = readDelegationResult(output, brief, redaction);
-  assert.equal(result.status, "completed");
-  assert.equal(result.summary, "the closing block");
-});
-
-test("an answer holding no DelegationResult is a failed result marked unreadable, and one that reported failure is not", () => {
-  const unreadable = readDelegationResult('I wrote `{name, value}` and ran out of time {"specs":[]}', brief, redaction);
+test("a turn that delivered no accepted result is a failed result marked unreadable, and one that reported failure is not", () => {
+  const unreadable = unsubmittedResult(brief, "it stopped", redaction);
   assert.equal(unreadable.status, "failed");
   assert.equal(unreadable.readMiss, "unreadable");
+  assert.equal(unreadable.answerMiss, "unreadable");
+  assert.match(unreadable.summary, /it stopped/);
   const reported = readDelegationResult(closing({ status: "failed", summary: "no selector found" }), brief, redaction);
   assert.equal(reported.status, "failed");
   assert.equal(reported.readMiss, undefined);
+  assert.equal(reported.answerMiss, undefined);
   assert.equal(classifyDelegationFailure(unreadable.status, 0, 0, unreadable.readMiss), "unreadable");
   assert.equal(classifyDelegationFailure(reported.status, 0, 0, reported.readMiss), "failed");
 });
 
-test("an unreadable closing result is the answer: it is marked unreadable, never replaced by an earlier result of the same answer", () => {
-  const output = ["I will report like this when done:", closing({ summary: "DRAFT: all criteria met" }), "the spec still fails on the total row", closing({ status: "done", summary: "FINAL: the total row still fails" })].join("\n");
-  const result = readDelegationResult(output, brief, redaction);
-  assert.equal(result.status, "failed");
-  assert.equal(result.readMiss, "unreadable");
-  assert.notEqual(result.summary, "DRAFT: all criteria met");
-});
-
-test("a closing result that is not JSON, or is cut mid-JSON, is the answer all the same: unreadable, never the earlier draft", () => {
-  const final = closing({ status: "failed", summary: "FINAL: the total row still fails" });
-  const variants = {
-    "trailing comma": `${final.slice(0, -1)},}`,
-    "cut mid-JSON": final.slice(0, Math.floor(final.length / 2)),
-  };
-  for (const [name, closingText] of Object.entries(variants)) {
-    const output = ["I will report like this when done:", closing({ summary: "DRAFT: all criteria met" }), "the spec still fails on the total row", closingText].join("\n");
-    const result = readDelegationResult(output, brief, redaction);
-    assert.equal(result.status, "failed", name);
-    assert.equal(result.readMiss, "unreadable", name);
-    assert.notEqual(result.summary, "DRAFT: all criteria met", name);
-  }
-});
-
-test("narration after the closing result that holds no brace leaves it the answer", () => {
-  const result = readDelegationResult(`${closing({ summary: "the closing block" })}\nThe spec passed through run_spec.\n\`\`\``, brief, redaction);
+test("the result is the brief's whatever identity the answer names: the orchestrator owns it", () => {
+  const result = readDelegationResult(closing({ delegationId: "run-1-flow-other", runId: "run-9" }), brief, redaction);
   assert.equal(result.status, "completed");
-  assert.equal(result.summary, "the closing block");
+  assert.equal(result.delegationId, brief.delegationId);
+  assert.equal(result.runId, brief.runId);
 });
 
-test("an object after the result closes the answer instead of it: the answer is unreadable and earns its repair, never read as the earlier result", () => {
-  const result = readDelegationResult(`${closing({ summary: "the closing block" })}\n{"note":"a quoted payload"}`, brief, redaction);
-  assert.equal(result.status, "failed");
-  assert.equal(result.readMiss, "unreadable");
-});
-
-test("a result for another brief and a write outside writablePaths keep failing as before", () => {
-  assert.equal(readDelegationResult(closing({ delegationId: "other" }), brief, redaction).status, "failed");
+test("a write outside writablePaths keeps the result blocked", () => {
   const outside = readDelegationResult(closing({ filesChanged: [{ path: "e2e/other.spec.ts" }] }), brief, redaction);
   assert.equal(outside.status, "blocked");
   assert.equal(outside.readMiss, undefined);
-});
-
-test("an output with no readable result and a result addressed to another brief are each marked as the orchestrator's statement, a reported failure is not", () => {
-  assert.equal(readDelegationResult("no json here", brief, redaction).answerMiss, "unreadable");
-  const foreign = readDelegationResult(closing({ delegationId: "run-1-flow-other" }), brief, redaction);
-  assert.equal(foreign.status, "failed");
-  assert.equal(foreign.answerMiss, "foreign-brief");
-  assert.equal(readDelegationResult(closing({ status: "failed", summary: "no selector found" }), brief, redaction).answerMiss, undefined);
 });
 
 test("a result that names no recommendation is read: the engine asks for no field nothing reads", () => {
@@ -104,4 +55,14 @@ test("entries of the result the engine cannot read are recorded with where they 
 
 test("a result that reads whole records nothing unreadable", () => {
   assert.equal(readDelegationResult(closing(), brief, redaction).unreadableEntries, undefined);
+});
+
+test("the contract of a submitted result names where the answer is not the contract's, and takes one that reads whole", () => {
+  assert.deepEqual(submittedResultErrors(closing(), brief, redaction), []);
+  assert.deepEqual(submittedResultErrors("done", brief, redaction).map((e) => e.path), ["answer"]);
+  const status = submittedResultErrors(closing({ status: "done" }), brief, redaction);
+  assert.deepEqual(status.map((e) => e.path), ["status"]);
+  assert.match(status[0]!.reason, /completed/);
+  const entries = submittedResultErrors(closing({ filesChanged: [{ path: "e2e/flows/cart.spec.ts" }, "x"], concerns: ["a note", 7], testCorrect: { cause: "weather", reason: "x" } }), brief, redaction);
+  assert.deepEqual(entries.map((e) => e.path), ["filesChanged[1]", "concerns[1]", "testCorrect"]);
 });
