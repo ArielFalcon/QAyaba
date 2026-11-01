@@ -40,7 +40,7 @@ const RebuttalsSchema = z.array(RebuttalSchema).min(1);
  * optional per-spec metadata. An EMPTY specs array is a decision only when it carries a
  * reasoned `noop` ({"specs":[],"noop":{"reason":"…"}}): silence is not a decision, and neither is
  * `approved`, which is ignored (stripped). A missing `specs` is an empty list, so a reasoned `noop`
- * alone is a decision, exactly as `parseVerdict` reads it. A `noop` beside real specs is not read at all.
+ * alone is a decision, exactly as `readVerdict` reads it. A `noop` beside real specs is not read at all.
  */
 /** Where a verdict with no specs and no decision is refused: the field that would have carried the decision. */
 export const MISSING_DECISION_PATH = "noop";

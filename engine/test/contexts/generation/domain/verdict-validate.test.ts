@@ -17,11 +17,11 @@ function checkGeneratorVerdict(text: string): { valid: boolean; issues: string[]
   const checked = generatorVerdictContract.check(objectIn(text));
   return checked.ok ? { valid: true, issues: [] } : { valid: false, issues: render(checked.errors) };
 }
-function parseReviewerVerdict(text: string): Omit<ReturnType<typeof readReviewerVerdict>, "issues"> & { issues: string[] } {
+function readReviewerVerdictOf(text: string): Omit<ReturnType<typeof readReviewerVerdict>, "issues"> & { issues: string[] } {
   const verdict = readReviewerVerdict(objectIn(text));
   return { ...verdict, issues: render(verdict.issues) };
 }
-function parseVerdict(text: string): ReturnType<typeof readVerdict> {
+function readVerdictOf(text: string): ReturnType<typeof readVerdict> {
   return readVerdict(objectIn(text) ?? {});
 }
 
@@ -115,7 +115,7 @@ test("checkGeneratorVerdict ignores a no-op that sits beside real specs, even a 
 
 test("a reasoned no-op with no specs key is a valid declared no-op, for the parser and the validator alike", () => {
   const text = '{"noop":{"reason":"nothing in this change is worth an E2E test"}}';
-  const parsed = parseVerdict(text);
+  const parsed = readVerdictOf(text);
   assert.equal(parsed.parsed, true);
   assert.deepEqual(parsed.specs, []);
   assert.equal(parsed.noopReason, "nothing in this change is worth an E2E test");
@@ -126,7 +126,7 @@ test("a reasoned no-op with no specs key is a valid declared no-op, for the pars
 test("a no-op that carries no reason is no decision, for the parser and the validator alike, whether or not a specs key sits beside it", () => {
   for (const noop of ["{}", '{"reason":"   "}', '{"reason":7}', "true", '"because"']) {
     for (const text of [`{"noop":${noop}}`, `{"specs":[],"noop":${noop}}`]) {
-      assert.equal(parseVerdict(text).noopReason, undefined, text);
+      assert.equal(readVerdictOf(text).noopReason, undefined, text);
       assert.equal(checkGeneratorVerdict(text).valid, false, text);
     }
   }
@@ -163,8 +163,8 @@ test("checkGeneratorVerdict rejects a specMeta missing a required field", () => 
   assert.ok(c.issues.some((i) => i.includes("objective")), `issues should point at the missing field: ${c.issues.join("; ")}`);
 });
 
-test("parseReviewerVerdict reads an approval with a rationale", () => {
-  const v = parseReviewerVerdict('{"approved":true,"rationale":"the discount logic is asserted","corrections":[]}');
+test("readReviewerVerdict reads an approval with a rationale", () => {
+  const v = readReviewerVerdictOf('{"approved":true,"rationale":"the discount logic is asserted","corrections":[]}');
   assert.equal(v.parsed, true);
   assert.equal(v.valid, true);
   assert.equal(v.approved, true);
@@ -172,33 +172,33 @@ test("parseReviewerVerdict reads an approval with a rationale", () => {
   assert.deepEqual(v.findings, []);
 });
 
-test("parseReviewerVerdict reads a rejection with tagged corrections", () => {
-  const v = parseReviewerVerdict('{"approved":false,"rationale":"no assertion on the discount","corrections":[{"text":"[false-positive] checkout.spec.ts: assert the discounted total","severity":"blocking"}]}');
+test("readReviewerVerdict reads a rejection with tagged corrections", () => {
+  const v = readReviewerVerdictOf('{"approved":false,"rationale":"no assertion on the discount","corrections":[{"text":"[false-positive] checkout.spec.ts: assert the discounted total","severity":"blocking"}]}');
   assert.equal(v.approved, false);
   assert.deepEqual(v.findings, [{ text: "[false-positive] checkout.spec.ts: assert the discounted total", severity: "blocking" }]);
 });
 
-test("parseReviewerVerdict flags a non-boolean approved for repair (does not silently pass or miss)", () => {
+test("readReviewerVerdict flags a non-boolean approved for repair (does not silently pass or miss)", () => {
   /* A mistyped gate must be caught by the schema as an actionable issue, not mislabelled
      "no verdict". parsed=true (an `approved` field was found) but valid=false → repair.
    */
-  const v = parseReviewerVerdict('{"approved":"true","rationale":"looks fine"}');
+  const v = readReviewerVerdictOf('{"approved":"true","rationale":"looks fine"}');
   assert.equal(v.parsed, true);
   assert.equal(v.valid, false);
   assert.equal(v.approved, false); /* fail-closed until a clean boolean is produced */
   assert.ok(v.issues.some((i) => i.includes("approved")), `issues should name the bad field: ${v.issues.join("; ")}`);
 });
 
-test("parseReviewerVerdict fails closed and flags a parse miss when no verdict is present", () => {
-  const v = parseReviewerVerdict("the reviewer wrote prose but no JSON");
+test("readReviewerVerdict fails closed and flags a parse miss when no verdict is present", () => {
+  const v = readReviewerVerdictOf("the reviewer wrote prose but no JSON");
   assert.equal(v.parsed, false);
   assert.equal(v.valid, false);
   assert.equal(v.approved, false); /* fail-closed: nothing publishes on an unreadable gate */
   assert.ok(v.issues.length > 0);
 });
 
-test("parseReviewerVerdict does not let a botched corrections field turn a real approval into a rejection, and records the loss", () => {
-  const v = parseReviewerVerdict('{"approved":true,"corrections":"oops not an array"}');
+test("readReviewerVerdict does not let a botched corrections field turn a real approval into a rejection, and records the loss", () => {
+  const v = readReviewerVerdictOf('{"approved":true,"corrections":"oops not an array"}');
   assert.equal(v.parsed, true);
   assert.equal(v.valid, true);
   assert.equal(v.approved, true);
@@ -206,14 +206,14 @@ test("parseReviewerVerdict does not let a botched corrections field turn a real 
   assert.deepEqual(v.issues, ["corrections: not a list; read as none beside an approval"]);
 });
 
-test("parseReviewerVerdict reads an approval with no corrections field as an approval with nothing lost", () => {
-  const v = parseReviewerVerdict('{"approved":true,"rationale":"ok"}');
+test("readReviewerVerdict reads an approval with no corrections field as an approval with nothing lost", () => {
+  const v = readReviewerVerdictOf('{"approved":true,"rationale":"ok"}');
   assert.deepEqual([v.valid, v.approved, v.findings, v.issues], [true, true, [], []]);
 });
 
-test("parseReviewerVerdict does not read a rejection whose corrections are not a list: the answer is unreadable", () => {
+test("readReviewerVerdict does not read a rejection whose corrections are not a list: the answer is unreadable", () => {
   for (const text of ['{"approved":false,"corrections":"fix the selector"}', '{"approved":false,"rationale":"did not converge"}']) {
-    const v = parseReviewerVerdict(text);
+    const v = readReviewerVerdictOf(text);
     assert.deepEqual([v.parsed, v.valid, v.approved], [true, false, false]);
     assert.match(v.issues.join("; "), /corrections/);
   }
@@ -231,7 +231,7 @@ test("advisory-only verdict — blockingCount is zero, gate passes", () => {
       { text: "[other] login.spec.ts: prefer const over let for page variable", severity: "advisory" },
     ],
   });
-  const v = parseReviewerVerdict(json);
+  const v = readReviewerVerdictOf(json);
   assert.equal(v.valid, true);
   assert.equal(v.parsed, true);
   assert.equal(v.blockingCount, 0, "advisory-only verdict must have blockingCount=0");
@@ -248,7 +248,7 @@ test("blocking correction — blockingCount is non-zero, gate fails", () => {
       { text: "[fragile-selector] checkout.spec.ts: scope the Pay button selector", severity: "advisory" },
     ],
   });
-  const v = parseReviewerVerdict(json);
+  const v = readReviewerVerdictOf(json);
   assert.equal(v.valid, true);
   assert.equal(v.blockingCount, 1, "exactly one blocking correction");
   assert.equal(v.findings.length, 2, "both findings in the list");
@@ -260,7 +260,7 @@ test("an entry with no severity makes the answer unreadable: the engine assigns 
     rationale: "format correction",
     corrections: [{ text: "[other] some.spec.ts: a correction without a severity field" }],
   });
-  const v = parseReviewerVerdict(json);
+  const v = readReviewerVerdictOf(json);
   assert.deepEqual([v.parsed, v.valid, v.blockingCount, v.findings], [true, false, 0, []]);
   assert.match(v.issues.join("; "), /corrections\.0\.severity/);
 });
@@ -274,7 +274,7 @@ test("a plain-string entry makes the answer unreadable: the contract says each c
       { text: "[other] b.spec.ts: structured advisory", severity: "advisory" },
     ],
   });
-  const v = parseReviewerVerdict(json);
+  const v = readReviewerVerdictOf(json);
   assert.equal(v.valid, false);
   assert.match(v.issues.join("; "), /corrections\.0/);
 });
@@ -290,7 +290,7 @@ test("approve-when-resolved — zero blocking in round 2 approves even with advi
       { text: "[fragile-selector] checkout.spec.ts: use getByRole for robustness", severity: "advisory" },
     ],
   });
-  const v = parseReviewerVerdict(round2Json);
+  const v = readReviewerVerdictOf(round2Json);
   assert.equal(v.blockingCount, 0, "zero blocking in round 2 → gate passes");
   assert.equal(v.findings.length, 1, "advisory finding still surfaces for logging");
   assert.equal(v.approved, true);
@@ -307,7 +307,7 @@ test("a [false-positive] correction self-labeled 'advisory' is counted as BLOCKI
       { text: "[false-positive] checkout.spec.ts: clicks Pay but asserts nothing", severity: "advisory" },
     ],
   });
-  const v = parseReviewerVerdict(json);
+  const v = readReviewerVerdictOf(json);
   assert.equal(v.valid, true);
   assert.equal(v.blockingCount, 1, "a grave [false-positive] tag must be blocking even if self-labeled advisory");
 });
@@ -321,7 +321,7 @@ test("[wrong-objective] and [no-cleanup] self-labeled advisory also count as blo
       { text: "[no-cleanup] a.spec.ts: leaves an orphaned account on DEV", severity: "advisory" },
     ],
   });
-  const v = parseReviewerVerdict(json);
+  const v = readReviewerVerdictOf(json);
   assert.equal(v.blockingCount, 2, "both grave tags are forced blocking");
 });
 
@@ -334,7 +334,7 @@ test("a NON-grave tag ([fragile-selector]) keeps its self-assigned advisory seve
       { text: "[fragile-selector] login.spec.ts: prefer getByRole over nth-child", severity: "advisory" },
     ],
   });
-  const v = parseReviewerVerdict(json);
+  const v = readReviewerVerdictOf(json);
   assert.equal(v.blockingCount, 0, "a non-grave advisory stays advisory (no over-blocking)");
 });
 
@@ -342,11 +342,11 @@ test("a NON-grave tag ([fragile-selector]) keeps its self-assigned advisory seve
 
 test("a malformed entry beside a rejection makes the whole answer unreadable, even when it is the only entry", () => {
   /* The gate stays closed because nothing of an unreadable answer reaches the decision: no placeholder finding stands in for the entry. */
-  const alone = parseReviewerVerdict(JSON.stringify({ approved: false, corrections: [{ severity: "advisory" }] }));
+  const alone = readReviewerVerdictOf(JSON.stringify({ approved: false, corrections: [{ severity: "advisory" }] }));
   assert.deepEqual([alone.parsed, alone.valid, alone.approved, alone.blockingCount, alone.findings], [true, false, false, 0, []]);
   assert.match(alone.issues.join("; "), /corrections\.0\.text/, "the issue names the entry");
 
-  const beside = parseReviewerVerdict(JSON.stringify({
+  const beside = readReviewerVerdictOf(JSON.stringify({
     approved: false,
     corrections: [{ text: "[false-positive] cart.spec.ts: clicks Pay but asserts nothing", severity: "blocking" }, { severity: "advisory" }],
   }));
@@ -354,13 +354,13 @@ test("a malformed entry beside a rejection makes the whole answer unreadable, ev
 });
 
 test("a malformed entry beside an approval is set aside and recorded: the approval stands and the entries that can be read are kept", () => {
-  const alone = parseReviewerVerdict(JSON.stringify({ approved: true, corrections: [{ severity: "advisory" }] }));
+  const alone = readReviewerVerdictOf(JSON.stringify({ approved: true, corrections: [{ severity: "advisory" }] }));
   assert.deepEqual([alone.parsed, alone.valid, alone.approved, alone.blockingCount, alone.findings], [true, true, true, 0, []]);
   assert.equal(alone.issues.length, 1);
   assert.match(alone.issues[0]!, /^corrections\.0\.text: /);
 
   const readable = { text: "[other] cart.spec.ts: rename the test", severity: "advisory" };
-  const beside = parseReviewerVerdict(JSON.stringify({ approved: true, corrections: [readable, { severity: "advisory" }, "plain"] }));
+  const beside = readReviewerVerdictOf(JSON.stringify({ approved: true, corrections: [readable, { severity: "advisory" }, "plain"] }));
   assert.deepEqual([beside.valid, beside.approved, beside.findings], [true, true, [readable]]);
   assert.equal(beside.issues.length, 2);
   assert.match(beside.issues[1]!, /^corrections\.2: /);
@@ -368,7 +368,7 @@ test("a malformed entry beside an approval is set aside and recorded: the approv
 
 test("a citation the engine cannot read makes the answer unreadable instead of reading as no citation", () => {
   for (const citation of [{ kind: "network", ref: "a.spec.ts" }, { kind: "execution", ref: 7 }]) {
-    const v = parseReviewerVerdict(JSON.stringify({ approved: false, corrections: [{ text: "[other] a.spec.ts: x", severity: "blocking", citation }] }));
+    const v = readReviewerVerdictOf(JSON.stringify({ approved: false, corrections: [{ text: "[other] a.spec.ts: x", severity: "blocking", citation }] }));
     assert.equal(v.valid, false);
     assert.match(v.issues.join("; "), /corrections\.0\.citation/);
   }
@@ -403,8 +403,8 @@ test("the correction cap never hides a blocking finding behind six advisory ones
   assert.ok(j.findings.slice(1).every((f) => f.text.startsWith("[fragile-selector]")));
 });
 
-test("parseReviewerVerdict keeps the evidence each correction cites, an arm of the changed code included", () => {
-  const r = parseReviewerVerdict(
+test("readReviewerVerdict keeps the evidence each correction cites, an arm of the changed code included", () => {
+  const r = readReviewerVerdictOf(
     '{"approved":true,"rationale":"ok","corrections":[{"text":"[missing-case] the empty search is not tested","severity":"advisory","citation":{"kind":"arm","ref":"src/search.ts:12"}},{"text":"[false-positive] a.spec.ts asserts nothing","severity":"blocking","citation":{"kind":"execution","ref":"a.spec.ts"}}]}',
   );
   assert.deepEqual(r.findings.map((f) => f.citation), [{ kind: "arm", ref: "src/search.ts:12" }, { kind: "execution", ref: "a.spec.ts" }]);
