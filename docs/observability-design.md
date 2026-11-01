@@ -341,7 +341,8 @@ Rules, from the brief §2.1 and the OTel spec:
   a later decision about the app's session length can use; nothing acts on it (ADR-0023 row 8, amended): no execution checks,
   renews or re-runs for the session, and a failure on what looks like the login page is judged as it ran.
 - **Ambient data state** (T38). A passing case whose every assertion ran on a page as it loaded, before any step of its own, on a
-  page the Context Pack read as a confirmed empty state is recorded at the decided end as
+  page the Context Pack read as a confirmed empty state, or an assertion as the page loaded that holds the result count the pack read
+  there, is recorded at the decided end as
   `gateSignals.ambientDataState { cases, pages, arms }` (`arms`: the untaken arms of the changed code on those pages, while the
   measured arms describe the bytes on disk) and a `qayaba.ambient_data_state` span with `qayaba.ambient.cases`, `.pages` and `.arms`.
   Absent when no case is pinned. Persist-only: it reads nothing back into a verdict.

@@ -185,6 +185,7 @@ The RFC that lands a row flips it to **in force** in the same commit.
 | Whether a change needs no test | Agent with facts | A declared `noop` with a reason and zero specs is honored; silence is not a decision (`E-NO-DECISION`) | Invariants, "Honor the explicit no-op" | in force |
 | Whether the lead accepts a flow's spec | Agent with facts, the engine's facts win | An accept of a spec with no `run_spec` pass on its current bytes is sent back; an app defect is never sent back to be made green | Architecture, "Lead and sidekicks" | in force |
 | Whether a reviewer's finding blocks | Agent with facts, the engine verifies | Only a finding whose citation the engine verifies blocks; an answer holding no readable verdict fails closed as a parse miss, never an approval | Architecture, "Lead and sidekicks" | in force |
+| Whether a reviewer finding that cites a fact the engine verified blocks | Engine, from a fact | A `contradiction` or `ambient` citation the run's own records bear out blocks and reaches the author as a correction whatever severity the reviewer gave it, and no green case or intact clause withdraws it | [RFC-0017](docs/architecture/rfc/0017-defects-from-verified-facts.md) | in force |
 | Whether one unreadable entry of a reviewer's answer sinks the answer | Engine | Beside an approval the entry is recorded and the approval stands; a rejection repairs once, then fails closed; a lost entry is loud | [RFC-0006](docs/architecture/rfc/0006-review-answer-crosses-whole.md) | in force |
 | Whether a failing final execution of bytes the `run_spec` loop saw pass stands | Engine, from a fact | One re-read of the failed files (the single triage re-read and its budget): a pass is the flaky path, a second failure puts back the regeneration the proof retired and the failure is adjudicated; the conflict is recorded in `gateSignals.closedLoop.conflicts` | [RFC-0017](docs/architecture/rfc/0017-defects-from-verified-facts.md) | in force |
 | Which verdict a run ends with | Engine | One closed outcome per step, one `finalizeRun`, one failure policy; an agent's answer is an input | Architecture, "The run flow" | in force |
@@ -256,8 +257,9 @@ is the only engine; webhook (`platform/entrypoints/webhook-handler.ts`, wired by
    clause, an execution of this run or a DOM fact, the orchestrator verifies the citation
    (`review-finding-filter.service.ts`; a cited or rebutted spec is resolved by `resolveCitedSpec` /
    `resolveSpecReference` in `shared-kernel/spec-path.ts`, never compared raw) and only a verified blocking finding blocks — an uncited,
-   out-of-scope or DOM-only one is advisory telemetry, never sent to the author, and an `ambient` citation (a case that checked a
-   page only as DEV served it empty, below) is advisory once verified. Every finding the filter admits gets an id
+   out-of-scope or DOM-only one is advisory telemetry, never sent to the author, while a verified `contradiction` or `ambient` citation
+   (a recorded data contradiction; a case that checked a page only as DEV served it empty, below) is a fact the engine checked on its
+   own and blocks whatever severity the reviewer gave it, and no green case or intact clause rebuts it (`restsOnEngineFact`). Every finding the filter admits gets an id
    (`identifyFindings`): routing, the lead's numbered answers and rebuttals name a finding by it, never by its text, so two
    findings with the same text that cite two specs stay two findings. A finding that cites
    an arm of the changed code no test ran (`{"kind":"arm","ref":"<file>:<line>"}`, tagged
@@ -389,7 +391,7 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   `carriedBy`/`missingFrom`/`schemaBacked` and stay readable) (`qayaba.context.data_contradictions` on the context-pack span), in the PR and Issue
   under `Possible data contradictions`, and to the reviewer, which may cite one (`{"kind":"contradiction","ref":"<path>#<key>"}`) against a spec that passes by
   adapting to that state (an expected value read from the state it checks, or a check guarded by it); the orchestrator verifies the ref against the
-  recorded facts (`review-finding-filter.service.ts`, drop reason `no-contradiction-fact`). `provider-declared-absent` (an optional field DEV's data may lack)
+  recorded facts (`review-finding-filter.service.ts`, drop reason `no-contradiction-fact`); a verified citation is a correction whatever severity the reviewer gave. `provider-declared-absent` (an optional field DEV's data may lack)
   and `no-provider-contract` stay signals, never gates. `provider-undeclared` on a page or an operation the change reaches is a **defect of the run by itself**
   (`objective-signal/domain/contradiction-defects.ts`, the reach the causal label uses, `requestReach` and `pageReach`: positive evidence only, a run with no
   scope or a fact the scope does not place finds none): the consumer reads what the provider's contract never promised, so the interface is broken whatever data
@@ -539,9 +541,14 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   helper navigation, a fixture other than the read-only ones, or any statement of a test's scopes other than a test, a describe, a
   `beforeEach`/`afterEach`/`afterAll` hook, an import, a declaration that runs nothing or a `describe.configure` that keeps tests
   independent (a `beforeAll`, a `test.use`, a serial mode, a `test` the spec extends with fixtures of its own, code that runs while the
-  file loads) yields nothing). The fact (an ambient pin) names its pages; the change's untaken arms whose file seeds a use case on those pages are
-  attributed to the data DEV lacks there (`armsOnPinnedPages`); the reviewer may cite a pin (`{"kind":"ambient","ref":"<spec>#<title path>"}`),
-  verified against the run's pins and advisory whatever its severity (drop reason `no-ambient-fact`); each pin joins the run's one
+  file loads) yields nothing). A case is also pinned when an assertion inside such a window holds a whole number equal to the results
+  the pack read with results on that window's page (`confirmedDataRoutes`, the pages the pack read with results: a string, a regular
+  expression or a number literal, never the digits a `locator`, `frameLocator` or `.nth` selects by), even when the test goes on to steps of its
+  own: the count DEV serves is its data of the moment, so it is no assertion of the change (`AmbientDataPin.counts`; the detector
+  takes the counts as `liveCounts`, the same fact that backs the data-state triage, no second read). The fact (an ambient pin) names its
+  pages; the change's untaken arms whose file seeds a use case on the empty pages are
+  attributed to the data DEV lacks there (`armsOnPinnedPages`; a count pin attributes none); the reviewer may cite a pin (`{"kind":"ambient","ref":"<spec>#<title path>"}`),
+  verified against the run's pins and a correction whatever its severity (drop reason `no-ambient-fact`); each pin joins the run's one
   gap regeneration (coverage or branch cases) as a finding on its spec, naming the places the app declares
   (`dev.geolocation.places`) or, when it declares none, that the state is DEV's to give and is never faked; and the PR and Issue list the pins with those arms.
   `gateSignals.ambientDataState { cases, pages, arms }` and a `qayaba.ambient_data_state` span record it. The Context Pack states a

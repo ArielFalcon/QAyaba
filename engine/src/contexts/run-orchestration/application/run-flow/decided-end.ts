@@ -26,6 +26,7 @@ import { routeAvailabilitySignal, type RouteAvailabilityFact } from "@kernel/rou
 import { ambientRecordOf, deliveredSpecTexts, type AmbientRecord } from "./ambient-data-state.ts";
 import { dataContradictionsSignal, defectsSignal } from "@kernel/data-contradiction.ts";
 import { distinctLinkCount } from "@kernel/service-links.ts";
+import { ambientPinPages } from "@kernel/page-data-read.ts";
 import { ERROR_CLASS } from "@kernel/error-class.ts";
 
 /* The adjudicator's reason the run record keeps: whole for the engine's own sentences, cut only when it quotes an agent's claim at length. */
@@ -39,7 +40,7 @@ import { PublicationFailedError, actionFor, carryOn } from "./failure-policy.ts"
 
 /* The gate signal of the run's ambient pins: how many cases, their pages once each, and the untaken arms on those pages. */
 function ambientSignalOf(record: AmbientRecord): NonNullable<RunOutcome["gateSignals"]["ambientDataState"]> {
-  return { cases: record.pins.length, pages: [...new Set(record.pins.flatMap((pin) => pin.pages))].sort(), arms: record.arms.length };
+  return { cases: record.pins.length, pages: [...new Set(record.pins.flatMap(ambientPinPages))].sort(), arms: record.arms.length };
 }
 
 /* One span for the record: the cases that checked a page only as DEV served it empty, those pages, and the untaken arms there. */

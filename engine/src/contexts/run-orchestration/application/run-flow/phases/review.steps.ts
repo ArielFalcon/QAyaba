@@ -12,7 +12,7 @@ import { precheckSpecsAgainstDom } from "@contexts/generation/application/index.
 import { resolveSpecReference, specRelDirOf } from "@kernel/spec-path.ts";
 import { ambientPinRef } from "@kernel/page-data-read.ts";
 import { ambientPinsOf } from "../ambient-data-state.ts";
-import { citedSpec, filterReviewFindings, identifyFindings, takeMissingCases, type DropReason } from "../../../domain/review-finding-filter.service.ts";
+import { citedSpec, filterReviewFindings, identifyFindings, restsOnEngineFact, takeMissingCases, type DropReason } from "../../../domain/review-finding-filter.service.ts";
 import { namedRebuttals, verifyRebuttals } from "../../../domain/review-rebuttals.service.ts";
 import { MAX_REVIEW_ROUNDS } from "../../../domain/derive-cycle-backstop.ts";
 import { reviewAction } from "../../../domain/review-action.ts";
@@ -470,7 +470,9 @@ export async function reviewResolve(state: Readonly<RunState>, ctx: WorkspaceRun
    * one the run cannot check leaves the finding standing and is remembered as what the generator refused.
    */
   const answered = decidedBy === "model" ? (regen.rebuttals ?? []) : [];
-  const roundFindings = cur.findings.map(({ id, text }) => ({ id, text }));
+  /* A finding that rests on a fact the engine verified is not answered by a case that ran green. */
+  const factIds = new Set(cur.reviewResult.findings.flatMap((finding) => (restsOnEngineFact(finding) && finding.id !== undefined ? [finding.id] : [])));
+  const roundFindings = cur.findings.map(({ id, text }) => ({ id, text, ...(factIds.has(id) ? { fact: true as const } : {}) }));
   const corrections = roundFindings.map((finding) => finding.text);
   /* A rebuttal names one finding of the round by its id; one that names none is unread, recorded, and withdraws nothing. */
   const named = namedRebuttals(answered, roundFindings);

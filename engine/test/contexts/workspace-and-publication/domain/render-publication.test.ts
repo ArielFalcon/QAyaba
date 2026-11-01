@@ -317,3 +317,9 @@ test("with no pinned case neither the PR nor the Issue says anything of it", () 
   assert.equal(renderPrBody({ }), renderPrBody({ ambientDataState: { pins: [], arms: [] } }));
   assert.equal(renderIssue({ verdict: "fail", cases: [failCase()] }), renderIssue({ verdict: "fail", cases: [failCase()], ambientDataState: { pins: [], arms: [] } }));
 });
+
+test("the PR names the page and the read result count a case asserts as the page loaded", () => {
+  const counted = { pins: [{ file: "flows/search.spec.ts", test: "search › lists the results", pages: [], counts: [{ page: "/search", count: 7 }] }], arms: [] };
+  const body = renderPrBody({ ambientDataState: counted });
+  for (const part of ["flows/search.spec.ts", "search › lists the results", "/search", "7"]) assert.ok(body.includes(part), part);
+});

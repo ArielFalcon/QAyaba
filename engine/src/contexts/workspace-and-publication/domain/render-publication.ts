@@ -5,7 +5,7 @@ import { outcomeText, type RouteAvailabilityFact } from "@kernel/route-availabil
 import { dataContradictionStatement, type DataContradiction, type DefectFact } from "@kernel/data-contradiction.ts";
 import { redactThenBound } from "@kernel/redact-then-bound.ts";
 import { printedRoute } from "@kernel/printed-route.ts";
-import type { AmbientDataPin } from "@kernel/page-data-read.ts";
+import { ambientPinReads, type AmbientDataPin } from "@kernel/page-data-read.ts";
 
 export interface TestedItem {
   flow?: string;
@@ -219,7 +219,7 @@ function renderAmbientDataStateSection(view: AmbientDataStateView | undefined, b
   const pins = (view?.pins ?? []).slice(0, MAX_ITEMS);
   if (pins.length === 0) return "";
   const pages = (list: readonly string[]): string => list.map((page) => `\`${bound(page, CAP_FLOW)}\``).join(", ");
-  const blocks = [`**Checked only as DEV served it, empty** (every assertion of these cases ran on the page as it loaded, before any step of their own, and the run read that page as a confirmed empty state: the pass cannot tell DEV's lack of data from the change; a signal, not a gate):\n${pins.map((pin) => `- \`${bound(pin.file, CAP_FLOW)}\` › ${bound(pin.test, CAP_NAME)} — ${pages(pin.pages)}`).join("\n")}`];
+  const blocks = [`**Checked only as DEV served it** (these cases ran on the page as it loaded, before any step of their own, either on a page the run read as a confirmed empty state or asserting the result count the run read there: the pass cannot tell DEV's data of the moment from the change; a signal, not a gate):\n${pins.map((pin) => `- \`${bound(pin.file, CAP_FLOW)}\` › ${bound(pin.test, CAP_NAME)} — ${ambientPinReads(pin).map((read) => `\`${bound(read, CAP_FLOW)}\``).join(", ")}`).join("\n")}`];
   const arms = (view?.arms ?? []).slice(0, MAX_ITEMS);
   if (arms.length > 0) blocks.push(`Arms of the changed code on those pages no test took (DEV may lack the data that takes them):\n${arms.map((a) => `- \`${bound(a.file, CAP_FLOW)}:${a.line}\` — ${bound(a.arm, CAP_NAME)} (${pages(a.pages)})`).join("\n")}`);
   return blocks.join("\n\n");

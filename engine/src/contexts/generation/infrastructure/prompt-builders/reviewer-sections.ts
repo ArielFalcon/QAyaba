@@ -19,7 +19,7 @@ import { REVIEWER_CHANGE_SECTIONS } from "./reviewer-change-sections.ts";
 import { diffWindowDegrade } from "./plan-diff-section.ts";
 import { countByDirectory, domPagesDegrade, NOT_SHOWN, referenceDegrade, stepsDegrade } from "../../domain/window-fit-references.ts";
 import { dataContradictionRef, dataContradictionStatement, type DataContradiction } from "@kernel/data-contradiction.ts";
-import { ambientPinRef, type AmbientDataPin } from "@kernel/page-data-read.ts";
+import { ambientPinReads, ambientPinRef, type AmbientDataPin } from "@kernel/page-data-read.ts";
 import { availabilityLine } from "../../domain/route-availability-section.ts";
 
 /* The reviewer's statement of its own cap is a section of its own, apart from the generator's. */
@@ -210,7 +210,7 @@ function renderDataContradictions({ input }: ReviewerContext): SectionRender {
   const facts = input.dataContradictions ?? [];
   const head = [
     `## Possible data contradictions — fields the consumer's code expects that the answers this run's pages received do not carry, read by the orchestrator`,
-    `A finding that a spec passes by adapting to one of these (an expected value derived from the state it checks, or a check guarded by that state) may cite "citation":{"kind":"contradiction","ref":"<ref>"} with the ref as listed.`,
+    `A finding that a spec passes by adapting to one of these (an expected value derived from the state it checks, or a check guarded by that state) may cite "citation":{"kind":"contradiction","ref":"<ref>"} with the ref as listed; the orchestrator verifies it and sends a verified one to the author as a correction.`,
   ];
   const line = (fact: DataContradiction): string => sanitizeText(`- ${dataContradictionRef(fact)}: ${dataContradictionStatement(fact)}`, "model").text;
   /* Over the window: the refs a citation names, then how many there are. */
@@ -223,14 +223,14 @@ function renderDataContradictions({ input }: ReviewerContext): SectionRender {
   };
 }
 
-/* The passing cases that checked a page only as DEV served it, on a page the run read as a confirmed empty state: every assertion of the case ran on the page as it loaded, before any step of its own. A finding that such a case tests DEV's data rather than the change can cite it; it is recorded, never a reason to reject. */
+/* The passing cases that checked a page only as DEV served it: on a page the run read as a confirmed empty state, or with an assertion that holds the result count the run read there. A finding that such a case tests DEV's data rather than the change can cite it; a verified citation is a correction. */
 function renderAmbientDataPins({ input }: ReviewerContext): SectionRender {
   const pins = input.ambientDataPins ?? [];
   const head = [
-    `## Cases that check a page only as DEV served it empty — read by the orchestrator from the specs and the Context Pack`,
-    `Every assertion of each case below ran on the page as it loaded, before any step of the case's own, and the Context Pack read that page as a confirmed empty state: its pass cannot tell DEV's lack of data from the change. A finding about one may cite "citation":{"kind":"ambient","ref":"<ref>"} with the ref as listed; it is recorded as advisory and never rejects.`,
+    `## Cases that check a page only as DEV served it — read by the orchestrator from the specs and the Context Pack`,
+    `For each case below, either every assertion ran on the page as it loaded, before any step of the case's own, and the Context Pack read that page as a confirmed empty state, or an assertion that ran as the page loaded holds the number of results the Context Pack read there (listed as "N results read"): its pass cannot tell DEV's data of the moment from the change. A finding about one may cite "citation":{"kind":"ambient","ref":"<ref>"} with the ref as listed; the orchestrator verifies it and sends a verified one to the author as a correction.`,
   ];
-  const line = (pin: AmbientDataPin): string => sanitizeText(`- ${ambientPinRef(pin)}: ${pin.pages.join(", ")}`, "model").text;
+  const line = (pin: AmbientDataPin): string => sanitizeText(`- ${ambientPinRef(pin)}: ${ambientPinReads(pin).join(", ")}`, "model").text;
   /* Over the window: the refs a citation names, then how many there are. */
   const asRefs = [...head, `The pages of each case are ${NOT_SHOWN}; the refs:`, ...pins.map((pin) => sanitizeText(`- ${ambientPinRef(pin)}`, "model").text)].join("\n");
   const asCount = [...head, `The ${pins.length} case(s) are ${NOT_SHOWN}.`].join("\n");
@@ -326,7 +326,7 @@ export const REVIEWER_SECTIONS: readonly PromptSectionDef<ReviewerContext>[] = [
   /* Two data sources of a page that disagree on what their items carry, as the orchestrator read them: a `contradiction` citation names one. */
   { id: "reviewer-data-contradictions", tier: "volatile", priority: 3, stability: "run", reason: "A spec that passes by adapting to a state the run saw lack a field the consumer expects can be cited against that fact (hand-qa-gaps S3/S4, consumer-expectation-gaps S5: run ed28973 passed over a missing key)", applies: ({ input }) => Boolean(input.dataContradictions?.length), render: renderDataContradictions },
   /* The passing cases that checked a page only as DEV served it confirmed empty, as the orchestrator read them: an `ambient` citation names one. */
-  { id: "reviewer-ambient-data-pins", tier: "volatile", priority: 3, stability: "run", reason: "A case that passes on a page as DEV served it confirmed empty tests DEV's data, not the change, and no data-state fact fired while every read agreed (T38: run-ed28973-mvwe1bcz-26750e38 delivered such a case)", applies: ({ input }) => Boolean(input.ambientDataPins?.length), render: renderAmbientDataPins },
+  { id: "reviewer-ambient-data-pins", tier: "volatile", priority: 3, stability: "run", reason: "A case that passes on a page as DEV served it confirmed empty, or that asserts the result count the pack read there, tests DEV's data, not the change, and no data-state fact fired while every read agreed (T38: run-ed28973-mvwe1bcz-26750e38 delivered such a case)", applies: ({ input }) => Boolean(input.ambientDataPins?.length), render: renderAmbientDataPins },
   /* VOLATILE: prior-round corrections (priority 4 — convergence context; lowest priority in VOLATILE so it does not crowd out the spec contents or DOM grounding on budget overflow). */
   { id: "reviewer-prior-corrections", tier: "volatile", priority: 4, stability: "run", reason: "Convergent rounds: approve once the earlier blocking findings are resolved (14ec74b7)", applies: ({ input }) => Boolean(input.priorCorrections?.length), render: renderPriorCorrections },
   /* What the generator changed since the rejection this round answers: the smallest section in the prompt, and the one the round is about. Shed first when the window is tight. */

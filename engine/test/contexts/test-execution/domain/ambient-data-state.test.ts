@@ -221,3 +221,68 @@ test("renders the empty listing", async ({ page }) => {
 `;
   assert.deepEqual(pinsOf(text, [passed("renders the empty listing")]), [{ file: FILE, test: "renders the empty listing", pages: [EMPTY_PAGE] }]);
 });
+
+/* ── A page DEV served with results: the count it showed is DEV's data of the moment ───────────────── */
+
+const LIVE_PAGE = "/search";
+const countsOf = (text: string, cases: QaCase[], read = 4, page = LIVE_PAGE) =>
+  detectAmbientDataPins({ specs: [{ file: FILE, text }], cases, emptyPages: [], liveCounts: [{ path: page, resultCount: read }] });
+const loadedAssertion = (assertion: string): string => `${IMPORTS}
+test("shows the results", async ({ page }) => {
+  await page.goto("${LIVE_PAGE}");
+  ${assertion}
+});
+`;
+
+test("a passing case whose as-loaded assertion holds the number of results the Context Pack read on that page is a pin naming the page and the count", () => {
+  const byText = countsOf(loadedAssertion(`await expect(page.getByText("4 resultados")).toBeVisible();`), [passed("shows the results")]);
+  assert.equal(byText.length, 1);
+  assert.deepEqual(byText[0]!.counts, [{ page: LIVE_PAGE, count: 4 }]);
+  assert.deepEqual(byText[0]!.pages, [], "no page is empty");
+
+  const byCount = countsOf(loadedAssertion(`await expect(page.getByRole("article")).toHaveCount(4);`), [passed("shows the results")]);
+  assert.deepEqual(byCount.map((p) => p.test), ["shows the results"]);
+});
+
+test("a number that is not the page's read count, or only part of another number, pins nothing", () => {
+  for (const literal of ["5 resultados", "14 resultados", "4.5 km", "Mostrando resultados", "h4"]) {
+    assert.deepEqual(countsOf(loadedAssertion(`await expect(page.getByText("${literal}")).toBeVisible();`), [passed("shows the results")]), [], literal);
+  }
+  assert.equal(countsOf(loadedAssertion(`await expect(page.getByText("Mostrando 4 de 9 resultados")).toBeVisible();`), [passed("shows the results")]).length, 1, "the count as one whole number among others");
+});
+
+test("a count asserted after a step of the test's own, on a page the pack read no count for, or by a case that did not pass, is no pin", () => {
+  const afterStep = countsOf(`${IMPORTS}
+test("filters the results", async ({ page }) => {
+  await page.goto("${LIVE_PAGE}");
+  await page.getByRole("button", { name: "Only open now" }).click();
+  await expect(page.getByText("4 resultados")).toBeVisible();
+});
+`, [passed("filters the results")]);
+  assert.deepEqual(afterStep, []);
+
+  const text = loadedAssertion(`await expect(page.getByText("4 resultados")).toBeVisible();`);
+  assert.deepEqual(countsOf(text, [passed("shows the results")], 4, "/map"), [], "the pack read another page");
+  assert.deepEqual(countsOf(text, [{ ...passed("shows the results"), status: "fail" }]), []);
+});
+
+test("an as-loaded count assertion is a pin even when the test goes on to steps of its own, and a locator's own digits are not counts", () => {
+  const goesOn = countsOf(`${IMPORTS}
+test("shows then filters", async ({ page }) => {
+  await page.goto("${LIVE_PAGE}");
+  await expect(page.getByText("4 resultados")).toBeVisible();
+  await page.getByRole("button", { name: "Only open now" }).click();
+  await expect(page.getByText("Cargando")).toBeHidden();
+});
+`, [passed("shows then filters")]);
+  assert.deepEqual(goesOn.map((p) => p.test), ["shows then filters"]);
+
+  const selector = countsOf(`${IMPORTS}
+test("shows the fourth card", async ({ page }) => {
+  await page.goto("${LIVE_PAGE}");
+  await expect(page.locator("li:nth-child(4)")).toBeVisible();
+  await expect(page.getByRole("article").nth(4)).toBeVisible();
+});
+`, [passed("shows the fourth card")]);
+  assert.deepEqual(selector, []);
+});

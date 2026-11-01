@@ -1,5 +1,6 @@
 import type { RouteAvailabilityFact } from "@kernel/route-availability.ts";
 import type { DataContradiction, DefectFact } from "@kernel/data-contradiction.ts";
+import type { AmbientDataPin } from "@kernel/page-data-read.ts";
 import type { RunVerdict } from "@kernel/run-verdict.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import type { CausalLabel } from "@contexts/objective-signal/application/index.ts";
@@ -51,9 +52,9 @@ export interface PublicationPort {
     dataContradictions?: readonly DataContradiction[];
     /** The defects the run found without a failing test (a contradiction the provider's contract does not declare, in the change's reach): listed in the Issue, the reason a green run was decided fail. */
     defects?: readonly DefectFact[];
-    /** The passing cases that checked a page only as DEV served it confirmed empty, and the untaken arms of the changed code on those pages: listed in the PR or Issue, never a gate. */
+    /** The passing cases that checked a page only as DEV served it, confirmed empty or asserting the result count read there, and the untaken arms of the changed code on those pages: listed in the PR or Issue, never a gate. */
     ambientDataState?: {
-      pins: ReadonlyArray<{ file: string; test: string; pages: readonly string[] }>;
+      pins: readonly AmbientDataPin[];
       arms: ReadonlyArray<{ file: string; line: number; arm: string; pages: readonly string[] }>;
     };
     /**

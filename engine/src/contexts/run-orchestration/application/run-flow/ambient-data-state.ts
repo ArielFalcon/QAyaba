@@ -29,14 +29,16 @@ export function deliveredSpecTexts(state: Readonly<RunState>, ctx: WorkspaceRunC
 }
 
 /*
- * The ambient pins of the run as it stands: the delivered specs read now, the execution's cases, and the pages the pack read as a
- * confirmed empty state. None before an execution, or when the pack read no such page. Off-path: a fault is logged and yields none.
+ * The ambient pins of the run as it stands: the delivered specs read now, the execution's cases, the pages the pack read as a confirmed
+ * empty state and the pages it read with results, with their counts. None before an execution, or when the pack read neither. Off-path: a
+ * fault is logged and yields none.
  */
 export function ambientPinsOf(state: Readonly<RunState>, ctx: WorkspaceRunContext): AmbientDataPin[] {
   const run = state.execution.run;
-  if (run === undefined || state.grounding.emptyDataPages.length === 0) return [];
+  const liveCounts = state.grounding.confirmedDataRoutes ?? [];
+  if (run === undefined || (state.grounding.emptyDataPages.length === 0 && liveCounts.length === 0)) return [];
   try {
-    return detectAmbientDataPins({ specs: deliveredSpecTexts(state, ctx), cases: run.cases, emptyPages: state.grounding.emptyDataPages });
+    return detectAmbientDataPins({ specs: deliveredSpecTexts(state, ctx), cases: run.cases, emptyPages: state.grounding.emptyDataPages, liveCounts });
   } catch (err) {
     engineLog.warn(`[qa] ambient data-state detection failed (off-path; the run goes on without it): ${err instanceof Error ? err.message : String(err)}`);
     return [];
@@ -78,15 +80,24 @@ function remedyOf(places: readonly string[]): string {
     : `The app declares no place that has data, so the state the change handles is DEV's to give: assert only what a step of the test produces, and report the criterion unmet with the cause dev-state when no step reaches it. Never intercept requests to fake that data.`;
 }
 
+/* The finding of a case that asserts a page's read result count as the page loads: the number is DEV's data of the moment. */
+function countFinding(pin: AmbientDataPin, counts: readonly { page: string; count: number }[]): string {
+  const reads = counts.map((read) => `${read.page} (${read.count} results read)`).join(", ");
+  return `test "${pin.test}" in ${pin.file} asserts a number of results on ${reads} as the page loaded, which equals what the Context Pack read there: that number is DEV's data of the moment, not something the change decides. Assert what the change does with the results, from a step of the test's own, and never the count DEV happens to serve.`;
+}
+
+/* The finding of a case that checks an empty page only as DEV served it. */
+function emptyFinding(pin: AmbientDataPin, places: readonly string[]): string {
+  return `test "${pin.test}" in ${pin.file} checks ${pin.pages.join(", ")} only as DEV served it, which the Context Pack read as a confirmed empty state: every assertion runs on the page as it loaded, before any step of the test's own, so it tests DEV's data, not the change. ${remedyOf(places)} An empty state is worth asserting only as the result of a step the test takes.`;
+}
+
 /*
- * One finding per pinned case, carrying its spec so the lead's pass hands it to the flow that owns that spec. An empty state stays a
- * legitimate assertion only as the result of a step the test takes.
+ * One finding per pinned case and per kind of pin it holds, carrying its spec so the lead's pass hands it to the flow that owns that
+ * spec. An empty state stays a legitimate assertion only as the result of a step the test takes.
  */
 export function ambientPinFindings(pins: readonly AmbientDataPin[], places: readonly string[]): Array<{ finding: CorrectionFinding }> {
-  return pins.map((pin) => ({
-    finding: {
-      text: `test "${pin.test}" in ${pin.file} checks ${pin.pages.join(", ")} only as DEV served it, which the Context Pack read as a confirmed empty state: every assertion runs on the page as it loaded, before any step of the test's own, so it tests DEV's data, not the change. ${remedyOf(places)} An empty state is worth asserting only as the result of a step the test takes.`,
-      spec: pin.file,
-    },
-  }));
+  return pins.flatMap((pin) => [
+    ...(pin.pages.length > 0 ? [{ finding: { text: emptyFinding(pin, places), spec: pin.file } }] : []),
+    ...(pin.counts !== undefined && pin.counts.length > 0 ? [{ finding: { text: countFinding(pin, pin.counts), spec: pin.file } }] : []),
+  ]);
 }
