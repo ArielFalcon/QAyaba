@@ -62,9 +62,9 @@ signed-in app (see below); without either, no sidekick can author and the run en
    app whose cap is 0 gives its flows no loop, and their briefs say the app allows no writes to DEV. Calls refused for writes, for the
    run's total or for the calling flow's own share, are counted in `gateSignals.closedLoop.writesRefused`. A browser session of a flow spends its flow's share alone;
    the browser's own run total (`DEFAULT_AGENT_BROWSER_LIMITS.maxCalls`) holds only the sessions bound to no flow. The derived totals are recorded: `gateSignals.closedLoop.granted` and
-   `gateSignals.agentBrowser.granted`. A plan that cannot be admitted goes back to the lead once, in its open session, with the
-   reason (`renderRejectedPlanRequest`); a no-op or an admitted answer replaces it, and anything else ends the run `E-NO-AUTHOR` with
-   the first reason recorded (`refusal: plan-rejected:<reason>`); a plan of one flow is a fan-out of one, and a fan-out of no flow whose use cases are dropped
+   `gateSignals.agentBrowser.granted`. A plan that cannot be admitted is refused inside the lead's `submit_plan` call, with where in the plan and why
+   (`describePlanRefusal`), so the lead corrects it in the same turn; a turn that ends with no admitted plan gets the one continuation, and only then does the run
+   end `E-NO-AUTHOR` with the reason recorded (`refusal: plan-rejected:<reason>`); a plan of one flow is a fan-out of one, and a fan-out of no flow whose use cases are dropped
    with a basis and a reason is the lead's declared no-op (the run is `skipped` with those reasons); with no reasoned, based drop it is refused `empty`. The plan must answer for each direct
    use-case candidate of the change that a browser can reach (the admission set, at most `MAX_ADMISSION_CANDIDATES`): a
    flow covers a candidate when it cites its id (`candidates`) or visits one of its pages, and the lead may drop one with a
@@ -268,7 +268,7 @@ a continuation that allotment cannot hold ends the turn as it stands. Only then 
 no admitted flows `no-plan`). A sidekick turn with no accepted result is a failed result marked `readMiss: unreadable`:
 still not a success, files still taken back, but recorded with failure class and `qayaba.delegation.status` `unreadable` instead of
 `failed`, so it is never counted as a failure the sidekick reported (the `sidekick_report_consistent` grader does not read it as one).
-A flow sidekick's prompt carries one closing contract, the DelegationResult block. It names no `recommendation`: nothing reads one.
+A flow sidekick's brief carries one closing contract, its `## Output contract`: the `submit_result` call and the fields of the result. It names no `recommendation`: nothing reads one.
 
 Every answer of the coordination crosses whole (RFC-0006), through one reader (`answer-reading.ts`): the lead's plan (flows and drops), review, correction (orders, finding numbers, rebuttals) and amendment, and the sidekick's result (`filesChanged`, `concerns`, `unresolvedQuestions`, the use-case claims, `testCorrect`). A list is walked entry by entry; an entry that is not what the contract says is an `UnreadableEntry`, never a default (a correction order whose action is not `revise` or `replace` is no longer a `revise`). The wire schema of each answer lives beside its reader (`LEAD_PLAN_WIRE`, `LEAD_REVIEW_WIRE`, `LEAD_CORRECTION_WIRE`, `DELEGATION_RESULT_WIRE`) and renders to the tool's arguments (`npm run submit-contracts:gen`); an unreadable part is refused inside the call, and the continuation is the one second chance (a rejected plan is told where the plan went wrong). What stays unreadable is recorded and not acted on: `DelegationResult.unreadableEntries`, the `qayaba.coordination.unreadable_entries` and `repair_turn` attributes of a `lead-decision` or `delegation` event (`repair_turn` now says the continuation was spent), and the counts `gateSignals.coordination.review.unreadable|repairs`, `corrections.unreadable|repairs` and `unreadable { plan, delegation, repairs }` (`repairs` counts continuations). The acceptance report keeps its own recorded defect (`acceptanceReportDefect`). The code-graph tool's `explore-answer.ts` shapes a tool's answer to the lead and reads no agent answer.
 

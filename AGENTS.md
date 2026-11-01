@@ -663,7 +663,7 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   judged by the reader of the context that owns the contract inside the turn (RFC-0018). `submitTurn` (`shared-kernel/submit-turn.ts`) is the
   one place a caller asks for one: a turn that ends without an accepted call (the model stopped, or its output hit the length limit, which is
   no longer an `AgentUnavailableError`) gets exactly one continuation in the same session (`AgentPromptOpts.submit`, `submitOnly`, `isRepair`),
-  with every other tool denied by name and the last rejection's errors in its text, under the limits of the first prompt and the time the run
+  with every tool denied (`*`) but the armed submit tool (`toolsOf`) and the last rejection's errors in its text, under the limits of the first prompt and the time the run
   deadline allots to its purpose. A continuation the allotment cannot hold ends the turn as it stands, and so does a turn that ran out of steps
   (`canContinue`). A miss is a typed result (`describeNoSubmission`), never a throw; the caller's fail-closed path records its reason (a plan
   `no-plan`, a sidekick result `unreadable`, a reviewer parse miss, a generation `no-verdict`; a generator that ends on the refused "no specs, no
@@ -945,7 +945,11 @@ test, and the verdict is its last action.
   field of the wrong type) is never read as a default and never skipped in silence: the contract refuses it inside the turn, and what the
   admission refuses afterwards (a flow or finding that is not one of the turn's) is recorded (`qayaba.coordination.unreadable_entries`,
   `gateSignals.coordination.review|corrections|unreadable`) and not acted on. The wire schema of each contract lives in its owning context and
-  renders to the tool's arguments (`npm run submit-contracts:gen`, `agents/lib/submit-contracts.json`).
+  renders to the tool's arguments (`npm run submit-contracts:gen`, `agents/lib/submit-contracts.json`); a closed set a wire names is the set its
+  owner declares (the plan's drop bases are `DROP_BASIS`, `shared-kernel/drop-basis.ts`; a result's statuses are `DELEGATION_STATUSES`), never a second list.
+  A flow's brief is the one owner of its closing shape: its `## Output contract` names `submit_result` and the fields of the result contract, and
+  carries none of the brief's identity, which the orchestrator owns. A declared no-op (`{"kind":"noop"}`) is held to the facts like any plan of no flows:
+  its first admission gets `impliedNoopDrops` (`plan-coverage.ts`).
 - **One settings object.** The shell reads its environment in `loadSettings`; a new variable is a registry entry (`platform/settings/registry.ts`) with a type, default and description, and `npm run settings:gen` regenerates `docs/settings.md`. A secret is marked `secret: true`: it never has a documented default and a dump of the settings shows it as `[set]`.
 - **Everything in English**; comments follow the code implementation standard below (the default is none).
 
