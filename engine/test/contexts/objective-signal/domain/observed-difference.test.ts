@@ -5,7 +5,7 @@ import { diffObservations as diffWith, MAX_MOVED_ITEMS, movedBySpecFile } from "
 import { requestOriginClassifier } from "@kernel/observed-requests.ts";
 import type { ObservedPage } from "@contexts/objective-signal/domain/observed-page.ts";
 
-const originRole = requestOriginClassifier(["https://dev.example.com", "https://api.maps.example"], ["https://cdn.thirdparty.example"]);
+const originRole = requestOriginClassifier(["https://dev.example.com", "https://api.maps.example", "https://api1.example.com", "https://api2.example.com"], ["https://cdn.thirdparty.example"]);
 const diffObservations = (...args: [Parameters<typeof diffWith>[0], Parameters<typeof diffWith>[1], Parameters<typeof diffWith>[2]]) => diffWith(...args, originRole);
 
 const STYLE_LIGHT = "https://api.maps.example/styles/v1/acme/light";
