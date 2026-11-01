@@ -49,7 +49,7 @@ export interface EvidenceRunFacts {
   readonly limits: ReadonlyArray<{ fired: string; role: string; scope: "run" | "turn" }> | null;
 }
 
-export type EvidenceRunOutcome = Pick<RunOutcome, "errorClass" | "gateSignals" | "at">;
+export type EvidenceRunOutcome = Pick<RunOutcome, "errorClass" | "gateSignals" | "adjudication" | "at">;
 
 export interface EvidenceSources {
   readonly runId: string;

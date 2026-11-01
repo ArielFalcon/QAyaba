@@ -141,6 +141,8 @@ export interface RunEvaluationEvidence {
   reviewerTurns: number | undefined;
   /* Whether the engine ran a reviewer for this run, as it decided at run time. Undefined: the run recorded none. */
   reviewRequired: boolean | undefined;
+  /* The fix loop's adjudication of the run's failure as the outcome row stored it; absent when the run never reached the adjudicator or was recorded before it was stored. */
+  adjudication?: { class: string; confidence: string | undefined } | undefined;
   /* The run's outcome row; absent when the run produced none (a context run, a crash before the outcome). */
   signals:
     | {

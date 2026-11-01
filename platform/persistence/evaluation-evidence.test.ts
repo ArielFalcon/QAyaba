@@ -390,6 +390,14 @@ test("the lessons a run's briefs stated and the failures it measured by page rea
   assert.equal((await new HistoryEvidenceAdapter(deps({ getRunOutcome: () => outcomeOf({}) })).load("run-1"))!.signals?.lessons, undefined);
 });
 
+test("the adjudication the outcome stored reaches the evidence, and an outcome that stored none leaves it absent", async () => {
+  const adjudicated = { ...outcomeOf({}), adjudication: { class: "app_defect", confidence: "high", action: "break-issue", reason: "5xx" } };
+  const e = (await new HistoryEvidenceAdapter(deps({ getRunOutcome: () => adjudicated })).load("run-1"))!;
+  assert.deepEqual(e.adjudication, { class: "app_defect", confidence: "high" });
+  const none = (await new HistoryEvidenceAdapter(deps({ getRunOutcome: () => outcomeOf({}) })).load("run-1"))!;
+  assert.equal(none.adjudication, undefined);
+});
+
 test("the evidence names the commit the run measured: the lesson cycle pairs runs by it", async () => {
   const e = (await new HistoryEvidenceAdapter(deps({ getRecord: () => record({ sha: "1234567" }) })).load("run-1"))!;
   assert.equal(e.sha, "1234567");

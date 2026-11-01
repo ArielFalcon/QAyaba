@@ -557,23 +557,24 @@ const reviewVerdict: Grader = {
 };
 
 /*
- * What the run found: the failing cases the causal label puts in the change's reach plus the defects the engine verified without a
- * failing test (`gateSignals.defects`). A passing run found none; a run with neither a label nor a verified defect (not decided, or
- * recorded before either) says nothing.
+ * What the run found by a fact: the defects the engine verified without a failing test (`gateSignals.defects`) plus one when the fix
+ * loop's adjudication classified the failure as an app defect with high confidence, which it does only from an attributed 5xx or a
+ * captured runtime error. A failing case the change reaches is no finding by itself: the shape of a failure is a hint, not a fact. A
+ * passing run found none; a run that recorded neither a verified defect nor an adjudication says nothing.
  */
 const defectFound: Grader = {
   names: ["defect_found"],
   grade: finishedOnly((e) => {
     if (e.verdict === "pass") return [{ name: "defect_found", value: 0 }];
-    const causal = e.signals?.causal;
     const verified = e.signals?.defects?.found ?? 0;
-    if (!causal && verified === 0) return [];
-    const failing = causal?.inReach ?? 0;
+    const adjudication = e.adjudication;
+    if (verified === 0 && !adjudication) return [];
+    const adjudicated = adjudication?.class === "app_defect" && adjudication.confidence === "high" ? 1 : 0;
     const parts = [
-      ...(causal ? [`${causal.inReach} in the change's reach, ${causal.outOfReach} out of reach, ${causal.unknown} unknown`] : []),
       ...(verified > 0 ? [`${verified} defect(s) verified without a failing test`] : []),
+      ...(adjudicated > 0 ? ["the adjudicator classified the failure as an app defect from a fact"] : []),
     ];
-    return [{ name: "defect_found", value: failing + verified, comment: parts.join("; ") }];
+    return [{ name: "defect_found", value: verified + adjudicated, ...(parts.length > 0 ? { comment: parts.join("; ") } : {}) }];
   }),
 };
 

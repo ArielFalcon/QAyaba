@@ -40,18 +40,21 @@ test("review_verdict tells the model's rejection the evidence filter overruled f
   assert.equal(grade(withSignals({ reviewer: undefined }), "review_verdict"), undefined, "no reviewer phase, no verdict");
 });
 
-test("defect_found counts the failing cases in the change's reach and the defects the run verified without a failing test; a passing run found none; an unlabelled failure says nothing", () => {
+test("defect_found counts the facts the run verified, the defects without a failing test and a failure the adjudicator classified as an app defect from a fact; a failing case in reach is no finding; a passing run found none; a run that recorded neither says nothing", () => {
   assert.equal(grade(evidence({ verdict: "pass" }), "defect_found")?.value, 0);
-  const failed = withSignals({ causal: { inReach: 2, outOfReach: 1, unknown: 1 } }, { verdict: "fail", decision: "issue" });
-  const s = grade(failed, "defect_found");
-  assert.equal(s?.value, 2);
-  assert.match(s?.comment ?? "", /1 out of reach/);
-  assert.equal(grade(withSignals({ causal: { inReach: 0, outOfReach: 3, unknown: 0 } }, { verdict: "fail" }), "defect_found")?.value, 0, "failures the change does not reach are not defects it caused");
-  assert.equal(grade(withSignals({ causal: undefined }, { verdict: "fail" }), "defect_found"), undefined);
+  const failedInReach = withSignals({ causal: { inReach: 2, outOfReach: 0, unknown: 0 } }, { verdict: "fail", decision: "issue" });
+  assert.equal(grade(failedInReach, "defect_found"), undefined, "the shape of a failure in reach is a hint, not a fact");
   const verified = grade(withSignals({ defects: { found: 2 } }, { verdict: "fail", decision: "issue" }), "defect_found");
   assert.equal(verified?.value, 2, "a run that failed only on verified defects has no failing case and still found them");
   assert.match(verified?.comment ?? "", /2 defect\(s\) verified without a failing test/);
-  assert.equal(grade(withSignals({ causal: { inReach: 1, outOfReach: 0, unknown: 0 }, defects: { found: 2 } }, { verdict: "fail" }), "defect_found")?.value, 3, "a failing case in reach and a verified defect are two findings");
+  const flaky = grade(withSignals({ defects: { found: 1 } }, { verdict: "flaky", decision: "issue" }), "defect_found");
+  assert.equal(flaky?.value, 1, "a defect found beside a flaky verdict still counts");
+  const fromFact = grade(evidence({ verdict: "fail", adjudication: { class: "app_defect", confidence: "high" } }), "defect_found");
+  assert.equal(fromFact?.value, 1);
+  assert.match(fromFact?.comment ?? "", /from a fact/);
+  assert.equal(grade(evidence({ verdict: "fail", adjudication: { class: "app_defect", confidence: "low" } }), "defect_found")?.value, 0, "the adjudicator's hint from the shape of a failure is not a fact");
+  assert.equal(grade(evidence({ verdict: "fail", adjudication: { class: "generated_test_defect", confidence: "medium" } }), "defect_found")?.value, 0, "a failure the adjudicator blamed on the test found no defect");
+  assert.equal(grade(withSignals({ defects: { found: 2 } }, { verdict: "fail", adjudication: { class: "app_defect", confidence: "high" } }), "defect_found")?.value, 3, "a verified defect and an adjudicated failure are two findings");
 });
 
 test("survivors_routed is the share of surviving mutants a delivered spec reached, and nothing without survivors", () => {

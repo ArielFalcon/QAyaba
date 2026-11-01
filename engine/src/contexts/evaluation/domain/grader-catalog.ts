@@ -13,7 +13,7 @@ import type { RawScore, Score, ScoreDataType, ScorePolarity } from "./score.ts";
 /* The longest comment a score carries: it is read by people and travels to a sink, never a free-form log. */
 export const MAX_SCORE_COMMENT_CHARS = 500;
 
-export const GRADER_VERSION = "5";
+export const GRADER_VERSION = "6";
 
 export const STEP_INTENTS = ["auth", "explore", "write_spec", "run_spec", "review", "other"] as const;
 

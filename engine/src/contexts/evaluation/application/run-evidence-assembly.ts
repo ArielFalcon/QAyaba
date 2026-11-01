@@ -49,6 +49,7 @@ export function assembleRunEvidence(sources: EvidenceSources, context: EvidenceC
     specs,
     reviewerTurns: turns.length === 0 ? undefined : turns.filter((t) => t.role === context.reviewerAgent).length,
     reviewRequired: facts?.reviewRequired ?? undefined,
+    ...(outcome?.adjudication ? { adjudication: { class: outcome.adjudication.class, confidence: outcome.adjudication.confidence } } : {}),
     signals: g
       ? {
           static: g.static,
