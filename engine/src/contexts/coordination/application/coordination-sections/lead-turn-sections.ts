@@ -152,7 +152,7 @@ function answerLines(scrub: (text: string) => string, answer: SidekickAnswer): s
   return [
     answer.summary ? `Sidekick says: ${scrub(answer.summary)}` : "",
     answer.concerns.length > 0 ? `Sidekick concerns: ${answer.concerns.map((concern) => scrub(concern)).join("; ")}` : "",
-    answer.devLimits?.length ? `DEV limits (the orchestrator's own reads back the sidekick's report that DEV cannot be brought to the state these criteria need; asking again for that state cannot succeed, so accept the flow or drop the criterion): ${answer.devLimits.map((limit) => scrub(limit)).join("; ")}` : "",
+    answer.devLimits?.length ? `DEV limits (the orchestrator's own reads back the sidekick's report that DEV cannot be brought to the state these criteria need; asking again for that state cannot succeed, so accept the flow: the criterion is recorded as a DEV limit): ${answer.devLimits.map((limit) => scrub(limit)).join("; ")}` : "",
   ];
 }
 

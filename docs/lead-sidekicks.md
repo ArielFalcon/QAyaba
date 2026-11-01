@@ -219,7 +219,7 @@ holds itself (`backDevStateUnmet`, `dev-state-backing.ts`): every named page mus
 showed that flow's sessions (`AgentBrowserHandle.readsOf`) or one its own `run_spec` calls read empty, and an empty read of a
 page the Context Pack read with results (`observationConflictIn`) backs nothing, the pack winning. A backed unmet is not a contradiction: the result stays `completed-with-concerns` with the sidekick's own summary,
 a concern `acceptance-unmet-dev-state` naming the criterion and the fact, and `DelegationResult.unmetByDevState`; the lead
-is shown it as a "DEV limits" line (the criterion cannot be met on DEV as it stands: accept the flow or drop the criterion;
+is shown it as a "DEV limits" line (the criterion cannot be met on DEV as it stands: accept the flow, and the criterion is recorded as a DEV limit;
 asking again for that state cannot succeed). Any other unmet, or one the facts do not back, is `blocked` as before. A delivered
 spec is never dropped either way, and `sidekick_report_consistent` reads the recorded status, so a backed unmet beside a
 passing `run_spec` is not an inconsistent report.

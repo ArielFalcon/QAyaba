@@ -16,7 +16,7 @@ The run's own task depends on the run mode:
 - **diff** (default): test the flows affected by the commit (diff + blast radius).
 - **manual**: focus on the user's guidance in the prompt.
 - **context**: build or refresh `e2e/.qa/context.json` from structured sources
-  (Angular routing, OpenAPI specs, generated API clients). This mode does NOT
+  (the app's route definitions, OpenAPI specs, API clients). This mode does NOT
   generate tests — it produces the FE↔BE architecture map consumed by diff-mode runs.
 
 Follow the task block; the procedure below applies to all modes and to a flow.
@@ -38,17 +38,19 @@ architecture map. Follow this procedure:
 1. **Read the existing map** (if it exists): check `e2e/.qa/context.json`. Note what's
    already mapped — you are refreshing/extending it, not starting from scratch.
 
-2. **Extract routes**: find Angular routing files (glob `**/*routes*.ts`,
-   `**/app-routing*.ts`). For each route definition, add a `routes` entry with
-   `path`, `component`, and `source`. Skip redirects and empty fallback paths.
+2. **Extract routes**: find where the app's framework declares its routes (a router configuration
+   module, a file-based pages directory or a routing setup file; the diff's paths and the code
+   graph show which). For each route definition, add a `routes` entry with `path`, `component`,
+   and `source`. Skip redirects and empty fallback paths.
 
 3. **Extract API operations**: find OpenAPI specs (glob `**/openapi*.yaml`,
    `**/openapi*.json`, `**/swagger*.yaml`). For each operation with an `operationId`,
    add an `api` entry with `operationId`, `method`, `path`, and optionally `service`
    and `spec`.
 
-4. **Build the FE↔BE joins**: find generated API client files (typically under
-   `src/app/generated/` or by searching for `*client*.ts`, `*api*.ts`). For each
+4. **Build the FE↔BE joins**: find the frontend modules that call a backend (generated API
+   clients or hand-written services; search for `*client*`, `*api*` when the code graph does not
+   show them). For each
    client method that calls a backend, map its call site to the route that renders
    the component using it, and the `operationId` it invokes. Add a `feBe` entry.
 
@@ -161,7 +163,8 @@ given, once, against DEV, and returns how many tests passed and each failing one
 on and its tree. Use it to see a spec pass before you deliver it, and to correct a spec that fails from that
 evidence: read the failure and fix that, do not rewrite the spec, and a call you did not need is a call you
 cannot use later. Deliver only specs whose last run you saw pass in the bytes you deliver: a spec you edited
-after its last run is unrun. Never weaken an assertion to turn a failure green: a failure that shows the app
+after its last run is unrun. A call whose answer says the app is at fault is the exception: that failure is a
+finding, so deliver the spec as it is and say so in `concerns`. Never weaken an assertion to turn a failure green: a failure that shows the app
 is wrong is a finding. A call may name only that spec; any other path is refused.
 
 The other exception is the authenticated browser (`authbrowser_*`), only when your task states its
@@ -191,17 +194,19 @@ After you finish, the orchestrator runs a **separate, independent `qa-reviewer`*
 verdict decides whether these specs publish; if it rejects, you receive its concrete
 corrections in a follow-up turn — apply ONLY those, without rewriting what was correct.
 
-If you are certain a correction is wrong, you may rebut it instead of applying it: answer that
+For the run's own task: if you are certain a correction is wrong, you may rebut it instead of applying it: answer that
 turn with `"rebuttals": [{ "finding": <the correction's number>, "basis": "execution" |
 "contract", "ref": "...", "reason": "..." }]` and no spec changes. `basis` is what the
 orchestrator checks, never your reasons: `execution` with the spec file (or case) that ran green
 on the current bytes, `contract` with `<spec path>#<clause>` for an assertion the contract still
-holds. A rebuttal it cannot check withdraws nothing.
+holds. A rebuttal it cannot check withdraws nothing. In a flow, a correction you hold to be wrong goes in `concerns`
+with the evidence.
 
 ## Stop when the spec is written or the no-op is declared — then emit the verdict
 
-Once your specs are written, or you have declared a no-op, you are DONE generating. Spend the rest of
-the turn on ONE thing: your closing call. Do NOT re-explore, re-run the suite, or keep
+Once your specs are written, or you have declared a no-op, you are DONE generating. When your task states a
+`run_spec` budget, a spec is written once its last call passed on the bytes you deliver (section 4), its last call
+says the app is at fault, or no call is left, each of the last two said in `concerns`. Then spend the rest of the turn on ONE thing: your closing call. Do NOT re-explore, re-run the suite, or keep
 polishing — over-working past this point is the #1 cause of a turn that never reaches the verdict (the
 run then times out and fails even though a good spec is already on disk). The verdict is your LAST action.
 

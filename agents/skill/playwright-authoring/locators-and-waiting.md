@@ -64,8 +64,8 @@ whose `<th>Name</th>` was real but not exposed as a columnheader).
   // ❌ WRONG — "TypeScript" matches 8 elements across the whole page
   await expect(page.getByText("TypeScript")).toBeVisible();
   
-  // ✅ RIGHT — scoped to the Skills section
-  const skills = page.getByRole("heading", { name: "Skills" }).locator("..");
+  // ✅ RIGHT — scoped to the Skills section (a section labelled by its heading is a region)
+  const skills = page.getByRole("region", { name: "Skills" });
   await expect(skills.getByText("TypeScript")).toBeVisible();
   ```
 - **Regex must be unambiguous.** A pattern like `/:h/` matches inside `:hi`,

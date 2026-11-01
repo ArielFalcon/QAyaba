@@ -15,8 +15,9 @@ runs cross the frontend→backend boundary without re-deriving the architecture 
   leave that section empty — do not guess.
 - **The join is the whole point.** Every `feBe` entry MUST resolve to a known route (in `routes`)
   AND a known operation (in `api`). A dangling link makes the map invalid. Remove it before writing.
-- **Keep it small.** This is an E2E authoring aid — not exhaustive documentation. Include only the
-  routes/operations that user-facing flows actually touch. Skip internal/admin-only endpoints.
+- **Map every route and operation.** The orchestrator ranks the pages a change reaches from this map
+  and checks the map against the change, so a route or operation left out is one it cannot rank or
+  check. Skip only redirects and empty fallback paths.
 - **One file.** Write `e2e/.qa/context.json` as a single JSON file with `builtAtSha` + 4 sections:
   `routes`, `api`, `feBe`, `flows` (optional).
 

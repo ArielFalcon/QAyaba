@@ -66,7 +66,7 @@ function changeText(brief: DelegationBrief, scrub: (text: string) => string): st
   const references = brief.change?.references ?? [];
   return [
     "## Change this flow must exercise",
-    "Expected values come from the contract or the commit's stated intent, never from what the page shows: a page that already shows the new behavior proves nothing about the change.",
+    "Which behavior to expect comes from the contract or the commit's stated intent, never from what the page shows: a page that already shows the new behavior proves nothing about the change. The exact text the app renders for that behavior is read from the page after the step that produces it.",
     ...candidates.flatMap((candidate) => [
       `### ${candidate.id}: ${scrub(candidate.entry)} (${candidate.tier})`,
       candidate.evidence.length > 0 ? `Reached through: ${candidate.evidence.map(scrub).join(" > ")}` : "",

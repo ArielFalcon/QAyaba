@@ -11,7 +11,7 @@ export function authoringFailureFeedback(failure: AuthoringFailure | undefined):
     case AUTHORING_FAILURE.NOT_FOUND:
       return "At its failure point the element your locator names was not in the page's tree, which your run_spec report shows: build the locator from that tree, or reach the page the way a user does when that tree is not the page you meant.";
     case AUTHORING_FAILURE.VALUE_MISMATCH:
-      return "An assertion read another value than it expected. The expected value comes from the change and its contract, never from what the page shows: when the page is wrong, keep the assertion and report it in concerns.";
+      return "An assertion read another value than it expected. Which outcome to expect comes from the change and its contract, never from what the page shows: when the page shows another outcome, keep the assertion and report it in concerns. When it shows the same outcome in another form (a format, a locale, a rounding), take the exact text from the page.";
     default:
       return "";
   }

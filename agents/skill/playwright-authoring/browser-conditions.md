@@ -23,13 +23,12 @@ for the run, and the suite does not see it when it runs later.
 
 ## Mobile mode
 
-Two options:
-- Run the spec in the **`mobile` project** (already defined in the config), or
-- Force it per test with device emulation:
+The suite's config has one browser project (desktop). Emulate a phone in the spec file itself, at the
+top of the file; the pages the prompt supplies were captured at desktop size, so read the mobile page in a
+`run_spec` report before you trust a selector there:
 
 ```ts
-import { devices } from "@playwright/test";
-test.use({ ...devices["iPhone 13"] });
+test.use({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
 
 test("the menu collapses on mobile", async ({ page }) => {
   await page.goto("/");

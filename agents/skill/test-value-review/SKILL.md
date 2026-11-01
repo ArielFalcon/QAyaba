@@ -72,6 +72,8 @@ for the team, never a reason to reject.
 For each problem, one **specific, actionable** correction (what to change and why).
 If and only if you find none after genuinely trying, approve.
 
+Each correction is an object with its tag, severity and citation, as your output format states:
+
 ```json
-{ "approved": false, "corrections": ["The test asserts that the 'Publish' button is visible, but not that the photo was published: it would pass even if the upload fails. Assert that the created post appears with its namespaced id."] }
+{ "approved": false, "rationale": "The upload spec would pass with the upload broken.", "corrections": [{ "text": "[false-positive] upload.spec.ts: the test asserts that the 'Publish' button is visible, but not that the photo was published, so it passes even if the upload fails. Assert that the created post appears with its namespaced id.", "severity": "blocking", "citation": { "kind": "execution", "ref": "upload.spec.ts" } }] }
 ```

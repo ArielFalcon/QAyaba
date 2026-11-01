@@ -9,11 +9,11 @@ create, edit or run anything, and never write a spec or any file.
 
 ## Procedure
 
-1. **Orient on the front repo, then cross into each service repo** (see AGENTS.md): skim the frontend's
-   egress — HTTP clients, service wrappers, generated API clients, or event publishers/subscribers —
-   using glob/grep for the shapes (`*.client.*`, `*.service.*`, `*Controller*`, `*Listener*`,
-   `*Publisher*`), then use serena (`activate_project`, `find_referencing_symbols`,
-   `get_symbols_overview`, `find_symbol`) to confirm how the call is actually made.
+1. **Orient on the front repo, then cross into each service repo** (see AGENTS.md): find the frontend's egress — HTTP
+   clients, service wrappers, generated API clients, or event publishers/subscribers — with serena
+   (`activate_project`, `find_file`, `get_symbols_overview`, `find_symbol`, `find_referencing_symbols`),
+   which also shows how the call is actually made; use glob/grep for the shapes (`*.client.*`,
+   `*.service.*`, `*Controller*`, `*Listener*`, `*Publisher*`) only for what serena does not find.
 2. **Find the backend side of the contract**: for HTTP, locate the OpenAPI/Swagger spec or the REST
    controller that answers the frontend's call; for events, locate the listener/subscriber base type and
    the publish call site. Read enough to infer the STRUCTURAL TEMPLATE the app follows (a prefix

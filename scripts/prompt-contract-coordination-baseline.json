@@ -1,7 +1,7 @@
 {
   "cells": {
     "flow-author-brief/full": {
-      "bytes": 3877,
+      "bytes": 3991,
       "directives": 5
     },
     "flow-author-brief/plain": {
@@ -62,15 +62,13 @@
     }
   },
   "staticLayers": {
-    "qa-author": 24625,
-    "qa-lead": 15171
+    "qa-author": 25355,
+    "qa-lead": 15506
   },
   "lastIncrease": {
-    "reason": "RFC-0019: the lead's correction answer gains the typed decline of a decision's arms; the coverage origin's rule states it, the role prompt's answer shape lists it and the re-ask repeats it",
+    "reason": "the prompts stop contradicting each other and the code: no-cleanup, expected values, run_spec app-defect exit, flow rebuttals, the lead's no-op and DEV limits, the skills' stale examples, and the context mode names no framework",
     "budgets": [
-      "lead-correction-refused/plain:bytes",
-      "lead-correction/coverage:bytes",
-      "static:qa-lead"
+      "static:qa-author"
     ]
   }
 }

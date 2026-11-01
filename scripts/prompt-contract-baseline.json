@@ -5,7 +5,7 @@
     "directives": 17
   },
   "staticLayers": {
-    "opencode": 24625
+    "opencode": 25355
   },
   "buckets": {
     "context/first/tree-none/none": {
@@ -3002,7 +3002,7 @@
     }
   },
   "lastIncrease": {
-    "reason": "RFC-0018 merged with the prompt context root-cause units: the author's role layer names the submit_specs and submit_result calls where main's layer said closing JSON (+25 bytes over main's 24600)",
+    "reason": "the prompts stop contradicting each other and the code: no-cleanup, expected values, run_spec app-defect exit, flow rebuttals, the lead's no-op and DEV limits, the skills' stale examples, and the context mode names no framework",
     "budgets": [
       "static:opencode"
     ]
