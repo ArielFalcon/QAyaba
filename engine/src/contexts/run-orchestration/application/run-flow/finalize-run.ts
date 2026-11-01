@@ -95,7 +95,7 @@ async function finalizeShape(shape: Shape, effects: EndEffects, ctx: RunContext,
 
   const note = noteOf(shape, publishOutcome);
   const persists = effects.persist === "yes" || (effects.persist === "not-in-context-mode" && input.mode !== "context");
-  const outcome = persists ? outcomeOf(shape, decision, note, ctx, defects) : undefined;
+  const outcome = persists ? outcomeOf(shape, decision, note, ctx, state, defects) : undefined;
   if (outcome) {
     await deps.runHistory.save(outcome);
   }
@@ -223,10 +223,17 @@ function noteOf(shape: Shape, publishOutcome: string | undefined): string | unde
   return [own, publishOutcome].filter((part): part is string => Boolean(part)).join("\n\n") || undefined;
 }
 
-function outcomeOf(shape: Shape, decision: RunDecision, note: string | undefined, ctx: RunContext, defects: readonly DefectFact[]): RunOutcome | undefined {
+function outcomeOf(shape: Shape, decision: RunDecision, note: string | undefined, ctx: RunContext, state: Readonly<RunState>, defects: readonly DefectFact[]): RunOutcome | undefined {
   const defectSignal = defects.length > 0 ? { defects: defectsSignal(defects) } : {};
+  const { branchCoverage, changeCoverage, bundleMutation } = state.coverage;
+  const coverageSignals = {
+    ...(branchCoverage ? { branchCoverage } : {}),
+    ...(changeCoverage ? { changeCoverage } : {}),
+    ...(bundleMutation ? { bundleMutation } : {}),
+  };
   if (shape.kind === "skip") {
     return toRunOutcome(ctx, decision, [], 0, null, deriveErrorClass("skipped", null), {
+      ...coverageSignals,
       ...defectSignal,
       ...(shape.noop ? { noop: shape.noop } : {}),
       ...(note !== undefined ? { note } : {}),
@@ -239,6 +246,7 @@ function outcomeOf(shape: Shape, decision: RunDecision, note: string | undefined
   const { terminal } = shape;
   return toRunOutcome(ctx, decision, [], terminal.retries ?? 0, null, errorClassOf(terminal, ctx), {
     staticOk: terminal.static,
+    ...coverageSignals,
     ...defectSignal,
     note,
     ...(terminal.reviewerRationale !== undefined ? { reviewerRationale: terminal.reviewerRationale } : {}),

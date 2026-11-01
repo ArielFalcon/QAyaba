@@ -2283,6 +2283,17 @@ test("a green run whose reviewer is unavailable ends as a persisted infra-error 
   assert.equal(savedOutcomes[0]!.errorClass, ERROR_CLASS.REVIEWER_UNAVAILABLE);
 });
 
+test("a green run whose reviewer is unavailable persists the coverage it measured", async () => {
+  const { ports, savedOutcomes } = stubPorts({ execute: passPerSpec, review: reviewerDown, ...measuringInTwoPasses() });
+
+  await new RunQaUseCase({ ...ports, config: baseConfig }).run({ ...baseInput, runId: "reviewer-down-keeps-coverage" });
+
+  const { branchCoverage, changeCoverage, bundleMutation } = savedOutcomes[0]!.gateSignals;
+  assert.deepEqual(branchCoverage, { changed: measuredWithMutants.measurement.changedBranches, taken: measuredWithMutants.measurement.takenBranches });
+  assert.equal(changeCoverage?.provenByMutation, measuredWithMutants.measurement.provenByMutation);
+  assert.deepEqual(bundleMutation, measuredWithMutants.bundleMutation);
+});
+
 test("the run record of an unavailable reviewer says why: the reviewer's own reason, durably, and the note that nothing was judged", async () => {
   const { ports, savedOutcomes } = stubPorts({ review: reviewerDown });
   const out = await new RunQaUseCase({ ...ports, config: baseConfig }).run({ ...baseInput, runId: "reviewer-down-record" });
