@@ -2,7 +2,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { MAX_ADMISSION_CANDIDATES, admissionSetOf, assembleReplanRequest, planCoverage, renderReplanRequest } from "@contexts/coordination/application/plan-coverage.ts";
-import { DROP_BASIS, type PlanDrop } from "@contexts/coordination/application/lead-plan.ts";
+import type { PlanDrop } from "@contexts/coordination/application/lead-plan.ts";
+import { DROP_BASIS } from "@kernel/drop-basis.ts";
 import { PatternRedactionAdapter } from "../../../../src/shared-infrastructure/redaction/pattern-redaction.adapter.ts";
 import { pageCandidate } from "../../../support/use-case-candidate.ts";
 import type { UseCaseCandidate } from "@kernel/use-case-candidate.ts";

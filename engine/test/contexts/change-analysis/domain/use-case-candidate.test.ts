@@ -5,8 +5,7 @@ import { deriveCandidates, type ChangeScope, type ReachEntry } from "@contexts/c
 import { candidateLine, type UseCaseCandidate } from "@kernel/use-case-candidate.ts";
 import { DECLARED_FILE_SEED_SYMBOL, changedCodeOf } from "@kernel/change-map.ts";
 import { isChangedCode } from "@kernel/file-classes.ts";
-import { dropRefusal } from "@contexts/coordination/application/plan-coverage.ts";
-import { DROP_BASIS } from "@contexts/coordination/application/lead-plan.ts";
+import { DROP_BASIS, dropRefusal } from "@kernel/drop-basis.ts";
 import { pageCandidate } from "../../../support/use-case-candidate.ts";
 
 const WEB = "org/web";

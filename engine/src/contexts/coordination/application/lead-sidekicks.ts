@@ -36,7 +36,7 @@ import type { WindowFitOutcome } from "@kernel/prompt-sections.ts";
 import { entryKey } from "@kernel/change-reach.ts";
 import { candidatePagesOf, pageRoutesOf, type UseCaseCandidate } from "@kernel/use-case-candidate.ts";
 import { candidateSeeds } from "@kernel/change-map.ts";
-import { admissionSetOf, flowCovers, honorContradictedDrops, impliedNoopDrops, MAX_PLAN_ROUNDS, needsAmendment, planCoverage, assembleReplanRequest, unvisitedBy, type AdmissionSet, type PlanAmendment, type PlanCoverage, type PlanFacts } from "./plan-coverage.ts";
+import { admissionSetOf, flowCovers, honorContradictedDrops, impliedNoopDrops, MAX_PLAN_ROUNDS, needsAmendment, planCoverage, assembleReplanRequest, unvisitedBy, type AdmissionSet, type PlanAmendment, type PlanCoverage } from "./plan-coverage.ts";
 import { candidateSlicesOf, changeViewOf, ownedSliceOf, type ChangeView } from "./owned-slices.ts";
 import { flowCapacity } from "./flow-capacity.ts";
 import { unansweredTurn, type CandidateClaim, type DelegationResult } from "./delegation-result.ts";
@@ -59,7 +59,7 @@ import { SIDEKICK_AUTHORING, sidekickAuthoring, sidekickDeniedTools, type Sideki
 import type { SidekickExecutor, SidekickSession } from "./sidekick-executor.ts";
 import { SESSION_GONE, turnEndOf } from "./sidekick-turn-end.ts";
 import { describeUnreadable, describeUnreadableEntry, readsBetter, type UnreadableEntry } from "./answer-reading.ts";
-import { packPagesFor, recordedRequestsFor } from "@contexts/generation/application/index.ts";
+import { packPagesFor } from "@contexts/generation/application/index.ts";
 import { namesTemplatePage } from "@contexts/generation/application/index.ts";
 import type { HarnessFacts } from "@kernel/grounding.ts";
 import type { RedactionPort } from "@kernel/ports/redaction.port.ts";
@@ -72,9 +72,6 @@ const pagesOf = (pack: string | undefined, routes: readonly string[]): { pages: 
   return pages === undefined ? undefined : { pages };
 };
 
-
-/* What a plan's drops are held to besides the candidate itself: the requests the run's capture recorded for a candidate's pages, as the Context Pack states them. */
-const planFactsOf = (pack: string | undefined): PlanFacts => ({ recordedRequests: (candidate) => recordedRequestsFor(pack, candidatePagesOf(candidate)) });
 
 /* The pages of the change's candidates, in the order they are offered: the baseline the plan snapshot keeps beside the per-candidate states. */
 const changeRoutesOf = (input: { candidates?: readonly UseCaseCandidate[] }): string[] => pageRoutesOf(input.candidates ?? []);
@@ -336,7 +333,7 @@ export class LeadSidekicks {
       let coverage: PlanCoverage = { covered: [], dropped: [], unresolved: [] };
       if (admitted.kind === LEAD_PLAN_KIND.FANOUT || (admitted.kind === LEAD_PLAN_KIND.NOOP && admitted.dropped !== undefined)) {
         /* A plan is held to the facts once: a drop they contradict returns it to the lead with the fact; what the lead keeps after that is its decision. */
-        coverage = planCoverage({ flows: admitted.kind === LEAD_PLAN_KIND.FANOUT ? admitted.flows : [], dropped: admitted.dropped ?? [] }, admission.required, planFactsOf(input.contextPack));
+        coverage = planCoverage({ flows: admitted.kind === LEAD_PLAN_KIND.FANOUT ? admitted.flows : [], dropped: admitted.dropped ?? [] }, admission.required);
         const amended = await this.amendPlan(input, planned.lead, admitted, coverage, admission, parallel, change);
         admitted = amended.plan;
         coverage = honorContradictedDrops(amended.coverage);
@@ -497,7 +494,7 @@ export class LeadSidekicks {
       this.record(input, { kind: "lead-decision", reason: "plan: the lead's second answer was not a plan of flows the run admits; the first plan stands" });
       return stands;
     }
-    return { plan: answer, coverage: planCoverage({ flows: answer.kind === LEAD_PLAN_KIND.FANOUT ? answer.flows : [], dropped: answer.dropped ?? [] }, admission.required, planFactsOf(input.contextPack)) };
+    return { plan: answer, coverage: planCoverage({ flows: answer.kind === LEAD_PLAN_KIND.FANOUT ? answer.flows : [], dropped: answer.dropped ?? [] }, admission.required) };
   }
 
   /* The flows of an admitted plan: each authored once, then reviewed by the lead, then added up. Every flow's resources end here, however the pass ends. */

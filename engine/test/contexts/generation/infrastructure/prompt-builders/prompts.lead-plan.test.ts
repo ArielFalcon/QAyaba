@@ -15,6 +15,7 @@ import { AGENT_BROWSER_SECTION_ID, CLOSED_LOOP_SECTION_ID, claim, lintCell, type
 import { STEP_MILESTONE_SECTION_ID } from "@contexts/generation/domain/step-limit.ts";
 import { pageCandidate } from "../../../../support/use-case-candidate.ts";
 import { LEAD_PLAN_KIND } from "@kernel/coordination.ts";
+import { DROP_BASIS, DROP_BASIS_RULES, GOVERNED_ROUTE_RULE, dropRefusal, refusedDropBasesOf } from "@kernel/drop-basis.ts";
 import type { OpencodeRunInput } from "@contexts/generation/domain/opencode-run-input.ts";
 
 
@@ -151,4 +152,32 @@ test("a planning turn states the seconds it has, and carries no step milestone a
   /* The same input without a planning turn is an authoring turn, which holds both tools and writes a test by its milestone. */
   const authoring = assemble(tools);
   for (const id of [STEP_MILESTONE_SECTION_ID, CLOSED_LOOP_SECTION_ID, AGENT_BROWSER_SECTION_ID]) assert.ok(authoring.sectionSizes[id] !== undefined, id);
+});
+
+test("the section states each drop basis' rule from the kernel table, and the role prompt does not restate the refusal predicate", () => {
+  const section = sectionOf(assemble({ planning: { ...PLANNING, candidates: [pageCandidate("/order")] } }))!;
+  for (const [basis, rule] of Object.entries(DROP_BASIS_RULES)) {
+    assert.ok(section.text.includes(basis), basis);
+    assert.ok(section.text.includes(rule.meaning), basis);
+    if (rule.refusedWhen !== undefined) assert.ok(section.text.includes(rule.refusedWhen), basis);
+  }
+  assert.ok(section.text.includes(GOVERNED_ROUTE_RULE.refusedWhen));
+  assert.equal(sectionOf(assemble({ planning: PLANNING }))!.text.includes(DROP_BASIS.NO_OBSERVABLE_CHANGE), false, "no use cases, no drops to state rules for");
+  const prompt = readFileSync(join(process.cwd(), "agents", "agent", "qa-lead.md"), "utf8");
+  for (const rule of Object.values(DROP_BASIS_RULES)) assert.equal(prompt.includes(rule.meaning), false);
+  assert.equal(prompt.includes("lists as changed"), false);
+});
+
+test("a use case's line announces the bases a drop of it is refused as, exactly those the refusal function refuses", () => {
+  const sealed = pageCandidate("/sealed", undefined, { seeds: [{ file: "src/sealed.css", symbol: "*" }], existingSpecs: ["flows/sealed.spec.ts"] });
+  const code = pageCandidate("/code", undefined, { seeds: [{ file: "src/code.ts", symbol: "*" }], existingSpecs: ["flows/code.spec.ts"] });
+  const bare = pageCandidate("/bare", undefined, { seeds: [{ file: "src/bare.css", symbol: "*" }] });
+  const governed = pageCandidate("/governed", [], { basis: "route-config", evidence: ["route table entry changed"], existingSpecs: ["flows/governed.spec.ts"] });
+  const candidates = [sealed, code, bare, governed];
+  const section = sectionOf(assemble({ planning: { ...PLANNING, candidates } }))!;
+  for (const candidate of candidates) {
+    const line = section.text.split("\n").find((l) => l.includes(candidate.id))!;
+    for (const basis of Object.values(DROP_BASIS)) assert.equal(line.includes(basis), dropRefusal(candidate, basis) !== undefined, `${candidate.id} ${basis}`);
+  }
+  assert.deepEqual(refusedDropBasesOf(sealed), []);
 });

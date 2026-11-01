@@ -10,7 +10,8 @@ import type { AgentBrowserLimits } from "@kernel/agent-browser.ts";
 import type { GeolocationFacts } from "@kernel/geolocation.ts";
 import type { PlanningLimits } from "@kernel/coordination.ts";
 import type { ImpactReach } from "@kernel/service-links.ts";
-import { candidateLine } from "@kernel/use-case-candidate.ts";
+import { candidateLine, type OwnedSliceSize, type UseCaseCandidate } from "@kernel/use-case-candidate.ts";
+import { DROP_BASIS_RULES, GOVERNED_ROUTE_RULE, refusedDropBasesOf, type DropBasis } from "@kernel/drop-basis.ts";
 import { PROMPT_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
 import { isReGenTurn } from "@contexts/generation/domain/regen-turn.ts";
 import type { MilestoneOutcome, StepMilestone } from "@contexts/generation/domain/step-limit.ts";
@@ -40,6 +41,24 @@ export function renderClosedLoop(limits: ClosedLoopLimits): string {
   return [`## ${PROMPT_HEADINGS.closedLoop}`, `run_spec: at most ${limits.maxCalls} calls this run, ${seconds} seconds each, ${limits.maxDevWrites} requests that write to DEV (POST, PUT, PATCH, DELETE) in all.`, ``].join("\n");
 }
 
+/* What each drop basis asserts and the fact the orchestrator refuses it for, from the kernel's table. */
+function dropBasisRuleLines(): string[] {
+  const bases = Object.keys(DROP_BASIS_RULES) as DropBasis[];
+  return [
+    ...bases.map((basis) => {
+      const { meaning, refusedWhen } = DROP_BASIS_RULES[basis];
+      return `- ${basis}: ${meaning}.${refusedWhen !== undefined ? ` Refused when ${refusedWhen}.` : ""}`;
+    }),
+    `- ${GOVERNED_ROUTE_RULE.bases.join(" and ")} are also refused when ${GOVERNED_ROUTE_RULE.refusedWhen}.`,
+  ];
+}
+
+/* The use case's line, with the bases a drop of it is refused as, computed by the function that refuses the drop. */
+function candidateWithRefusals(candidate: UseCaseCandidate, slice: OwnedSliceSize | undefined): string {
+  const refused = refusedDropBasesOf(candidate);
+  return `${candidateLine(candidate, slice)}${refused.length > 0 ? ` | drop refused as: ${refused.join(", ")}` : ""}`;
+}
+
 /* The limits a lead's plan is held to on a coordinated run's planning turn, as facts. The shapes a plan may take are the role prompt's; the orchestrator decides what each flow may write, how long it takes and what it may run, so the plan carries none of that. */
 export function renderLeadPlan(limits: PlanningLimits): string {
   return [
@@ -52,10 +71,11 @@ export function renderLeadPlan(limits: PlanningLimits): string {
     ...(limits.locations?.length ? [`The app's locations a flow may name: ${limits.locations.join(", ")}.`] : []),
     ...(limits.candidates?.length
       ? [
-          `The change makes these use cases testable (id | entry | reach | changed files | the part of the diff its flow would own | evidence | specs the suite holds); a flow owns the parts of the use cases it covers, so group them into flows of a size one author can work through:`,
-          ...limits.candidates.map((candidate) => `- ${sanitizeText(candidateLine(candidate, limits.candidateSlices?.[candidate.id])).text}`),
+          `The change makes these use cases testable (id | entry | reach | changed code | the part of the diff its flow would own | evidence | specs the suite holds | the bases a drop of it is refused as, when there are any); a flow owns the parts of the use cases it covers, so group them into flows of a size one author can work through:`,
+          ...limits.candidates.map((candidate) => `- ${sanitizeText(candidateWithRefusals(candidate, limits.candidateSlices?.[candidate.id])).text}`),
           ...(limits.otherCandidates ? [`${limits.otherCandidates} less direct use case(s) are not listed and need no flow.`] : []),
-          `Give a flow to each one whose behaviour the change alters and cite its id in the flow's "candidates", or list it in "dropped" with a "basis" of the plan contract and the reason it needs no test; one the plan neither covers nor drops is asked of you once more.`,
+          `Give a flow to each one whose behaviour the change alters and cite its id in the flow's "candidates", or list it in "dropped" with a "basis" and the reason it needs no test; one the plan neither covers nor drops is asked of you once more. The bases, and what the orchestrator refuses each one for:`,
+          ...dropBasisRuleLines(),
         ]
       : []),
     ``,

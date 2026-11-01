@@ -9,6 +9,7 @@
  */
 
 import { LEAD_PLAN_KIND, type LeadPlanKind } from "@kernel/coordination.ts";
+import { DROP_BASES, type DropBasis } from "@kernel/drop-basis.ts";
 import { normalizeGeoLocation, resolvePlace, type GeoLocation } from "@kernel/geolocation.ts";
 import type { RedactionPort } from "@kernel/ports/redaction.port.ts";
 import { assembleDefs, type AssembledPrompt } from "@kernel/prompt-sections.ts";
@@ -132,18 +133,6 @@ export interface NotAdmittedFlow {
   objective: string;
   candidates: string[];
 }
-
-/*
- * Why a use case needs no test, from a closed set the orchestrator can hold to its facts (`plan-coverage.ts`): the change leaves
- * nothing a browser can observe, a spec of the suite already proves it, or it needs a state or a capability the run cannot reach.
- */
-export const DROP_BASIS = {
-  NO_OBSERVABLE_CHANGE: "no-observable-change",
-  ALREADY_COVERED: "already-covered",
-  NEEDS_UNAVAILABLE_STATE: "needs-unavailable-state",
-} as const;
-export type DropBasis = (typeof DROP_BASIS)[keyof typeof DROP_BASIS];
-const DROP_BASES: ReadonlySet<string> = new Set(Object.values(DROP_BASIS));
 
 /* A use case the lead says needs no test: the basis it gave from the closed set, and its reason in words. */
 export interface PlanDrop {

@@ -5,7 +5,7 @@
  * only the requests to an origin the run declares are listed; those to any other host are one line of the page counting them per host,
  * and what the capture's safety bounds left out is another. Neither count line is a request.
  * The facts give way to a count over a prompt's window (`referenceSectionFacts`), and a flow's brief carries those of its pages
- * (`packPagesFor`, `recordedRequestsFor`). Pure.
+ * (`packPagesFor`). Pure.
  */
 import type { PageRequests } from "./route-snapshot.ts";
 import { PRINTED_ROUTE_SOURCE, printedRoute } from "@kernel/printed-route.ts";
@@ -34,19 +34,16 @@ export function requestsSectionLines(pages: readonly PageRequestFacts[]): string
   return facts;
 }
 
-/* A fact of the section, read back: the page it is of (address, and the template when it has one), the request it states, and whether it only counts requests (to other hosts, or left out by the capture) instead of stating one. */
+/* A fact of the section, read back: the page it is of (address, and the template when it has one). */
 export interface RequestFact {
   route: string;
   template?: string;
-  request: string;
-  isCountLine: boolean;
 }
 
-const FACT_LINE = new RegExp(`^- ${PRINTED_ROUTE_SOURCE}: (.*)$`);
-const COUNT_LINE = new RegExp(`^\\((?:\\+\\d+ more request\\(s\\)|${OTHER_HOSTS_LEAD})`);
+const FACT_LINE = new RegExp(`^- ${PRINTED_ROUTE_SOURCE}: .*$`);
 
 export function requestFactOf(line: string): RequestFact | undefined {
   const match = FACT_LINE.exec(line);
   if (!match) return undefined;
-  return { route: match[1]!, ...(match[2] !== undefined ? { template: match[2] } : {}), request: match[3]!, isCountLine: COUNT_LINE.test(match[3]!) };
+  return { route: match[1]!, ...(match[2] !== undefined ? { template: match[2] } : {}) };
 }
