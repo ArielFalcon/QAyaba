@@ -2,7 +2,8 @@
 import { engineLog } from "@kernel/ports/process-logger.ts";
 import { checkCircuit, recordCircuitFailure, recordCircuitSuccess } from "./resilience/circuit-breaker.ts";
 import { createStallWatchdog, type StallWatchdog } from "./resilience/stall-watchdog.ts";
-import { AgentTimeoutError, AgentUnavailableError, StalledAgentError, isInfraError } from "@kernel/domain-error.ts";
+import { AgentOutputLengthError, AgentTimeoutError, AgentUnavailableError, StalledAgentError, isInfraError } from "@kernel/domain-error.ts";
+import type { SubmitTool } from "@kernel/submission.ts";
 import type { AgentPromptOpts, AgentTurnStats } from "@kernel/ports/agent-runtime.port.ts";
 import { sanitizeText } from "../../../shared-infrastructure/redaction/pattern-redaction.adapter.ts";
 import { STREAMED_TEXT_MAX_CHARS } from "./sse/call-efficiency-tracker.ts";
@@ -165,6 +166,10 @@ export interface RawAgentTransport {
     withoutTools?: boolean;
     /** The prompt may not write or edit a file: the transport states that to the runtime in whatever form it takes. */
     withoutWrites?: boolean;
+    /** The submit tool the prompt's answer is a call of: the transport leaves that one tool to the agent's configuration and hides the other submit tools. */
+    submitTool?: SubmitTool;
+    /** With `submitTool`: no other tool at all. */
+    submitOnly?: boolean;
   }): Promise<RawPromptResult>;
   abortSession(id: string): Promise<void>;
   deleteSession(id: string): Promise<void>;
@@ -244,7 +249,7 @@ export function agentErrorToInfra(error: RawAgentErrorPayload): AgentUnavailable
       return new AgentUnavailableError(`OpenCode API error${code}${detail}${hint}. ${tail}.`);
     }
     case "MessageOutputLengthError":
-      return new AgentUnavailableError(`the model hit its output-length limit before finishing the turn. ${tail}.`);
+      return new AgentOutputLengthError(`the model hit its output-length limit before finishing the turn. ${tail}.`);
     case "MessageAbortedError":
       return new AgentUnavailableError(`the agent turn was aborted${detail}. ${tail}.`);
     default:
@@ -573,7 +578,7 @@ export function createAgentDeps(raw: RawAgentTransport, collab: AgentDepsCollabo
               .then((prepared) => {
                 observed = prepared;
                 return countingTransportFailure(() =>
-                  raw.promptSession({ id, cwd, agent, text, ...(overrideModel ? { model: overrideModel } : {}), ...(promptOpts?.withoutTools ? { withoutTools: true } : {}), ...(promptOpts?.withoutWrites ? { withoutWrites: true } : {}) }),
+                  raw.promptSession({ id, cwd, agent, text, ...(overrideModel ? { model: overrideModel } : {}), ...(promptOpts?.withoutTools ? { withoutTools: true } : {}), ...(promptOpts?.withoutWrites ? { withoutWrites: true } : {}), ...(promptOpts?.submit ? { submitTool: promptOpts.submit.tool, ...(promptOpts.submitOnly ? { submitOnly: true } : {}) } : {}) }),
                 );
               })
               .then((res) => {

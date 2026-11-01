@@ -3,11 +3,12 @@
  * (POST /internal/run-spec), the `authbrowser_*` tools, which let the authoring roles read DEV through the run's saved
  * session without holding it (POST /internal/authbrowser), `set_geolocation`, which moves the authoring location of the
  * caller's scope (POST /internal/geolocation), and the lead's read-only `codegraph_explore` over the run's own code-graph index
- * (POST /internal/codegraph). It is a second listener on its own port (QA_TOOLS_PORT), which compose does not publish: it is reachable from the agents container only, and the sandbox uid that runs the specs cannot reach it (the
+ * (POST /internal/codegraph), and the submit tools, by which an agent delivers the answer of the prompt that armed its session
+ * (POST /internal/submit). It is a second listener on its own port (QA_TOOLS_PORT), which compose does not publish: it is reachable from the agents container only, and the sandbox uid that runs the specs cannot reach it (the
  * egress filter rejects every loopback port but its own). A service secret (QA_TOOLS_TOKEN) is required on top of that.
  * The caller names a session and an agent; neither decides anything by itself: the call is served only when the session is
  * one the orchestrator bound to an authorized role of a live run (see ClosedLoopRegistry, AgentBrowserRegistry,
- * GeolocationRegistry and CodeGraphToolRegistry), and every limit is the run's own.
+ * GeolocationRegistry, CodeGraphToolRegistry and SubmissionRegistry), and every limit is the run's own.
  * Pure handler plus a thin Node wrapper; the handler never throws and never says what went wrong inside.
  */
 
@@ -21,17 +22,21 @@ import { MAX_PLACE_NAME_CHARS, type GeolocationInput } from "@kernel/geolocation
 import type { AgentBrowserRefusalCode } from "@contexts/test-execution/application/index";
 import type { AgentBrowserRequest, AgentBrowserResponse, RunSpecRequest, RunSpecResponse } from "@contexts/test-execution/application/index";
 import type { RunSpecRefusalCode } from "@contexts/test-execution/application/index";
+import type { SubmitRefusalCode, SubmitRequest, SubmitResponse } from "@contexts/agent-tools/application/index";
 
 export const QA_TOOLS_TOKEN_ENV = "QA_TOOLS_TOKEN";
 export const RUN_SPEC_PATH = "/internal/run-spec";
 export const AUTHBROWSER_PATH = "/internal/authbrowser";
 export const GEOLOCATION_PATH = "/internal/geolocation";
 export const CODEGRAPH_PATH = "/internal/codegraph";
+export const SUBMIT_PATH = "/internal/submit";
 export const QA_TOOLS_LISTEN_HOST_ENV = "QA_TOOLS_LISTEN_HOST";
 /* The service token is a bearer secret on a port other containers can reach: a guessable one is no secret. 32 characters is 128 bits of hex, and what a generated token has. */
 export const MIN_TOOLS_TOKEN_CHARS = 32;
 /* A call is a path, a short filter and two ids: anything near this is not one. */
 export const MAX_TOOLS_BODY_BYTES = 8 * 1024;
+/* A submission is a whole answer (a plan, a review, a set of findings): the largest body the endpoint reads. */
+export const MAX_SUBMIT_BODY_BYTES = 256 * 1024;
 
 const MAX_ID_CHARS = 200;
 const MAX_PATH_CHARS = 512;
@@ -119,6 +124,9 @@ export interface AgentBrowserGrant {
 export interface CodeGraphGrant {
   call(request: CodeGraphToolRequest): Promise<CodeGraphToolResponse>;
 }
+export interface SubmitGrant {
+  call(request: SubmitRequest): SubmitResponse;
+}
 export interface GeolocationGrant {
   live: Pick<RunGeolocation, "set">;
   /* The role the session was opened for. */
@@ -138,6 +146,8 @@ export interface ToolsHandlerDeps {
   geolocations?: SessionGrants<GeolocationGrant>;
   /* Absent: no run grants the lead the code graph and its endpoint answers like any session no run owns. */
   codeGraphs?: SessionGrants<CodeGraphGrant>;
+  /* Absent: no turn of any run asks for a submission and its endpoint answers like any session no turn armed. */
+  submissions?: SessionGrants<SubmitGrant>;
 }
 
 const REFUSAL_STATUS: Readonly<Record<RunSpecRefusalCode, number>> = {
@@ -171,6 +181,13 @@ const BROWSER_REFUSAL_STATUS: Readonly<Record<AgentBrowserRefusalCode, number>> 
   busy: 409,
   "session-invalidated": 409,
   failed: 422,
+};
+
+const SUBMIT_REFUSAL_STATUS: Readonly<Record<SubmitRefusalCode, number>> = {
+  "wrong-agent": 403,
+  "wrong-tool": 403,
+  "already-submitted": 409,
+  "invalid-answer": 422,
 };
 
 const CODE_GRAPH_REFUSAL_STATUS: Readonly<Record<CodeGraphRefusalCode, number>> = {
@@ -208,8 +225,8 @@ function messageIdOf(parsed: Record<string, unknown>): string | undefined {
   return typeof messageID === "string" && MESSAGE_ID.test(messageID) ? messageID : undefined;
 }
 
-function parseObject(body: string): Record<string, unknown> | undefined {
-  if (Buffer.byteLength(body, "utf8") > MAX_TOOLS_BODY_BYTES) return undefined;
+function parseObject(body: string, maxBytes = MAX_TOOLS_BODY_BYTES): Record<string, unknown> | undefined {
+  if (Buffer.byteLength(body, "utf8") > maxBytes) return undefined;
   let parsed: unknown;
   try {
     parsed = JSON.parse(body);
@@ -325,6 +342,35 @@ async function handleCodeGraphRequest(request: ToolsRequest, deps: ToolsHandlerD
   }
 }
 
+const MAX_TOOL_NAME_CHARS = 64;
+
+/* The submission a body names: the session, the agent, the tool and the answer. The armed contract judges the answer; here only the envelope is read. */
+function parseSubmitCall(body: string): SubmitRequest | undefined {
+  const parsed = parseObject(body, MAX_SUBMIT_BODY_BYTES);
+  if (!parsed) return undefined;
+  const { sessionID, agent, tool, answer } = parsed;
+  if (typeof sessionID !== "string" || sessionID === "" || sessionID.length > MAX_ID_CHARS) return undefined;
+  if (typeof agent !== "string" || agent === "" || agent.length > MAX_ID_CHARS) return undefined;
+  if (typeof tool !== "string" || tool === "" || tool.length > MAX_TOOL_NAME_CHARS) return undefined;
+  const messageId = messageIdOf(parsed);
+  return { sessionId: sessionID, agent, ...(messageId !== undefined ? { messageId } : {}), tool, answer };
+}
+
+function handleSubmitRequest(request: ToolsRequest, deps: ToolsHandlerDeps): ToolsResponse {
+  const call = parseSubmitCall(request.body);
+  if (!call) return { status: 400, body: { ok: false, code: "invalid-request", message: "the call must be a JSON object with sessionID, agent, tool and the answer" } };
+  if (deps.limiter && !deps.limiter.allowCall(call.sessionId)) return { status: 429, body: { ok: false, code: "rate-limited", message: "too many calls from this session in a short time; wait a few seconds and retry" } };
+  const grant = deps.submissions?.find(call.sessionId);
+  if (!grant) return { status: 403, body: { ok: false, code: "unknown-session", message: "no submission is expected from this session now" } };
+  try {
+    const response = grant.call(call);
+    return { status: response.ok ? 200 : SUBMIT_REFUSAL_STATUS[response.code], body: response };
+  } catch (err) {
+    appLogger.error(`[qa] a submission failed in the orchestrator: ${err instanceof Error ? err.message : String(err)}`);
+    return { status: 500, body: { ok: false, code: "internal", message: "the submission failed in the orchestrator" } };
+  }
+}
+
 async function handleBrowserRequest(request: ToolsRequest, deps: ToolsHandlerDeps): Promise<ToolsResponse> {
   const call = parseBrowserCall(request.body);
   if (!call) return { status: 400, body: { ok: false, code: "invalid-request", message: "the call must be a JSON object with sessionID, agent and an action (navigate, snapshot, click or type) with its arguments" } };
@@ -349,11 +395,12 @@ export async function handleToolsRequest(request: ToolsRequest, deps: ToolsHandl
     deps.limiter?.recordFailure(request.remote);
     return { status: 401, body: { ok: false, code: "unauthorized", message: `the service token was rejected: ${QA_TOOLS_TOKEN_ENV} differs between the agents and the orchestrator services` } };
   }
-  if (request.path !== RUN_SPEC_PATH && request.path !== AUTHBROWSER_PATH && request.path !== GEOLOCATION_PATH && request.path !== CODEGRAPH_PATH) return { status: 404, body: { ok: false, code: "not-found", message: "no such tool endpoint" } };
+  if (request.path !== RUN_SPEC_PATH && request.path !== AUTHBROWSER_PATH && request.path !== GEOLOCATION_PATH && request.path !== CODEGRAPH_PATH && request.path !== SUBMIT_PATH) return { status: 404, body: { ok: false, code: "not-found", message: "no such tool endpoint" } };
   if (request.method !== "POST") return { status: 405, body: { ok: false, code: "method-not-allowed", message: "POST only" } };
   if (request.path === AUTHBROWSER_PATH) return handleBrowserRequest(request, deps);
   if (request.path === GEOLOCATION_PATH) return handleGeolocationRequest(request, deps);
   if (request.path === CODEGRAPH_PATH) return handleCodeGraphRequest(request, deps);
+  if (request.path === SUBMIT_PATH) return handleSubmitRequest(request, deps);
   const call = parseCall(request.body);
   if (!call) return { status: 400, body: { ok: false, code: "invalid-request", message: "the call must be a JSON object with sessionID, agent, path and an optional grep" } };
 
@@ -404,7 +451,7 @@ export function resolveToolsListenHost(env: Record<string, string | undefined>, 
   return addresses.length === 1 ? addresses[0]! : listenHost;
 }
 
-function readBody(req: IncomingMessage, timeoutMs: number): Promise<string | undefined> {
+function readBody(req: IncomingMessage, timeoutMs: number, maxBytes: number): Promise<string | undefined> {
   return new Promise((resolve) => {
     const chunks: Buffer[] = [];
     let size = 0;
@@ -414,7 +461,7 @@ function readBody(req: IncomingMessage, timeoutMs: number): Promise<string | und
     req.once("end", () => clearTimeout(timer));
     req.on("data", (chunk: Buffer) => {
       size += chunk.length;
-      if (size > MAX_TOOLS_BODY_BYTES) {
+      if (size > maxBytes) {
         resolve(undefined);
         req.destroy();
         return;
@@ -446,12 +493,12 @@ export function createToolsServer(deps: ToolsServerOptions): Server {
   const limiter = deps.limiter ?? createToolsRateLimiter();
   const bodyTimeoutMs = deps.bodyTimeoutMs ?? TOOLS_BODY_TIMEOUT_MS;
   const server = createServer(async (req, res) => {
-    const body = await readBody(req, bodyTimeoutMs);
+    const path = (req.url ?? "").split("?")[0] ?? "";
+    const body = await readBody(req, bodyTimeoutMs, path === SUBMIT_PATH ? MAX_SUBMIT_BODY_BYTES : MAX_TOOLS_BODY_BYTES);
     if (body === undefined) {
       send(res, { status: 400, body: { ok: false, code: "invalid-request", message: "the body could not be read within its limit" } }, true);
       return;
     }
-    const path = (req.url ?? "").split("?")[0] ?? "";
     send(res, await handleToolsRequest({ method: req.method ?? "", path, authorization: req.headers.authorization, body, ...(req.socket.remoteAddress ? { remote: req.socket.remoteAddress } : {}) }, { ...deps, limiter }));
   });
   server.headersTimeout = TOOLS_HEADERS_TIMEOUT_MS;

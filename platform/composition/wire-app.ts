@@ -76,6 +76,7 @@ import { ClosedLoopRegistry } from "@contexts/agent-tools/infrastructure/closed-
 import { AgentBrowserRegistry } from "@contexts/agent-tools/infrastructure/agent-browser-registry";
 import { GeolocationRegistry } from "@contexts/agent-tools/infrastructure/geolocation-registry";
 import { CodeGraphToolRegistry } from "@contexts/agent-tools/infrastructure/code-graph-tool-registry";
+import { SubmissionRegistry } from "@contexts/agent-tools/infrastructure/submission-registry";
 import { FsDelegationWorkspaceAdapter } from "@contexts/coordination/infrastructure/adapters/delegation-workspace.adapter";
 import { DELEGATIONS_DIR } from "../settings/paths";
 import { workdirRoot } from "./repo-mirror";
@@ -332,6 +333,8 @@ export function wireApp(settingsStore: SettingsStore): WiredApp {
   const agentBrowserRegistry = new AgentBrowserRegistry();
   const geolocationRegistry = new GeolocationRegistry();
   const codeGraphRegistry = new CodeGraphToolRegistry();
+  /* The prompt whose answer is a contract's submission arms its session here; the tools endpoint finds the armed contract by the session id the submit tool reports. */
+  const submissionRegistry = new SubmissionRegistry({ redact: (text) => redactionPort.redact(text) });
   /* An authoring agent's prompt lists the browser's tools only when this run's session was granted them (see opencode-client.ts). */
   setAgentBrowserGrantLookup((sessionId) => agentBrowserRegistry.find(sessionId) !== undefined);
   /* The same for the location tool: a session of a run that carries no authoring location is not offered it. */
@@ -358,14 +361,14 @@ export function wireApp(settingsStore: SettingsStore): WiredApp {
     toolsGranted: !toolsToken.generated,
     maxCapture: settings.telemetry.config.maxCapture,
   };
-  const toolsServer = createToolsServer({ token: toolsToken.token, registry: closedLoopRegistry, browsers: agentBrowserRegistry, geolocations: geolocationRegistry, codeGraphs: codeGraphRegistry });
+  const toolsServer = createToolsServer({ token: toolsToken.token, registry: closedLoopRegistry, browsers: agentBrowserRegistry, geolocations: geolocationRegistry, codeGraphs: codeGraphRegistry, submissions: submissionRegistry });
   toolsServer.on("error", (err: Error & { code?: string }) => appLogger.error(`the tools endpoint cannot listen on port ${toolsPort}: ${err.message}; the agents' run_spec, authenticated browser and location calls will fail`));
 
   engineFactory = createRunEngineFactory({
     telemetry: telemetry.telemetry,
     clock: telemetry.clock,
     /* A token this process made up cannot match the agents service's, so a tool the generator is told about would only be refused: no run is granted it. */
-    ...(toolsToken.generated ? {} : { closedLoopRegistry, agentBrowserRegistry, geolocationRegistry, codeGraphRegistry }),
+    ...(toolsToken.generated ? {} : { closedLoopRegistry, agentBrowserRegistry, geolocationRegistry, codeGraphRegistry, submissionRegistry }),
     getAgentDeps: currentAgentDeps,
     /* The facade is read per run, from the same manager the deps above come from: the runtime is switchable. */
     getAgentFacade: () => agentRuntime.facade(),

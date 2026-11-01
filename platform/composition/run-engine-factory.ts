@@ -64,6 +64,7 @@ import { ClosedLoopRegistry } from "@contexts/agent-tools/infrastructure/closed-
 import type { AgentBrowserRegistry } from "@contexts/agent-tools/infrastructure/agent-browser-registry";
 import type { GeolocationRegistry } from "@contexts/agent-tools/infrastructure/geolocation-registry";
 import type { CodeGraphToolRegistry } from "@contexts/agent-tools/infrastructure/code-graph-tool-registry";
+import type { SubmissionRegistry } from "@contexts/agent-tools/infrastructure/submission-registry";
 import { PlaywrightAgentBrowserHost } from "@contexts/test-execution/infrastructure/agent-browser/playwright-agent-browser.host";
 import { SandboxedChromiumLauncher } from "@contexts/test-execution/infrastructure/agent-browser/chromium-sandbox.launcher";
 import { loadPlaywrightChromium } from "@contexts/test-execution/infrastructure/agent-browser/playwright-core.loader";
@@ -336,6 +337,11 @@ export interface RunEngineFactoryDeps {
    * codegraph_explore tool. Absent: no run grants the lead the code graph.
    */
   codeGraphRegistry?: CodeGraphToolRegistry;
+  /*
+   * Where the engine arms a session for the prompt whose answer is a contract's submission. One per process, shared with the tools
+   * endpoint that serves the submit tools. Absent: a prompt that asks for a submission is refused.
+   */
+  submissionRegistry?: SubmissionRegistry;
   mirrorRoot?: string;
   /* Test seam: inject spies for the two mirror primitives instead of real git/disk. */
   mirror?: {
@@ -787,6 +793,7 @@ export function buildEngineRootDeps(
       },
     },
     roleToAgentName,
+    deps.submissionRegistry,
   );
   /*
    * The run-level wall-clock deadline: one per run (this factory builds the engine for one run), armed by the use case

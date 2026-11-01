@@ -4,6 +4,7 @@ import type { AgentRole } from "@kernel/agent-role.ts";
 import type { TimeLimitSource } from "@kernel/turn-limit.ts";
 import type { SectionMeta } from "@kernel/telemetry/section-meta.ts";
 import type { ContextFit } from "@kernel/context-budget.ts";
+import type { SubmissionContract, SubmissionReport } from "@kernel/submission.ts";
 
 /* One prompt attempt's usage, as the runtime's transport reports it. The counts are the ones the
  * provider returned; `cost` is the SDK's own (0 when the model's rate is unknown). */
@@ -49,6 +50,10 @@ export interface AgentTurnStats {
 }
 
 export interface AgentPromptOpts {
+  /** The prompt's answer is one call of this contract's submit tool, judged by the contract inside the turn; the result carries `submission`. A runtime with no submission port refuses the prompt. */
+  submit?: SubmissionContract<unknown>;
+  /** With `submit`: the submit tool is the only tool the prompt may use. For the one continuation of a turn that delivered no submission. */
+  submitOnly?: boolean;
   /** Return only the model's text, without its reasoning. */
   textOnly?: boolean;
   /** Return only the text of the agent's final step: what it concluded with, not what it said or recalled on the way. */
@@ -83,7 +88,8 @@ export interface AgentPromptOpts {
 }
 
 export interface AgentSession {
-  prompt(text: string, opts?: AgentPromptOpts): Promise<{ output: string }>;
+  /** `submission` is present exactly when the prompt asked for one (`opts.submit`). */
+  prompt(text: string, opts?: AgentPromptOpts): Promise<{ output: string; submission?: SubmissionReport }>;
   dispose(): Promise<void> | void;
 }
 export interface OpenSessionOpts {

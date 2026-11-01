@@ -3,6 +3,7 @@
    POLICY (circuit-breaker gating, fallback retry, stall-watchdog decoration, session registration,
    turn/usage telemetry) that now lives in agent-transport-policy.ts, decoupled from the SDK.
  */
+import { isAgentOutputLengthError } from "@kernel/domain-error.ts";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { StalledAgentError, isInfraError } from "@kernel/domain-error.ts";
@@ -1659,4 +1660,33 @@ test("withSessionRegistration binds a session that has a run, and none without a
   await wrapped.open("qa-assistant", "/m", { descriptor: { runId: "run-7", role: "qa-assistant" } });
   await wrapped.open("qa-author", "/m");
   assert.deepEqual(bound, ["sess-x"]);
+});
+
+test("createAgentDeps: the submit tool a prompt answers with reaches the transport, alone when the prompt asks for no other tool, and a prompt without one carries neither", async () => {
+  resetCircuit();
+  const seen: Array<{ submitTool: unknown; submitOnly: unknown }> = [];
+  const raw = makeRawTransport({
+    createSession: async () => ({ id: "sess-submit" }),
+    promptSession: async (args) => { seen.push({ submitTool: "submitTool" in args ? args.submitTool : "absent", submitOnly: "submitOnly" in args ? args.submitOnly : "absent" }); return { parts: [{ type: "text", text: "x" }] }; },
+  });
+  const deps = createAgentDeps(raw, { defaultPromptTimeoutMs: 5000, getFallbackModel: () => undefined });
+  const session = await deps.open("qa-lead", "/tmp");
+  const contract = { tool: "submit_plan" as const, check: () => ({ ok: true as const, value: 1 }) };
+  await session.prompt("plan", { submit: contract });
+  await session.prompt("again", { submit: contract, submitOnly: true });
+  await session.prompt("write the specs");
+  assert.deepEqual(seen, [{ submitTool: "submit_plan", submitOnly: "absent" }, { submitTool: "submit_plan", submitOnly: true }, { submitTool: "absent", submitOnly: "absent" }]);
+});
+
+test("createAgentDeps: a turn the model's output-length limit cut is an unavailable agent that a submitting caller can tell from the rest", async () => {
+  resetCircuit();
+  const raw = makeRawTransport({
+    createSession: async () => ({ id: "sess-cut" }),
+    promptSession: async () => ({ agentError: { name: "MessageOutputLengthError" }, parts: [] }),
+  });
+  const deps = createAgentDeps(raw, { defaultPromptTimeoutMs: 5000, getFallbackModel: () => undefined });
+  const session = await deps.open("qa-lead", "/tmp");
+  const err = await session.prompt("plan").then(() => undefined, (e: unknown) => e);
+  assert.ok(isAgentOutputLengthError(err));
+  assert.ok(isInfraError(err));
 });

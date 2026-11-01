@@ -16,6 +16,18 @@ export class AgentUnavailableError extends InfraError {
   }
 }
 
+/* The model's output-length limit cut the turn. Still an unavailable agent for every caller that does not expect a submission; a prompt that does expect one reads it as a typed end. */
+export class AgentOutputLengthError extends AgentUnavailableError {
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, options);
+    this.name = "AgentOutputLengthError";
+  }
+}
+
+export function isAgentOutputLengthError(err: unknown): boolean {
+  return err instanceof AgentOutputLengthError || (err instanceof Error && err.name === "AgentOutputLengthError");
+}
+
 /* No agent activity for longer than the liveness-watchdog window — engine resilience, not the DEV environment. Distinct from AgentUnavailableError so alert routing can be specific. */
 export class StalledAgentError extends InfraError {
   constructor(message: string, options?: { cause?: unknown }) {
