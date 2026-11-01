@@ -188,6 +188,7 @@ The RFC that lands a row flips it to **in force** in the same commit.
 | Whether one unreadable entry of a reviewer's answer sinks the answer | Engine | Beside an approval the entry is recorded and the approval stands; a rejection repairs once, then fails closed; a lost entry is loud | [RFC-0006](docs/architecture/rfc/0006-review-answer-crosses-whole.md) | in force |
 | Which verdict a run ends with | Engine | One closed outcome per step, one `finalizeRun`, one failure policy; an agent's answer is an input | Architecture, "The run flow" | in force |
 | Whether a request is a write the spec caused | Engine, from a signal | Cause is measured against a control load, not read from the request's destination | [RFC-0007](docs/architecture/rfc/0007-dev-write-attribution.md) | in force |
+| What makes a run a defect of the app | Engine, from a signal | A defect is a fact the engine verifies, never the shape of a failing test's error: a contradiction the provider's contract does not declare, in the change's reach, ends a run `fail` with no failing test; a green suite never outranks it | [RFC-0017](docs/architecture/rfc/0017-defects-from-verified-facts.md) | in force |
 | Whether a delivered test may intercept requests | Engine | Never: a test that routes, fulfils or replays the responses the page reads is refused like a skipped test and comes back to the author as a failing case | [ADR-0025](docs/architecture/adr/0025-delivered-specs-do-not-intercept-requests.md) | in force |
 | Whether change coverage blocks a publication | Engine, from a signal | The measurement on the final bytes; `unknown` never blocks; only `enforce` blocks | [ADR-0005](docs/architecture/adr/0005-coverage-enforce-activation.md) | in force |
 | When `enforce` may be switched on | Engine, from a signal | Only after three consecutive replicates with a trustworthy measurement and bundle mutation on | [ADR-0005](docs/architecture/adr/0005-coverage-enforce-activation.md) | lands with ADR-0005 |
@@ -233,7 +234,7 @@ is the only engine; webhook (`platform/entrypoints/webhook-handler.ts`, wired by
    request is page-dependent by its resource type (document, fetch, xhr, script, stylesheet), never by host.
 8. **Change-coverage** — did the green run exercise the diff's changed lines? (below)
 9. **Decide** — green + approved + coverage not blocking → PR. Rejected/`fail`/`invalid`
-   → Issue. A green, approved suite that the coverage gate blocks (`enforce` with a measured `fail`) is **held**: no PR,
+   → Issue. A green run that found a defect (`gateSignals.defects`, below under "Data contradictions") is `fail` → Issue, with no failing case needed, and its suite is not kept. A green, approved suite that the coverage gate blocks (`enforce` with a measured `fail`) is **held**: no PR,
    no Issue, the PR text with the coverage report kept on the run (`gateSignals.heldPublication`), the suite out of the store
    (shadow replaces nothing: held opens nothing). A flaky run is quarantined whatever the gate says. Before any model round a deterministic DOM pre-check (`generation/domain/deterministic-review-precheck.ts`) may reject a spec whose positive assertion the captured page lacks; it never checks a spec file whose every case passed on DEV on the bytes under review (that assertion resolved on the live site, whatever viewport, session, locale or location the capture differed in), counted as `gateSignals.reviewer.preCheckSkippedProven`. A reviewer that could not be reached (its session failed, or it returned nothing) judged
    nothing, which is not a rejection: the run ends as a persisted `infra-error` `E-REVIEWER-UNAVAILABLE`
@@ -384,7 +385,13 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   `carriedBy`/`missingFrom`/`schemaBacked` and stay readable) (`qayaba.context.data_contradictions` on the context-pack span), in the PR and Issue
   under `Possible data contradictions`, and to the reviewer, which may cite one (`{"kind":"contradiction","ref":"<path>#<key>"}`) against a spec that passes by
   adapting to that state (an expected value read from the state it checks, or a check guarded by it); the orchestrator verifies the ref against the
-  recorded facts (`review-finding-filter.service.ts`, drop reason `no-contradiction-fact`). A signal, never a gate: it decides no verdict. It fails
+  recorded facts (`review-finding-filter.service.ts`, drop reason `no-contradiction-fact`). `provider-declared-absent` (an optional field DEV's data may lack)
+  and `no-provider-contract` stay signals, never gates. `provider-undeclared` on a page or an operation the change reaches is a **defect of the run by itself**
+  (`objective-signal/domain/contradiction-defects.ts`, the reach the causal label uses, `requestReach` and `pageReach`: positive evidence only, a run with no
+  scope or a fact the scope does not place finds none): the consumer reads what the provider's contract never promised, so the interface is broken whatever data
+  DEV holds and a test that passes around it proves nothing about it. A run that would pass ends `fail` (`verdictOf`, `defectFound` on the run's evidence;
+  every other verdict keeps its own), opens an Issue under `Defects found without a failing test` with the contradiction and what places it in the change's reach,
+  records `gateSignals.defects { found, facts[], omitted }` and no error class (the engine did not fail: nothing reaches the process audit). It fails
   open: the analysis runs inside `buildContextPack` under its own guard, so a fault in the extractor costs the gaps (logged loudly), never the pack.
 - **Pre-exec / review grounding** — `pre-exec-grounding-port.adapter.ts`,
   `review-dom-grounding-port.adapter.ts` (same folder).

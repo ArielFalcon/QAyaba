@@ -3,7 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { renderIssue as renderIssueRedacting, renderPrBody as renderPrBodyRedacting } from "@contexts/workspace-and-publication/domain/render-publication.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
-import type { DataContradiction } from "@kernel/data-contradiction.ts";
+import type { DataContradiction, DefectFact } from "@kernel/data-contradiction.ts";
 
 /* The renderers take the redactor the caller sanitizes with; these scenarios are about the body, so nothing is redacted. */
 const keep = (text: string): string => text;
@@ -240,6 +240,33 @@ test("a run with no data contradiction renders its PR body and Issue as before",
   assert.equal(renderPrBody({ }), renderPrBody({ dataContradictions: [] }));
   assert.equal(renderIssue({ verdict: "fail", cases: [failCase()] }), renderIssue({ verdict: "fail", cases: [failCase()], dataContradictions: [] }));
   assert.doesNotMatch(renderPrBody({ }), /Possible data contradictions/);
+});
+
+const DEFECT: DefectFact = { fact: { ...CONTRADICTION, provider: "provider-undeclared" }, basis: "page", via: ["page /browse"] };
+
+test("an Issue for a run whose checks all passed lists the defect it found, with the contradiction and how the change reaches it, and says no check failed", () => {
+  const issue = renderIssue({ verdict: "fail", cases: [{ name: "browse lists items", status: "pass" }], defects: [DEFECT] });
+  assert.match(issue, /^## QA — 1 defect\(s\) found without a failing check/);
+  assert.match(issue, /\*\*Defects found without a failing test\*\*[^\n]*\n- `\/browse`: GET https:\/\/app\.example\/api\/items\/by-region\/ES returned 12 items, none carrying "category" at any depth/);
+  assert.match(issue, /does not declare it \(provider-undeclared\)/);
+  assert.match(issue, /- the change reaches the page via `page \/browse`/);
+  assert.doesNotMatch(issue, /Failing cases/);
+});
+
+test("an Issue for a run with failing checks and a defect keeps the failing-checks headline and lists both", () => {
+  const issue = renderIssue({ verdict: "fail", cases: [failCase()], defects: [DEFECT] });
+  assert.match(issue, /^## QA — 1 of 1 check\(s\) failed/);
+  assert.match(issue, /### Failing cases/);
+  assert.match(issue, /Defects found without a failing test/);
+});
+
+test("a defect reached by the operation it was read from says so", () => {
+  const issue = renderIssue({ verdict: "fail", cases: [], defects: [{ ...DEFECT, basis: "request", via: ["GET /items/by-region/{code}"] }] });
+  assert.match(issue, /- the change reaches the operation it was read from via `GET \/items\/by-region\/\{code\}`/);
+});
+
+test("an Issue with no defect renders as before", () => {
+  assert.equal(renderIssue({ verdict: "fail", cases: [failCase()] }), renderIssue({ verdict: "fail", cases: [failCase()], defects: [] }));
 });
 
 test("more data contradictions than the list holds are counted, not dropped silently", () => {

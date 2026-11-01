@@ -44,13 +44,19 @@ test("an accepted run is exactly a run decide() would send to a pull request whe
         for (const reviewerApproved of flags) {
           for (const blocksPublish of flags) {
             for (const shadow of flags) {
-              const ev = evidence({ verdict, generating, needsReview, reviewerApproved, blocksPublish, shadow });
-              const wouldPublish = decide({ ...ev, shadow: false }).sideEffect === "pr";
-              assert.equal(isAccepted(ev), wouldPublish, JSON.stringify(ev));
+              for (const defectFound of flags) {
+                const ev = evidence({ verdict, generating, needsReview, reviewerApproved, blocksPublish, shadow, defectFound });
+                const wouldPublish = decide({ ...ev, shadow: false }).sideEffect === "pr";
+                assert.equal(isAccepted(ev), wouldPublish, JSON.stringify(ev));
+              }
             }
           }
         }
       }
     }
   }
+});
+
+test("a run that found a defect is not accepted, even green, generated and approved", () => {
+  assert.equal(isAccepted(evidence({ defectFound: true })), false);
 });

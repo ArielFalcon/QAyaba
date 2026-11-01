@@ -36,6 +36,7 @@ export interface OutcomeExtras {
   missingCases?: string[];
   routeAvailability?: RunOutcome["gateSignals"]["routeAvailability"];
   dataContradictions?: RunOutcome["gateSignals"]["dataContradictions"];
+  defects?: RunOutcome["gateSignals"]["defects"];
   ambientDataState?: RunOutcome["gateSignals"]["ambientDataState"];
   /* The data-state failures of the final execution and of the flows' run_spec calls, by page; absent when the run did not execute. */
   dataStateFailures?: Array<{ path: string; count: number }>;
@@ -154,6 +155,7 @@ export function toRunOutcome(
       ...(extra?.missingCases?.length ? { missingCases: extra.missingCases } : {}),
       ...(extra?.routeAvailability ? { routeAvailability: extra.routeAvailability } : {}),
       ...(extra?.dataContradictions ? { dataContradictions: extra.dataContradictions } : {}),
+      ...(extra?.defects ? { defects: extra.defects } : {}),
       ...(extra?.ambientDataState ? { ambientDataState: extra.ambientDataState } : {}),
       ...(extra?.heldPublication ? { heldPublication: extra.heldPublication } : {}),
       reviewerCorrections: extra?.reviewerCorrections ?? [],

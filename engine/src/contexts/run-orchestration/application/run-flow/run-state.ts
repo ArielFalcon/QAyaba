@@ -4,7 +4,7 @@ import { LOG_EFFECT, type LogEffect } from "@kernel/ports/logger.port.ts";
 import type { ContractDrift, CrossRepoImpact, ServiceLink } from "@kernel/service-links.ts";
 import type { ArchitectureContext, GroundingOmission, HarnessFacts } from "@kernel/grounding.ts";
 import type { RouteAvailabilityFact } from "@kernel/route-availability.ts";
-import type { DataContradiction } from "@kernel/data-contradiction.ts";
+import type { DataContradiction, DefectFact } from "@kernel/data-contradiction.ts";
 import type { ServedVersionSignal } from "@kernel/served-version.ts";
 import type { Lesson } from "@contexts/cross-run-learning/application/index.ts";
 import type { LessonsSignal } from "@kernel/lessons-signal.ts";
@@ -330,6 +330,8 @@ export interface DecidedOutcome {
   decision: RunDecision;
   /** Whether the run's failure is in the change's reach; absent when no case failed. Recorded, published and persisted, never read by the decision. */
   causal?: CausalLabel;
+  /** The defects the run's facts establish with no failing test; absent when none. Any of them ends a green run `fail`. */
+  defects?: DefectFact[];
   /** A clean context-mode pass produced an architecture map, not tests: it neither persists nor folds. */
   isContextCleanPass: boolean;
 }

@@ -2,7 +2,7 @@
 import type { RunVerdict } from "@kernel/run-verdict.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import { outcomeText, type RouteAvailabilityFact } from "@kernel/route-availability.ts";
-import { dataContradictionStatement, type DataContradiction } from "@kernel/data-contradiction.ts";
+import { dataContradictionStatement, type DataContradiction, type DefectFact } from "@kernel/data-contradiction.ts";
 import { redactThenBound } from "@kernel/redact-then-bound.ts";
 import { printedRoute } from "@kernel/printed-route.ts";
 import type { AmbientDataPin } from "@kernel/page-data-read.ts";
@@ -63,9 +63,10 @@ function renderFailedCase(c: QaCase, bound: Bound): string {
   return lines.join("\n");
 }
 
-function headline(verdict: RunVerdict, failedCount: number, totalCount: number, flakyCount: number): string {
+function headline(verdict: RunVerdict, failedCount: number, totalCount: number, flakyCount: number, defectCount: number): string {
   switch (verdict) {
     case "fail":
+      if (failedCount === 0 && defectCount > 0) return `${defectCount} defect(s) found without a failing check`;
       return totalCount
         ? `${failedCount} of ${totalCount} check(s) failed against the live environment`
         : "the tests failed against the live environment";
@@ -116,9 +117,10 @@ export interface RenderIssueInput {
   missingCases?: readonly string[];
   /* The routes the change made unavailable and the possible regressions, from the run's availability classification. */
   routeAvailability?: readonly RouteAvailabilityFact[];
-  /* The delivered tests that fulfil a stated response instead of reading DEV, and the guards they broke. */
   /* The fields the consumer's code expects of an answer that the run's captured pages' answers lack, from the response shapes the capture read. */
   dataContradictions?: readonly DataContradiction[];
+  /* The defects the run found without a failing test: the contradictions the provider's contract does not declare, on code the change reaches. */
+  defects?: readonly DefectFact[];
   /* The passing cases that checked a page only as DEV served it confirmed empty, and the untaken arms on those pages. */
   ambientDataState?: AmbientDataStateView;
 }
@@ -191,6 +193,21 @@ function renderDataContradictionsSection(facts: readonly DataContradiction[] | u
   return `**Possible data contradictions** (a field the consumer's own code expects of an answer, that its declared type holds and its code reads and never writes, is absent from every response the page received; it may be a defect of the app's data or of the provider's contract, not of the tests; a signal, not a gate):\n${lines.join("\n")}${omitted}`;
 }
 
+const REACH_BASIS: Record<DefectFact["basis"], string> = { page: "the page", request: "the operation it was read from" };
+
+/* The defects the run found without a failing test: each contradiction the provider's contract does not declare, on code the change reaches, and what places it there. The reason a green suite does not make the run pass. */
+function renderDefectsSection(defects: readonly DefectFact[] | undefined, bound: Bound): string {
+  const shown = (defects ?? []).slice(0, MAX_ITEMS);
+  if (shown.length === 0) return "";
+  const more = (defects ?? []).length - shown.length;
+  const omitted = more > 0 ? `\n_…and ${more} more omitted._` : "";
+  const lines = shown.map(({ fact, basis, via }) => {
+    const page = printedRoute(fact, (part) => `\`${bound(part, CAP_FLOW)}\``);
+    return `- ${page}: ${bound(dataContradictionStatement(fact), CAP_CONTRADICTION)}\n  - the change reaches ${REACH_BASIS[basis]} via ${via.slice(0, MAX_ITEMS).map((v) => `\`${bound(v, CAP_NAME)}\``).join(", ")}`;
+  });
+  return `**Defects found without a failing test** (the consumer's code reads a field the provider's contract does not declare, on code the change reaches: the interface is broken whatever data DEV holds, and a test that passes around it proves nothing about it):\n${lines.join("\n")}${omitted}`;
+}
+
 /* The passing cases that checked a page only as DEV served it confirmed empty, and the arms of the changed code on those pages that no test took, as the run recorded them. */
 export interface AmbientDataStateView {
   pins: readonly AmbientDataPin[];
@@ -215,7 +232,7 @@ export function renderIssue(input: RenderIssueInput, redact: (text: string) => s
   const shownFailed = failed.slice(0, MAX_ITEMS);
   const omittedFailed = failed.length - shownFailed.length;
 
-  const blocks: string[] = [`## QA — ${headline(input.verdict, failed.length, input.cases.length, flaky.length)}`];
+  const blocks: string[] = [`## QA — ${headline(input.verdict, failed.length, input.cases.length, flaky.length, input.defects?.length ?? 0)}`];
 
   blocks.push(input.sha ? `**SHA:** \`${input.sha}\` · **Verdict:** ${input.verdict}` : `**Verdict:** ${input.verdict}`);
 
@@ -246,6 +263,8 @@ export function renderIssue(input: RenderIssueInput, redact: (text: string) => s
   if (missing) blocks.push(missing);
   const availability = renderAvailabilitySection(input.routeAvailability, bound);
   if (availability) blocks.push(availability);
+  const defects = renderDefectsSection(input.defects, bound);
+  if (defects) blocks.push(defects);
   const contradictions = renderDataContradictionsSection(input.dataContradictions, bound);
   if (contradictions) blocks.push(contradictions);
   const ambient = renderAmbientDataStateSection(input.ambientDataState, bound);
@@ -266,7 +285,6 @@ export interface RenderPrBodyInput {
   missingCases?: readonly string[];
   /* The routes the change made unavailable and the possible regressions, from the run's availability classification. */
   routeAvailability?: readonly RouteAvailabilityFact[];
-  /* The delivered tests that fulfil a stated response instead of reading DEV, and the guards they broke. */
   /* The fields the consumer's code expects of an answer that the run's captured pages' answers lack, from the response shapes the capture read. */
   dataContradictions?: readonly DataContradiction[];
   /* The passing cases that checked a page only as DEV served it confirmed empty, and the untaken arms on those pages. */

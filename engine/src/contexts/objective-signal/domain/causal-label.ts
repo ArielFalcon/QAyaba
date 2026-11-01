@@ -65,7 +65,8 @@ export const MAX_CAUSAL_CASES = 20;
 export const MAX_CAUSAL_VIA = 12;
 const MAX_NAME_CHARS = 160;
 
-interface Found {
+/* Where one piece of evidence (the requests of a case, the page it ended on, an operation or page a fact names) stands against the change's reach. */
+export interface Found {
   reach: CausalReach;
   basis: CausalBasis;
   via: string[];
@@ -95,9 +96,13 @@ function outsideReach(scope: CausalScope, entries: readonly EntryPoint[]): Entry
 }
 
 function byRequest(c: CausalInput["cases"][number], input: CausalInput): Found {
-  const { scope, matchers } = input;
-  if (scope === undefined) return NONE;
   const paths = (c.networkErrors ?? []).map((e) => pathnameOf(e.url)).filter((p): p is string => p !== undefined);
+  return requestReach(paths, input.scope, input.matchers);
+}
+
+/* Where requests to these paths stand against the reach: an operation the change reaches serves one, or a known operation outside the reach does. */
+export function requestReach(paths: readonly string[], scope: CausalScope | undefined, matchers: CausalMatchers): Found {
+  if (scope === undefined) return NONE;
   const operations = (entries: ReadonlyArray<EntryPoint>) => entries.filter((e): e is Extract<EntryPoint, { kind: "operation" }> => e.kind === "operation");
   const reached = operations(scope.reach.map((r) => r.entry));
   const hit = reached.filter((op) => paths.some((p) => matchers.servesOperation(p, op)));
@@ -109,9 +114,13 @@ function byRequest(c: CausalInput["cases"][number], input: CausalInput): Found {
 }
 
 function byPage(c: CausalInput["cases"][number], input: CausalInput): Found {
-  const { scope, matchers } = input;
   const pathname = pathnameOf(c.finalUrl);
-  if (scope === undefined || pathname === undefined) return NONE;
+  return pathname === undefined ? NONE : pageReach(pathname, input.scope, input.matchers);
+}
+
+/* Where the page at this pathname stands against the reach: a page the change reaches names it, or a known page outside the reach does. */
+export function pageReach(pathname: string, scope: CausalScope | undefined, matchers: CausalMatchers): Found {
+  if (scope === undefined) return NONE;
   const pages = (entries: ReadonlyArray<EntryPoint>) => entries.filter((e): e is Extract<EntryPoint, { kind: "page" }> => e.kind === "page");
   const hit = pages(scope.reach.map((r) => r.entry)).filter((page) => matchers.namesPage(page.route, pathname));
   if (hit.length > 0) return { reach: "in-reach", basis: "page", via: hit.map(entryKey) };

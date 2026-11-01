@@ -1,5 +1,5 @@
 /* Six-verdict policy in one pure function. Precedence is the safety property — reordering branches silently changes which side effect fires when more than one condition holds. Shadow never changes which branch wins, only whether that branch's issue/pr collapses to shadow-log.
-onFailure !== "github-issue" silences fail/invalid (no Issue, no PR). flaky → quarantine and infra-error → none are shadow-invariant. skipped is always silent. Pass-path: !generating → none; reviewer rejection → issue (or shadow-log); blocksPublish → held (shadow-invariant: it opens nothing); shadow → shadow-log; else pr. */
+A pass that found a defect (`defectFound`) is a fail. onFailure !== "github-issue" silences fail/invalid (no Issue, no PR). flaky → quarantine and infra-error → none are shadow-invariant. skipped is always silent. Pass-path: !generating → none; reviewer rejection → issue (or shadow-log); blocksPublish → held (shadow-invariant: it opens nothing); shadow → shadow-log; else pr. */
 
 import type { RunVerdict } from "@kernel/run-verdict.ts";
 import { RunDecision } from "./run-decision.ts";
@@ -13,6 +13,8 @@ export interface RunEvidence {
   shadow: boolean;
   /* app.report.onFailure: anything other than "github-issue" suppresses fail/invalid reporting. */
   onFailure: string;
+  /* The run found a defect by the engine's own facts (a contradiction the provider's contract lacks, in the change's reach): a green suite does not make the run pass. */
+  defectFound?: boolean;
 }
 
 /* What shadow turns a decision into: a log line, for the two that would have opened something on the app's repository. */
@@ -38,9 +40,15 @@ function reportDecision(verdict: Exclude<RunVerdict, "pass">, onFailure: string,
   }
 }
 
+/* The verdict the run ends with: the execution's, unless it passed while a defect stands. */
+export function verdictOf(ev: RunEvidence): RunVerdict {
+  return ev.verdict === "pass" && ev.defectFound === true ? "fail" : ev.verdict;
+}
+
 export function decide(ev: RunEvidence): RunDecision {
-  if (ev.verdict !== "pass") {
-    return reportDecision(ev.verdict, ev.onFailure, ev.shadow);
+  const verdict = verdictOf(ev);
+  if (verdict !== "pass") {
+    return reportDecision(verdict, ev.onFailure, ev.shadow);
   }
 
   /* Pass-path does not use the onFailure guard; a reviewer rejection still folds shadow → shadow-log. */
@@ -67,5 +75,5 @@ export function decide(ev: RunEvidence): RunDecision {
  * that nothing publishes still keeps what it proved.
  */
 export function isAccepted(ev: RunEvidence): boolean {
-  return ev.verdict === "pass" && ev.generating && (!ev.needsReview || ev.reviewerApproved) && !ev.blocksPublish;
+  return verdictOf(ev) === "pass" && ev.generating && (!ev.needsReview || ev.reviewerApproved) && !ev.blocksPublish;
 }

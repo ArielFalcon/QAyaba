@@ -21,7 +21,7 @@ class PublicationPortAdapter extends RegistryBoundAdapter {
 import { ShadowLogAdapter } from "@contexts/workspace-and-publication/infrastructure/shadow-log.adapter.ts";
 import { renderIssue, renderPrBody } from "@contexts/workspace-and-publication/domain/render-publication.ts";
 import { SecretLeakError } from "@kernel/ports/redaction.port.ts";
-import type { DataContradiction } from "@kernel/data-contradiction.ts";
+import type { DataContradiction, DefectFact } from "@kernel/data-contradiction.ts";
 
 /* fail-closed posture as `sanitize`) — every construction in this file wires one. Tests that only
    exercise ROUTING (which side effect fires, in what order, with what repo/branch) use this trivial
@@ -953,6 +953,22 @@ test("publish() puts the data contradictions of the run's pages into the PR body
 
   assert.equal(bodies.length, 2);
   for (const body of bodies) assert.match(body, /Possible data contradictions[\s\S]*none carrying "category"/);
+});
+
+test("publish() puts the defects a run found into the Issue body it renders, and a run decided fail opens an Issue though every case passed", async () => {
+  const bodies: string[] = [];
+  const pr = { openWithAutoMerge: async () => { throw new Error("no PR for a run that found a defect"); } };
+  const issue = { open: async (_repo: string, _title: string, b: string) => { bodies.push(b); return { url: "https://github.com/org/app/issues/9", number: 9 }; } };
+  const adapter = new PublicationPortAdapter({ decide: new PublishDecisionService(), pr, issue, shadowLog: new ShadowLogAdapter(() => {}), sanitize: identitySanitize, vcsWrite: fakeVcsWrite([]), render: realRender() }, {
+    repo: "org/app", branch: "qa-bot/abc1234", reviewerApproved: true, coverageBlocks: false, shadow: false, e2eChanged: true,
+  });
+  const fact: DataContradiction = { route: "/browse", key: "category", operation: "GET https://app.example/api/items/by-region/ES", items: 12, provider: "provider-undeclared", consumer: { callSite: "src/api.ts:12", callSites: 1, declaredType: "Item[]", reads: ["src/list.ts:4"], readCount: 1 } };
+  const defects: DefectFact[] = [{ fact, basis: "page", via: ["page /browse"] }];
+
+  const published = await adapter.publish({ verdict: "fail", cases: [{ name: "browse lists items", status: "pass" }], logs: "", workspace: handle(), defects });
+
+  assert.equal(published.outcome, "issue: https://github.com/org/app/issues/9");
+  assert.match(bodies[0]!, /Defects found without a failing test[\s\S]*none carrying "category"/);
 });
 
 test("publish() puts the cases that check a page only as DEV served it empty into the PR body and the Issue body it renders", async () => {

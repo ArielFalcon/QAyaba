@@ -8,7 +8,7 @@ import type { AgentBrowserGateSignal } from "./agent-browser.ts";
 import type { CoordinationGateSignal } from "./coordination.ts";
 import type { NoopKind } from "./noop-kind.ts";
 import type { RouteAvailabilityGateSignal } from "./route-availability.ts";
-import type { DataContradictionGateSignal } from "./data-contradiction.ts";
+import type { DataContradictionGateSignal, DefectsGateSignal } from "./data-contradiction.ts";
 import type { ServedVersionSignal } from "./served-version.ts";
 import type { LessonsSignal } from "./lessons-signal.ts";
 import type { ObservedDifference } from "./observed-difference.ts";
@@ -135,6 +135,8 @@ export interface RunOutcome {
     routeAvailability?: RouteAvailabilityGateSignal;
     /* Which fields the consumer's own code expects of an operation's answer that no response the captured pages received carries at any depth, and what the provider's contract says of each (`provider-undeclared`, `provider-declared-absent`, `no-provider-contract`). Runs stored before the consumer rule list `carriedBy`/`missingFrom` on a fact instead. Absent when no page had a shape to read. Persist-only: it reads nothing back into a verdict. */
     dataContradictions?: DataContradictionGateSignal;
+    /* The defects the run found by the engine's own facts, with no failing test needed: a contradiction the provider's contract does not declare, in the change's reach. Each makes a green run end `fail`. Absent when the run decided none (a stored run before the rule has none, and says nothing of them). */
+    defects?: DefectsGateSignal;
     /* The passing cases whose every assertion ran on a page as it loaded, before any step of their own, on a page the Context Pack read as a confirmed empty state (`cases`), those pages (`pages`), and the untaken arms of the changed code on them (`arms`). Absent when no case was pinned. Persist-only: it reads nothing back into a verdict. */
     ambientDataState?: { cases: number; pages: string[]; arms: number };
     /* How the run's regeneration acceptance spent its proof ledger: how many regenerations were accepted (and how many of those reused a closed-loop proof instead of executing), how many were rejected, and whether the per-run execution cap was hit. Persist-only; never read by decide/verdict/gate/publish. */

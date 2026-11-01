@@ -2,7 +2,7 @@
 
 import { engineLog } from "@kernel/ports/process-logger.ts";
 import type { RouteAvailabilityFact } from "@kernel/route-availability.ts";
-import type { DataContradiction } from "@kernel/data-contradiction.ts";
+import type { DataContradiction, DefectFact } from "@kernel/data-contradiction.ts";
 import type { RunVerdict } from "@kernel/run-verdict.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import { SecretLeakError } from "@kernel/ports/redaction.port.ts";
@@ -65,6 +65,7 @@ export interface PublicationRenderCollaborator {
     missingCases?: readonly string[];
     routeAvailability?: readonly RouteAvailabilityFact[];
     dataContradictions?: readonly DataContradiction[];
+    defects?: readonly DefectFact[];
     ambientDataState?: AmbientDataStateView;
   }, redact: (text: string) => string): string;
   prBody(input: {
@@ -149,6 +150,7 @@ export class PublicationPortAdapter implements PublicationPort {
     missingCases?: readonly string[];
     routeAvailability?: readonly RouteAvailabilityFact[];
     dataContradictions?: readonly DataContradiction[];
+    defects?: readonly DefectFact[];
     ambientDataState?: AmbientDataStateView;
     coverageReport?: CoverageReportView;
   }): Promise<{ outcome: string; revertedDenylisted?: string[]; revertedDangerous?: string[]; held?: { title: string; body: string } }> {
@@ -178,6 +180,7 @@ export class PublicationPortAdapter implements PublicationPort {
           ...(decision.missingCases?.length ? { missingCases: decision.missingCases } : {}),
           ...(decision.routeAvailability?.length ? { routeAvailability: decision.routeAvailability } : {}),
           ...(decision.dataContradictions?.length ? { dataContradictions: decision.dataContradictions } : {}),
+          ...(decision.defects?.length ? { defects: decision.defects } : {}),
           ...(decision.ambientDataState?.pins.length ? { ambientDataState: decision.ambientDataState } : {}),
         }, sanitize),
       );

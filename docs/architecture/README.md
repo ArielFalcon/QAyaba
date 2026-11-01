@@ -144,6 +144,7 @@ Proposals (RFC):
 | [RFC-0014](rfc/0014-diff-tier-signal.md) | The signal that replaces the diff tiers | Accepted | ADR-0001 open question 3 (T22) |
 | [RFC-0015](rfc/0015-verdict-from-uninstrumented-execution.md) | One execution contract; the verdict never comes from an instrumented execution | Accepted (ADR-0023) | T40 (feature document L73-L75), implemented as T41 |
 | [RFC-0016](rfc/0016-context-map-precondition.md) | The context map is a precondition of a run; incremental, framework-free rebuild | Proposed | T44, T45 (feature document L83, L85) |
+| [RFC-0017](rfc/0017-defects-from-verified-facts.md) | A defect is a verified fact, not the shape of a failing test | Proposed (implemented under ADR-0015 point 2) | The owner's questions of 2026-11-01 (feature document `odd/tasks/no-stubs-fact-based-defects.md`, L2) |
 
 Other:
 
@@ -151,7 +152,7 @@ Other:
 |---|---|---|
 | [Rejected explanations](rejected-explanations.md) | The refuted hypotheses and the run index | H03, H05, H10, H13, H14, H26, H27; later N03, N07, Q02, Q03, Q05, Q06, Q07 |
 
-These tables list every record through ADR-0025 and RFC-0016 (Correction 2026-10-31: this sentence said ADR-0017 and RFC-0012 while the tables already held ADR-0022 and RFC-0014; ADR-0023, ADR-0024 and RFC-0015 were missing); a later record is added to its table by the change that adds it.
+These tables list every record through ADR-0025 and RFC-0017 (Correction 2026-10-31: this sentence said ADR-0017 and RFC-0012 while the tables already held ADR-0022 and RFC-0014; ADR-0023, ADR-0024 and RFC-0015 were missing); a later record is added to its table by the change that adds it.
 
 Documents outside this folder that the records build on:
 

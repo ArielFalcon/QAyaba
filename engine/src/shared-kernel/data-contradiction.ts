@@ -69,6 +69,25 @@ export function dataContradictionsSignal(pages: number, facts: readonly DataCont
   return { pages, found: facts.length, schemaBacked: facts.filter((fact) => fact.provider === "provider-declared-absent").length, facts: listed, omitted: Math.max(0, facts.length - listed.length) };
 }
 
+/* A contradiction that is a defect of the run by itself, and how the change reaches it: through the page that read the field (`page`) or the operation it was read from (`request`), `via` naming the entry points. */
+export interface DefectFact {
+  fact: DataContradiction;
+  basis: "request" | "page";
+  via: string[];
+}
+
+/* What a run recorded of the defects it found without a failing test. */
+export interface DefectsGateSignal {
+  found: number;
+  facts: Array<{ route: string; key: string; operation: string; basis: DefectFact["basis"]; via: string[] }>;
+  omitted: number;
+}
+
+export function defectsSignal(defects: readonly DefectFact[]): DefectsGateSignal {
+  const listed = defects.slice(0, MAX_DATA_CONTRADICTIONS_RECORDED).map(({ fact, basis, via }) => ({ route: fact.route, key: fact.key, operation: fact.operation, basis, via }));
+  return { found: defects.length, facts: listed, omitted: Math.max(0, defects.length - listed.length) };
+}
+
 const PROVIDER_STATEMENT: Record<ProviderContract, string> = {
   "provider-undeclared": "the provider's OpenAPI response schema does not declare it",
   "provider-declared-absent": "the provider's OpenAPI response schema declares it",

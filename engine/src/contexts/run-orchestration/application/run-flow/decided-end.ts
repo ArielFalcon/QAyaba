@@ -24,7 +24,7 @@ import { runOf, type RunState } from "./run-state.ts";
 import { recordDegradation } from "./reducers.ts";
 import { routeAvailabilitySignal, type RouteAvailabilityFact } from "@kernel/route-availability.ts";
 import { ambientRecordOf, deliveredSpecTexts, type AmbientRecord } from "./ambient-data-state.ts";
-import { dataContradictionsSignal } from "@kernel/data-contradiction.ts";
+import { dataContradictionsSignal, defectsSignal } from "@kernel/data-contradiction.ts";
 import { distinctLinkCount } from "@kernel/service-links.ts";
 import { ERROR_CLASS } from "@kernel/error-class.ts";
 
@@ -175,10 +175,13 @@ async function publishDecision(state: Readonly<RunState>, ctx: WorkspaceRunConte
   const run = runOf(state);
   const { reviewerApproved } = state.review;
   const { lastAdjudicatorVerdict } = state.fixLoop;
+  const { decision, defects } = decidedOf(state);
+  const defectFacts = new Set((defects ?? []).map((defect) => defect.fact));
+  const possibleContradictions = (state.grounding.dataContradictions?.facts ?? []).filter((fact) => !defectFacts.has(fact));
   let published: Awaited<ReturnType<PublicationPort["publish"]>>;
   try {
     published = await deps.publication.publish({
-      verdict: run.verdict,
+      verdict: decision.verdict,
       cases: run.cases,
       logs: run.logs,
       reviewerApproved,
@@ -197,8 +200,9 @@ async function publishDecision(state: Readonly<RunState>, ctx: WorkspaceRunConte
       ...(state.review.missingCases.length ? { missingCases: state.review.missingCases } : {}),
       /* Every unavailability the change introduced, and every possible regression, for the human reading the PR or the Issue. */
       ...(publishedAvailability(state).length ? { routeAvailability: publishedAvailability(state) } : {}),
-      /* Every pair of data sources of a page that disagreed on what their items carry: possible defects of the app's data, for the human reading the PR or the Issue. */
-      ...(state.grounding.dataContradictions?.facts.length ? { dataContradictions: state.grounding.dataContradictions.facts } : {}),
+      /* Every pair of data sources of a page that disagreed on what their items carry: possible defects of the app's data, for the human reading the PR or the Issue. The ones that are a defect of the run are listed apart. */
+      ...(possibleContradictions.length ? { dataContradictions: possibleContradictions } : {}),
+      ...(defects?.length ? { defects } : {}),
       /* The cases that checked a page only as DEV served it empty, with the untaken arms on those pages. */
       ...(ambient ? { ambientDataState: { pins: ambient.pins, arms: ambient.arms } } : {}),
       ...(resolveTested(state)?.length ? { tested: resolveTested(state) } : {}),
@@ -206,7 +210,7 @@ async function publishDecision(state: Readonly<RunState>, ctx: WorkspaceRunConte
   } catch (pubErr) {
     /* The verdict was decided before the port failed: the policy keeps it, and the run records and learns from it with the failure as its note. */
     const failure = new PublicationFailedError(
-      `publication failed after verdict was decided (decided: ${run.verdict}, reviewerApproved: ${reviewerApproved}): ${pubErr instanceof Error ? pubErr.message : String(pubErr)}`,
+      `publication failed after verdict was decided (decided: ${decision.verdict}, reviewerApproved: ${reviewerApproved}): ${pubErr instanceof Error ? pubErr.message : String(pubErr)}`,
       { cause: pubErr },
     );
     if (actionFor(failure, "publish").do !== "degrade") throw failure;
@@ -299,7 +303,7 @@ function noteOf(publishOutcome: string | undefined, preconditionReason: string |
 /* Derive the errorClass once for both the persisted outcome and the returned result. */
 async function persistOutcome(state: Readonly<RunState>, ctx: WorkspaceRunContext, publishOutcome: string | undefined, ambient: AmbientRecord | undefined, held: Published["held"]): Promise<Persisted> {
   const { deps, services } = ctx;
-  const { decision, isContextCleanPass } = decidedOf(state);
+  const { decision, defects, isContextCleanPass } = decidedOf(state);
   const { retries, validation } = state.execution;
   const run = runOf(state);
   const { coverageRatio, branchCoverage, bundleMutation, branchCases, survivorClosure, flakyTriage, changeCoverage } = state.coverage;
@@ -308,7 +312,8 @@ async function persistOutcome(state: Readonly<RunState>, ctx: WorkspaceRunContex
   const { preExecAmbiguityCatches, catalogGateInWindow, catalogGateAdvisory, catalogGateFailClosed } = state.generation;
   const loopSignal = await closedLoopSignal(state, ctx);
   /* Thread the review loop's real final-round corrections into errorClass derivation. */
-  const errorClass = deriveErrorClass(decision.verdict, coverageRatio, finalReviewerCorrections, {
+  /* The class describes how the execution ended: a defect that stood beside a green suite is the app's, not a fault the engine's audit counts. */
+  const errorClass = deriveErrorClass(run.verdict, coverageRatio, finalReviewerCorrections, {
     ...(state.fixLoop.devNotRenderedConclusive ? { preconditionFailed: true } : {}),
     sandboxRefused: ctx.host.sandboxRefused(),
   });
@@ -331,6 +336,7 @@ async function persistOutcome(state: Readonly<RunState>, ctx: WorkspaceRunContex
     ...(missingCases.length ? { missingCases } : {}),
     ...(state.grounding.routeAvailability ? { routeAvailability: routeAvailabilitySignal(state.grounding.routeAvailability.read, state.grounding.routeAvailability.facts) } : {}),
     ...(state.grounding.dataContradictions ? { dataContradictions: dataContradictionsSignal(state.grounding.dataContradictions.read, state.grounding.dataContradictions.facts) } : {}),
+    ...(defects?.length ? { defects: defectsSignal(defects) } : {}),
     ...(ambient ? { ambientDataState: ambientSignalOf(ambient) } : {}),
     reviewerCorrections: finalReviewerCorrections,
     ...(reviewerSignal !== undefined ? { reviewer: reviewerSignal } : {}),

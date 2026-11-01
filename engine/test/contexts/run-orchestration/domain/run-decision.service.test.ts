@@ -253,3 +253,17 @@ test("decide: shadow does not touch a decision that opens nothing", () => {
     assert.equal(decision.shadowed, false);
   }
 });
+
+test("decide: a green run that found a defect ends fail and opens an Issue, under the same shadow and report rules as any fail", () => {
+  const found = decide(baseEvidence({ defectFound: true }));
+  assert.equal(found.verdict, "fail");
+  assert.equal(found.sideEffect, "issue");
+  assert.equal(decide(baseEvidence({ defectFound: true, shadow: true })).sideEffect, "shadow-log");
+  assert.equal(decide(baseEvidence({ defectFound: true, onFailure: "none" })).sideEffect, "none");
+});
+
+test("decide: a defect found changes no verdict other than a pass", () => {
+  for (const verdict of ["flaky", "invalid", "infra-error", "skipped"] as const) {
+    assert.equal(decide(baseEvidence({ verdict, defectFound: true })).verdict, verdict, verdict);
+  }
+});
