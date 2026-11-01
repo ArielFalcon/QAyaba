@@ -12,6 +12,8 @@ import { GENERATION_END, type GenerationEndKind } from "@kernel/generation-end.t
 import type { NoopKind } from "@kernel/noop-kind.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
 import { decide } from "../../domain/run-decision.service.ts";
+import { defectsSignal, type DefectFact } from "@kernel/data-contradiction.ts";
+import { defectsOf } from "./phases/decide.steps.ts";
 import { RunDecision } from "../../domain/run-decision.ts";
 import { ERROR_CLASS } from "@kernel/error-class.ts";
 import { learningGates, observesOperatingSignal } from "@contexts/cross-run-learning/application/index.ts";
@@ -79,10 +81,12 @@ export async function recordCrashEvidence(note: string, ctx: RunContext, state: 
 
 async function finalizeShape(shape: Shape, effects: EndEffects, ctx: RunContext, state: Readonly<RunState>): Promise<RunQaResult> {
   const { deps, input } = ctx;
-  const decision = decisionOf(shape, ctx);
+  /* The defects the run's facts establish are reported by every end that records a verdict, the verdict itself unchanged. */
+  const defects = shape.kind === "failure" ? [] : defectsOf(state, ctx);
+  const decision = decisionOf(shape, ctx, defects.length > 0);
   let publishOutcome: string | undefined;
   if (effects.publish === "decision" && decision.sideEffect !== "none") {
-    publishOutcome = await publishTerminal(shape, ctx);
+    publishOutcome = await publishTerminal(shape, ctx, defects);
   }
   const prune = async (): Promise<void> => {
     if (hasWorkspace(ctx)) await ctx.host.pruneMirror(ctx.workspace);
@@ -91,7 +95,7 @@ async function finalizeShape(shape: Shape, effects: EndEffects, ctx: RunContext,
 
   const note = noteOf(shape, publishOutcome);
   const persists = effects.persist === "yes" || (effects.persist === "not-in-context-mode" && input.mode !== "context");
-  const outcome = persists ? outcomeOf(shape, decision, note, ctx) : undefined;
+  const outcome = persists ? outcomeOf(shape, decision, note, ctx, defects) : undefined;
   if (outcome) {
     await deps.runHistory.save(outcome);
   }
@@ -168,12 +172,21 @@ function shapeOf(end: Exclude<RunEnd, { reason: "decided" | "context-pass" }>, c
   }
 }
 
-function decisionOf(shape: Shape, ctx: RunContext): RunDecision {
+function decisionOf(shape: Shape, ctx: RunContext, defectFound: boolean): RunDecision {
   switch (shape.kind) {
     case "failure":
       return RunDecision.of("infra-error", "none");
     case "skip":
-      return RunDecision.of("skipped", "none");
+      return decide({
+        verdict: "skipped",
+        generating: false,
+        needsReview: ctx.cfg.needsReview,
+        reviewerApproved: true,
+        blocksPublish: false,
+        shadow: ctx.cfg.shadow,
+        onFailure: ctx.cfg.onFailure,
+        defectFound,
+      });
     case "terminal":
       return decide({
         verdict: shape.terminal.verdict,
@@ -183,22 +196,25 @@ function decisionOf(shape: Shape, ctx: RunContext): RunDecision {
         blocksPublish: false,
         shadow: ctx.cfg.shadow,
         onFailure: ctx.cfg.onFailure,
+        defectFound,
       });
   }
 }
 
-/* The same publish() as the decided end: an invalid terminal opens an Issue, an infra-error resolves to side effect "none" and never gets here. */
-async function publishTerminal(shape: Shape, ctx: RunContext): Promise<string | undefined> {
-  if (shape.kind !== "terminal") return undefined;
-  const { terminal } = shape;
+/* The same publish() as the decided end: an invalid terminal opens an Issue, and an infra-error or a skip resolves to side effect "none" and never gets here unless the run found a defect, which its Issue lists. */
+async function publishTerminal(shape: Shape, ctx: RunContext, defects: readonly DefectFact[]): Promise<string | undefined> {
+  if (shape.kind === "failure") return undefined;
+  const verdict = shape.kind === "skip" ? "skipped" : shape.terminal.verdict;
+  const tested = shape.kind === "terminal" ? shape.terminal.tested : undefined;
   const published = await ctx.deps.publication.publish({
-    verdict: terminal.verdict,
+    verdict,
     cases: [],
-    logs: terminal.note ?? "",
+    logs: (shape.kind === "terminal" ? shape.terminal.note : shape.note) ?? "",
     coverageBlocks: false,
     ...(ctx.input.triggerRepo ? { issueRepo: ctx.input.triggerRepo } : {}),
     /* tested still renders into the Issue body when present. A terminal never routes to "pr". */
-    ...(terminal.tested?.length ? { tested: terminal.tested } : {}),
+    ...(tested?.length ? { tested } : {}),
+    ...(defects.length > 0 ? { defects } : {}),
   } satisfies Parameters<PublicationPort["publish"]>[0]);
   return published.outcome;
 }
@@ -209,11 +225,13 @@ function noteOf(shape: Shape, publishOutcome: string | undefined): string | unde
   return [own, publishOutcome].filter((part): part is string => Boolean(part)).join("\n\n") || undefined;
 }
 
-function outcomeOf(shape: Shape, decision: RunDecision, note: string | undefined, ctx: RunContext): RunOutcome | undefined {
+function outcomeOf(shape: Shape, decision: RunDecision, note: string | undefined, ctx: RunContext, defects: readonly DefectFact[]): RunOutcome | undefined {
+  const defectSignal = defects.length > 0 ? { defects: defectsSignal(defects) } : {};
   if (shape.kind === "skip") {
     return toRunOutcome(ctx, decision, [], 0, null, deriveErrorClass("skipped", null), {
+      ...defectSignal,
       ...(shape.noop ? { noop: shape.noop } : {}),
-      ...(shape.note !== undefined ? { note: shape.note } : {}),
+      ...(note !== undefined ? { note } : {}),
       ...(shape.confinement !== undefined ? { confinement: shape.confinement } : {}),
       ...(shape.closedLoop ? { closedLoop: shape.closedLoop } : {}),
       ...(shape.agentBrowser ? { agentBrowser: shape.agentBrowser } : {}),
@@ -223,6 +241,7 @@ function outcomeOf(shape: Shape, decision: RunDecision, note: string | undefined
   const { terminal } = shape;
   return toRunOutcome(ctx, decision, [], terminal.retries ?? 0, null, errorClassOf(terminal, ctx), {
     staticOk: terminal.static,
+    ...defectSignal,
     note,
     ...(terminal.reviewerRationale !== undefined ? { reviewerRationale: terminal.reviewerRationale } : {}),
     ...(terminal.groundingSignals ?? NO_GROUNDING_SIGNALS),

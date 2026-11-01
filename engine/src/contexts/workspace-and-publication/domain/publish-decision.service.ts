@@ -7,6 +7,8 @@ export interface PublishContext {
   coverageBlocks: boolean;
   shadow: boolean;
   e2eChanged: boolean;
+  /* The run found a defect by the engine's own facts: it is reported whatever the verdict. */
+  defectFound?: boolean;
 }
 export interface PublishDecision { outcome: PublishOutcome; reason: string; }
 
@@ -20,10 +22,13 @@ export class PublishDecisionService {
         if (!ctx.e2eChanged) return { outcome: "noop", reason: "green with no e2e/ changes — nothing to publish" };
         return { outcome: "pr", reason: "green, approved, covered — open PR with auto-merge" };
       case "flaky":
+        if (ctx.defectFound) return { outcome: "issue", reason: "flaky, and a defect was found — quarantine the flaky case, open an Issue for the defect" };
         return { outcome: "quarantine", reason: "flaky — quarantine, no PR" };
       case "infra-error":
+        if (ctx.defectFound) return { outcome: "issue", reason: "infra-error, and a defect was found — open an Issue for the defect" };
         return { outcome: "noop", reason: "infra-error — the run could not reach a verdict, not a code bug; no side effect" };
       case "skipped":
+        if (ctx.defectFound) return { outcome: "issue", reason: "skipped, and a defect was found — open an Issue for the defect" };
         return { outcome: "noop", reason: "skipped — no work to publish" };
       case "fail":
       case "invalid":

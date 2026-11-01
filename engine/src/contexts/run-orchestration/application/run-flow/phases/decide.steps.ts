@@ -7,7 +7,7 @@ import { requestServesOperation } from "@contexts/service-topology/application/i
 import { decide, type RunEvidence } from "../../../domain/run-decision.service.ts";
 import { end, type StepOutcome } from "../run-flow.ts";
 import { runEnd } from "../run-end.ts";
-import type { WorkspaceRunContext } from "../run-context.ts";
+import type { RunContext, WorkspaceRunContext } from "../run-context.ts";
 import { runOf, type DecidedOutcome, type RunState } from "../run-state.ts";
 import { reviewsTests } from "./review.steps.ts";
 
@@ -101,7 +101,7 @@ export function causalLabelOf(state: Readonly<RunState>): CausalLabel | undefine
 }
 
 /* The defects the run's facts establish with no failing test: a contradiction the provider's contract lacks, on a page or operation the change reaches. A run that generated nothing, or a context run, found none. */
-export function defectsOf(state: Readonly<RunState>, ctx: WorkspaceRunContext): DefectFact[] {
+export function defectsOf(state: Readonly<RunState>, ctx: Pick<RunContext, "input">): DefectFact[] {
   if (!state.classification.generating || ctx.input.mode === "context") return [];
   return contradictionDefects({ facts: state.grounding.dataContradictions?.facts ?? [], scope: state.grounding.changeScope, matchers: REACH_MATCHERS });
 }

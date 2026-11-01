@@ -1046,3 +1046,17 @@ test("publish() under shadow with a coverage block opens nothing either and stil
   assert.deepEqual(calls, []);
   assert.match(result.held?.body ?? "", /src\/cart\.ts/);
 });
+
+test("publish() opens an Issue for a defect found by a flaky run or a skipped one, which would otherwise open nothing, and none without a defect", async () => {
+  const { adapter, calls } = recordingAdapter({ coverageBlocks: false });
+  const fact: DataContradiction = { route: "/browse", key: "category", operation: "GET https://app.example/api/items/by-region/ES", items: 12, provider: "provider-undeclared", consumer: { callSite: "src/api.ts:12", callSites: 1, declaredType: "Item[]", reads: ["src/list.ts:4"], readCount: 1 } };
+  const defects: DefectFact[] = [{ fact, basis: "page", via: ["page /browse"] }];
+  for (const verdict of ["flaky", "skipped", "infra-error"] as const) {
+    calls.length = 0;
+    assert.match((await adapter.publish({ verdict, cases: [], logs: "", defects })).outcome, /^issue: /, verdict);
+    assert.deepEqual(calls, ["issue"], verdict);
+    calls.length = 0;
+    assert.doesNotMatch((await adapter.publish({ verdict, cases: [], logs: "" })).outcome, /^issue: /, verdict);
+    assert.deepEqual(calls, [], verdict);
+  }
+});

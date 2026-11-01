@@ -267,3 +267,20 @@ test("decide: a defect found changes no verdict other than a pass", () => {
     assert.equal(decide(baseEvidence({ verdict, defectFound: true })).verdict, verdict, verdict);
   }
 });
+
+test("decide: a defect found opens an Issue beside any verdict, which keeps its own, and the report and shadow rules hold", () => {
+  for (const verdict of ["flaky", "infra-error", "skipped"] as const) {
+    const found = decide(baseEvidence({ verdict, defectFound: true }));
+    assert.equal(found.verdict, verdict, verdict);
+    assert.equal(found.sideEffect, "issue", verdict);
+    assert.equal(decide(baseEvidence({ verdict, defectFound: true, shadow: true })).sideEffect, "shadow-log", verdict);
+  }
+  assert.equal(decide(baseEvidence({ verdict: "flaky", defectFound: true, onFailure: "none" })).sideEffect, "quarantine", "a report that opens no Issue still quarantines the flaky case");
+  assert.equal(decide(baseEvidence({ verdict: "skipped", defectFound: true, onFailure: "none" })).sideEffect, "none");
+});
+
+test("decide: a run with no defect keeps the flaky quarantine and the silent infra-error and skip", () => {
+  assert.equal(decide(baseEvidence({ verdict: "flaky", defectFound: false })).sideEffect, "quarantine");
+  assert.equal(decide(baseEvidence({ verdict: "infra-error", defectFound: false })).sideEffect, "none");
+  assert.equal(decide(baseEvidence({ verdict: "skipped" })).sideEffect, "none");
+});

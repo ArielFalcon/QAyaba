@@ -64,18 +64,21 @@ function renderFailedCase(c: QaCase, bound: Bound): string {
 }
 
 function headline(verdict: RunVerdict, failedCount: number, totalCount: number, flakyCount: number, defectCount: number): string {
+  const found = failedCount === 0 && defectCount > 0 ? `${defectCount} defect(s) found without a failing check` : undefined;
   switch (verdict) {
     case "fail":
-      if (failedCount === 0 && defectCount > 0) return `${defectCount} defect(s) found without a failing check`;
+      if (found) return found;
       return totalCount
         ? `${failedCount} of ${totalCount} check(s) failed against the live environment`
         : "the tests failed against the live environment";
     case "invalid":
       return "the generated tests could not be validated (static gate)";
-    case "flaky":
-      return `${flakyCount} test(s) were unstable and were quarantined`;
+    case "flaky": {
+      const unstable = `${flakyCount} test(s) were unstable and were quarantined`;
+      return found ? `${found}, and ${unstable}` : unstable;
+    }
     default:
-      return "the generated tests need changes before they can land";
+      return found ?? "the generated tests need changes before they can land";
   }
 }
 
