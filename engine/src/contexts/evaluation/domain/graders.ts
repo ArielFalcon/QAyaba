@@ -570,7 +570,7 @@ const defectFound: Grader = {
     if (!causal && verified === 0) return [];
     const failing = causal?.inReach ?? 0;
     const parts = [
-      ...(causal ? [`${causal.inReach} failing case(s) in the change's reach, ${causal.outOfReach} out of reach, ${causal.unknown} unknown`] : []),
+      ...(causal ? [`${causal.inReach} in the change's reach, ${causal.outOfReach} out of reach, ${causal.unknown} unknown`] : []),
       ...(verified > 0 ? [`${verified} defect(s) verified without a failing test`] : []),
     ];
     return [{ name: "defect_found", value: failing + verified, comment: parts.join("; ") }];
