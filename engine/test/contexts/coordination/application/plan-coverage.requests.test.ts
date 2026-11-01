@@ -3,6 +3,9 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { planCoverage, renderReplanRequest } from "@contexts/coordination/application/plan-coverage.ts";
 import { DROP_BASIS, type PlanDrop } from "@contexts/coordination/application/lead-plan.ts";
+import { recordedRequestsFor } from "@contexts/generation/domain/pack-pages.ts";
+import { requestsSectionLines } from "@contexts/generation/domain/pack-requests.ts";
+import { PACK_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
 import { PatternRedactionAdapter } from "../../../../src/shared-infrastructure/redaction/pattern-redaction.adapter.ts";
 import { pageCandidate } from "../../../support/use-case-candidate.ts";
 import type { UseCaseCandidate } from "@kernel/use-case-candidate.ts";
@@ -46,6 +49,13 @@ test("the other bases, and candidates whose pages recorded no request, are judge
   const quiet = seeded("/orders", ["src/orders.css"]);
   assert.equal(planCoverage({ flows: [], dropped: [dropOf(quiet, DROP_BASIS.NO_OBSERVABLE_CHANGE)] }, [quiet], facts).dropped.length, 1);
   assert.equal(planCoverage({ flows: [], dropped: [dropOf(style, DROP_BASIS.NO_OBSERVABLE_CHANGE)] }, [style]).dropped.length, 1, "no facts given, the drop stands");
+});
+
+test("a page whose only requests went to hosts the run does not declare does not refuse a no-observable-change drop", () => {
+  const style = seeded("/map", ["src/map.css"]);
+  const pack = [`### ${PACK_HEADINGS.requests}`, ...requestsSectionLines([{ route: "/map", requests: { listed: [], otherHosts: [{ host: "sentry.example", count: 2 }], omitted: 0 } }])].join("\n");
+  const coverage = planCoverage({ flows: [], dropped: [dropOf(style, DROP_BASIS.NO_OBSERVABLE_CHANGE)] }, [style], { recordedRequests: () => recordedRequestsFor(pack, ["/map"]) });
+  assert.deepEqual([coverage.dropped.length, coverage.unresolved.length], [1, 0]);
 });
 
 test("the re-plan request shows the lead the request that contradicts its drop", () => {

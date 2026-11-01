@@ -1,5 +1,5 @@
 /* What one DOM capture reports of a route, as the capture script writes it and the grounding reads it. */
-import type { ObservedRequest } from "@kernel/observed-requests.ts";
+import type { ObservedRequests } from "@kernel/observed-requests.ts";
 
 export interface NodeAttr {
   key: string;
@@ -18,11 +18,8 @@ export interface RepeatedName {
   scope: string[];
 }
 
-/* The data requests (fetch, XHR) a page's code made while it was captured, as the kernel ledger keeps them: method + origin + pathname with a count, and how many the safety bounds left out. */
-export interface PageRequests {
-  listed: ObservedRequest[];
-  omitted: number;
-}
+/* The data requests (fetch, XHR) a page's code made while it was captured, as the kernel ledger keeps them: those to an origin the run declares as method + origin + pathname with a count, those to any other host only counted per host, and how many the safety bounds left out. */
+export type PageRequests = ObservedRequests;
 
 /*
  * The shape of one JSON response a page's code read while it was captured: the operation (method + origin + pathname, as the request

@@ -12,6 +12,30 @@ test("a read of a declared origin is allowed whatever the safe method", () => {
   }
 });
 
+test("the origin role agrees with the origin step of the decision: declared origins, sockets included, are listed and anything else is counted by host", () => {
+  const g = guard();
+  const declared = ["https://dev.example.com/a", "wss://dev.example.com/socket", "https://cdn.example.com:8443/x"];
+  const other = ["https://dev.example.com:444/a", "http://dev.example.com/a", "https://tracker.example/p", "ftp://dev.example.com/f", "not a url"];
+  for (const url of declared) assert.equal(g.originRole(url), "listed", url);
+  for (const url of other) assert.equal(g.originRole(url), "counted-by-host", url);
+  for (const url of declared.filter((u) => u.startsWith("https")) ) assert.equal(g.decide({ method: "GET", url }).allow, true, url);
+  for (const url of other.filter((u) => u.startsWith("http"))) {
+    const decision = g.decide({ method: "GET", url });
+    assert.equal(decision.allow === false && decision.reason, "origin", url);
+  }
+});
+
+test("a declared third-party origin is reachable for the guard but its role is third-party, so no observer lists it", () => {
+  const g = guard({ origins: [...POLICY.origins, "https://tiles.example", "https://*.fonts.example"], thirdPartyOrigins: ["https://tiles.example", "https://*.fonts.example"] });
+  for (const url of ["https://tiles.example/v4/1.pbf", "https://a.fonts.example/f.woff2"]) {
+    assert.equal(g.originRole(url), "third-party", url);
+    assert.equal(g.decide({ method: "GET", url }).allow, true, url);
+  }
+  assert.equal(g.originRole("https://tiles.example:444/x"), "counted-by-host");
+  assert.equal(g.originRole("https://dev.example.com/a"), "listed");
+  assert.equal(guard().originRole("https://tiles.example/v4/1.pbf"), "counted-by-host", "an app that declares none keeps its previous roles");
+});
+
 test("every method that can write is blocked, with the reason named", () => {
   const g = guard();
   for (const method of ["POST", "PUT", "PATCH", "DELETE", "post", "PROPFIND"]) {

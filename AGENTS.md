@@ -335,11 +335,16 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   through the confined reader; a flow sidekick's brief carries them with the suite listing), existing-suite manifest.
 - **Requests the pages made** — the DOM capture records, per captured route, the data requests (fetch, XHR) the page's code made
   while it was read (`embedded/capture-dom.script.cjs`, in the sandbox like the rest of the capture) as method + origin + pathname with a
-  count, never the query, fragment, body, headers, cookies or userinfo, the requests of every origin and one that failed marked; the kept
+  count, never the query, fragment, body, headers, cookies or userinfo, and one that failed marked. The script reports every origin; the
+  orchestrator keeps as a request only one to an origin the run declares for the app (`resolveRunOrigins(app).dev` less `.thirdParty`, handed to `createCaptureDomDeps` like the
+  geolocation) and counts any other host, `dev.blockedOrigins` and the declared `dev.thirdPartyOrigins` (map tiles, fonts: reachable, never the app's data, never an observable) included, per host (`PageRequests.otherHosts`), by the one kernel rule
+  (`requestOriginClassifier` in `shared-kernel/observed-requests.ts`: the egress filter's own match of host and port, role `listed`, `third-party` or `counted-by-host`) that the authenticated
+  browser's route guard and log apply too (`RouteGuard.originRole`; the guard admits a `third-party` origin and refuses only `counted-by-host`); the kept
   entries and their bounds are the kernel ledger's (`shared-kernel/observed-requests.ts`, `MAX_LOGGED_*`), the same one the authenticated
   browser's log uses, and what the script or the ledger leaves out is a count (`omitted`). The capture's output passes the run's
   by-value redaction where it enters and the pack text the pattern redaction. The pack lists them as the `Requests the pages made` section
-  (`generation/domain/pack-requests.ts`, one fact per request); a flow's brief carries those of its pages (`packPagesFor`), over the window they give way
+  (`generation/domain/pack-requests.ts`, one fact per request, then one line per page counting the other hosts, which states no request:
+  `recordedRequestsFor` does not return it, so a page whose only requests went to undeclared hosts never backs a drop refusal); a flow's brief carries those of its pages (`packPagesFor`), over the window they give way
   after the pages and the availability facts, last fact first, as a count, and a `no-observable-change` drop of a candidate whose pages
   made requests is refused with the first of them named (`dropRefusal`; what the lead keeps after the one re-ask is honoured and
   recorded as before). A signal, never a gate.
@@ -435,7 +440,7 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   the session's previous action, from the route handler that already judges every request (`test-execution/domain/agent-browser-request-log.ts`
   over the kernel ledger `shared-kernel/observed-requests.ts`, pure, nothing written): method + origin + pathname with a count, never the query, fragment, body, headers, cookies or userinfo; a request
   to an origin the run declares is listed (`blocked` when the guard refused its route or method), one to any other host is only counted per
-  host with no path; only requests attributed to the answering session's own page are kept (an unattributable one, a popup's, is listed to no session); the log is bounded
+  host with no path (the same `requestOriginClassifier` the Context Pack's capture applies, reached through `RouteGuard.originRole`); only requests attributed to the answering session's own page are kept (an unattributable one, a popup's, is listed to no session); the log is bounded
   against an endless polling page and hostile address lengths (`MAX_LOGGED_REQUESTS`, `MAX_LOGGED_HOSTS`, `MAX_LOGGED_PATH_CHARS`: a longer address is cut
   at a path segment and marked, `MAX_LOGGED_TOTAL_CHARS`, all enforced when a request is recorded) and the answer states the `omitted` number; the answer passes the same `redact` as the rest (run secrets by value, then the patterns). A page that says the session is gone (login path, 401 document, a password
   field on a page that was not asked for) makes the tool error with `session invalidated`, asks the auth port to sign in again (at
@@ -832,7 +837,7 @@ test, and the verdict is its last action.
   runner, the mutation run) are a frozen list with a reason each (`engine/.dependency-cruiser-tooling-spawners.json`) that may only shrink. `QA_EXEC_SANDBOX=required` (compose) refuses to run agent code
   without the sandbox uid, or with a file boundary the boot check did not prove (`infra-error E-SANDBOX`, never learned from, no Issue).
 - **The sandbox uid's network is closed by default.** An iptables chain matched on that uid redirects its DNS and TCP to a
-  DNS filter and a transparent proxy that allow only the origins declared in config (`dev.allowedOrigins`, the app's own
+  DNS filter and a transparent proxy that allow only the origins declared in config (`dev.allowedOrigins`, `dev.thirdPartyOrigins`, the app's own
   origin, `egress.installOrigins`, `config/egress/registries.yaml`); everything else, IPv6 and the other loopback ports
   included, is rejected. `QA_EGRESS_MODE=enforce` (default) ends a run `E-SANDBOX` when the filter is not active. Origins are
   data: never add a host in code. Denied hosts land in `gateSignals.sandbox.denied`.

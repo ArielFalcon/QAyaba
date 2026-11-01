@@ -10,6 +10,13 @@ test("an e2e run's specs reach the app's own origin and what the app declares, n
   assert.deepEqual(origins.dev, ["https://dev.example.com", "https://idp.example.com", "https://*.cdn.example.com"]);
 });
 
+test("a declared third-party origin is reachable by egress through its own declaration and is not repeated when allowedOrigins names it too", () => {
+  const origins = resolveRunOrigins({ dev: { baseUrl: "https://dev.example.com", allowedOrigins: ["https://idp.example.com"], thirdPartyOrigins: ["https://tiles.example.com", "https://idp.example.com"] } }, REGISTRIES);
+  assert.deepEqual(origins.dev, ["https://dev.example.com", "https://idp.example.com", "https://tiles.example.com"]);
+  assert.deepEqual(origins.thirdParty, ["https://tiles.example.com", "https://idp.example.com"]);
+  assert.deepEqual(resolveRunOrigins({ dev: { baseUrl: "https://dev.example.com" } }, REGISTRIES).thirdParty, []);
+});
+
 test("an e2e run's installs reach the npm registry and the app's own extra registries", () => {
   const origins = resolveRunOrigins({ dev: { baseUrl: "https://dev.example.com" }, egress: { installOrigins: ["https://npm.internal.example.com"] } }, REGISTRIES);
   assert.deepEqual(origins.install, ["https://registry.npmjs.org", "https://npm.internal.example.com"]);

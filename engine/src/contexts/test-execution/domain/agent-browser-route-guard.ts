@@ -8,7 +8,7 @@
  * Order: scheme, origin, denied route, method. A denied route is closed to every method and wins over an allowance.
  */
 
-import { compileEgressPolicy } from "../../../shared-kernel/egress-policy.ts";
+import { networkSchemeOf, requestOriginClassifier, type RequestOriginRole } from "../../../shared-kernel/observed-requests.ts";
 
 export const GUARD_REASON = {
   SCHEME: "scheme",
@@ -29,6 +29,8 @@ export type GuardDecision = { allow: true } | { allow: false; reason: GuardReaso
 export interface RouteGuardPolicy {
   /* The origins the run declares (`scheme://host[:port]`, `scheme://*.suffix[:port]`): the same list the egress filter holds the sandbox to. */
   origins: readonly string[];
+  /* The origins among them whose requests are a third party's, reachable but not the app's (`dev.thirdPartyOrigins`). */
+  thirdPartyOrigins?: readonly string[];
   /* Absolute paths (`*` within one segment, `**` across segments, a trailing `/**` also covers the path itself) closed to every method. */
   denyRoutes: readonly string[];
   /* `[METHOD ]/path` entries: a request with a method that writes is let through only when one matches. */
@@ -37,13 +39,14 @@ export interface RouteGuardPolicy {
 
 export interface RouteGuard {
   decide(request: GuardRequest): GuardDecision;
+  /* Whether an observer of the context's requests lists a request or only counts its host: the origin rule the guard itself applies. */
+  originRole(url: string): RequestOriginRole;
 }
 
 const SAFE_METHODS: ReadonlySet<string> = new Set(["GET", "HEAD", "OPTIONS"]);
 const MUTATING_METHODS = ["POST", "PUT", "PATCH", "DELETE"] as const;
 /* Schemes that reach no network: a page's own data. */
 const LOCAL_SCHEMES: ReadonlySet<string> = new Set(["about:", "data:", "blob:"]);
-const SOCKET_SCHEME: Readonly<Record<string, string>> = { "ws:": "http:", "wss:": "https:" };
 const PATTERN_CHARS = /^[A-Za-z0-9._~\-/*:@!$&'()+,;=%]+$/;
 const MAX_PATTERN_CHARS = 200;
 
@@ -113,7 +116,7 @@ interface MutatingEntry {
 }
 
 export function createRouteGuard(policy: RouteGuardPolicy): RouteGuard {
-  const origins = compileEgressPolicy(policy.origins);
+  const originRole = requestOriginClassifier(policy.origins, policy.thirdPartyOrigins);
   const deny = policy.denyRoutes.map((pattern) => patternToRegExp(pattern.toLowerCase(), ""));
   const allow: MutatingEntry[] = policy.allowMutating.map((entry) => {
     const match = /^(?:([A-Z]+) )?(\/.*)$/.exec(entry)!;
@@ -121,6 +124,7 @@ export function createRouteGuard(policy: RouteGuardPolicy): RouteGuard {
   });
 
   return {
+    originRole,
     decide(request) {
       let url: URL;
       try {
@@ -129,10 +133,8 @@ export function createRouteGuard(policy: RouteGuardPolicy): RouteGuard {
         return { allow: false, reason: GUARD_REASON.SCHEME, detail: "the address could not be read" };
       }
       if (LOCAL_SCHEMES.has(url.protocol)) return { allow: true };
-      const scheme = SOCKET_SCHEME[url.protocol] ?? url.protocol;
-      if (scheme !== "http:" && scheme !== "https:") return { allow: false, reason: GUARD_REASON.SCHEME, detail: `${url.protocol} addresses are not reachable` };
-      const port = url.port !== "" ? Number(url.port) : scheme === "https:" ? 443 : 80;
-      if (!origins.allows(url.hostname, port)) return { allow: false, reason: GUARD_REASON.ORIGIN, detail: `${url.origin} is not an origin of this run` };
+      if (networkSchemeOf(url.protocol) === undefined) return { allow: false, reason: GUARD_REASON.SCHEME, detail: `${url.protocol} addresses are not reachable` };
+      if (originRole(request.url) === "counted-by-host") return { allow: false, reason: GUARD_REASON.ORIGIN, detail: `${url.origin} is not an origin of this run` };
       const path = denyForm(url.pathname);
       if (deny.some((re) => re.test(path))) return { allow: false, reason: GUARD_REASON.DENY_ROUTE, detail: `${url.pathname} is a route this app closes to the agent` };
       const method = request.method.toUpperCase();

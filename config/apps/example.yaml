@@ -89,6 +89,9 @@ dev:
   versionUrl: "https://dev.example.internal/version"
   pollIntervalMs: 10000        # how often the gate polls
   deployTimeoutMs: 600000      # 10 min for DEV to stabilize on the new SHA
+  # thirdPartyOrigins:          # optional: origins the pages load from a third party (map tiles, fonts, a geocoder). The sandbox
+  #   - "https://api.maps.example"   # reaches them like an allowed origin (declare them here, not also in allowedOrigins), but
+  #                             # their requests are only counted by host: never listed as the page's requests nor asserted on
   # geolocation:                # optional: the browser position the suite, the Context Pack and the authoring browser use
   #   latitude: 40.4818         # Alcalá de Henares' historic centre, for example
   #   longitude: -3.3643

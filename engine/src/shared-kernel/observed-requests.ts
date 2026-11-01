@@ -7,6 +7,7 @@
  */
 
 import { cutAddress, withoutPartialValue } from "./address-cut.ts";
+import { compileEgressPolicy } from "./egress-policy.ts";
 import { redactByValue } from "./run-secret-redaction.ts";
 
 /* A request the page made, as method + origin + pathname (no query, fragment, body, headers, cookies or userinfo), with how many times. */
@@ -52,6 +53,35 @@ export function requestAddress(url: string): { origin: string; address: string; 
   } catch {
     return undefined;
   }
+}
+
+const NETWORK_SCHEME: Readonly<Record<string, "http:" | "https:">> = { "http:": "http:", "https:": "https:", "ws:": "http:", "wss:": "https:" };
+
+/* The scheme a request travels over the network by (a web socket by its http twin), or undefined when it reaches no network the run could declare. */
+export function networkSchemeOf(protocol: string): "http:" | "https:" | undefined {
+  return NETWORK_SCHEME[protocol];
+}
+
+/* Whether an observer lists a request or only counts its host: listed when its origin is one the run declares for the app, counted by host otherwise. `third-party` is an origin the run reaches but whose requests are not the app's (`dev.thirdPartyOrigins`); `counted-by-host` is a host the egress filter refuses (the app's blocked origins included) or an address that reaches no declared network. */
+export type RequestOriginRole = "listed" | "third-party" | "counted-by-host";
+
+/* The one rule every observer of a page's requests applies, from the origins the run reaches and the third-party ones among them (`resolveRunOrigins(app)`'s `dev` and `thirdParty`): the egress filter's own match of host and port. */
+export function requestOriginClassifier(origins: readonly string[], thirdPartyOrigins: readonly string[] = []): (url: string) => RequestOriginRole {
+  const policy = compileEgressPolicy(origins);
+  const thirdParty = compileEgressPolicy(thirdPartyOrigins);
+  return (url) => {
+    let parsed: URL;
+    try {
+      parsed = new URL(url);
+    } catch {
+      return "counted-by-host";
+    }
+    const scheme = networkSchemeOf(parsed.protocol);
+    if (scheme === undefined) return "counted-by-host";
+    const port = parsed.port !== "" ? Number(parsed.port) : scheme === "https:" ? 443 : 80;
+    if (thirdParty.allows(parsed.hostname, port)) return "third-party";
+    return policy.allows(parsed.hostname, port) ? "listed" : "counted-by-host";
+  };
 }
 
 interface Listed {
