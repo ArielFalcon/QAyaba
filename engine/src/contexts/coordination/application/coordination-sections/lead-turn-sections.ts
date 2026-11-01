@@ -332,7 +332,7 @@ export const LEAD_CORRECTION_SECTIONS: readonly PromptSectionDef<CorrectionPromp
     render: (ctx) => ({
       content: [
         "### Findings whose file several flows hold",
-        "Each is listed under the flow whose spec ran its file, else the one whose use case it seeds directly, else the first. An order may give it to another flow named here instead: it then reaches that flow alone.",
+        "Each is listed under the flow whose spec evaluated what it is about (when several did, the one holding the fewest findings of this turn, then the first by spec path), else the one whose use case it seeds directly, else the first. An order may give it to another flow named here instead: it then reaches that flow alone.",
         ...sharedFindingGroups(ctx).map(({ numbers, flows }) => `- ${numberRanges(numbers)}: ${flows.map((id) => `\`${id}\``).join(", ")}`),
       ].join("\n"),
     }),

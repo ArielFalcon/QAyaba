@@ -133,13 +133,13 @@ function namesSpecIn(text: string, spec: string): boolean {
 }
 
 /*
- * The flow a finding belongs to: the one whose spec its citation names, or failing that the one spec its text names as a whole
- * path, or failing that, for a finding about a changed file, a flow that holds it (covers a use case that file seeds). A file
- * several flows hold reaches exactly one by default: the first flow, in the pass's order (the plan's, then the flows the pass
- * opened), whose spec's tests ran the file (`ranBy`, what the run executed), preferring among those, and then among the rest, the
- * one whose use case holds it as one of its own seeds over one that holds it only as a hub's code. The lead may give such a finding
- * to another flow that holds the file (`admitLeadCorrection`). A text that names the specs of several flows belongs to none of them:
- * the lead is asked where it goes.
+ * The flow a finding belongs to, from the facts in the order of their strength: the one whose spec its citation names, or failing that
+ * the one spec its text names as a whole path; else the flows whose spec's tests evaluated what the finding is about (`ranBy`: the
+ * decision of an arm, the file of a line), which several flows share by the fewest findings the turn already gave them and then by spec
+ * path, never by plan order; else, for a finding about a changed file no flow's spec evaluated, a flow that holds the file (covers a
+ * use case that file seeds), the one whose use case holds it as one of its own seeds over one that holds it only as a hub's code, the
+ * first in the pass's order among equals. The lead may give a finding about a file to another flow that holds it or evaluated it
+ * (`admitLeadCorrection`). A text that names the specs of several flows belongs to none of them: the lead is asked where it goes.
  */
 export function flowOfFinding(finding: CorrectionFinding, flows: readonly FlowUnderCorrection[]): string | undefined {
   return routeOfFinding(finding, flows)?.flowId;
@@ -151,33 +151,77 @@ export function flowsHoldingFile(finding: CorrectionFinding, flows: readonly Flo
   return flows.filter((flow) => flow.seedFiles?.some((file) => sameSpecPath(file, finding.file!)) ?? false);
 }
 
-/* The flow a finding belongs to and what decided it: the spec it cites or names, or the changed file that seeds a use case the flow covers. */
-export function routeOfFinding(finding: CorrectionFinding, flows: readonly FlowUnderCorrection[]): { flowId: string; by: "spec" | "candidate" } | undefined {
-  const cited = finding.spec;
-  const bySpec = (id: string | undefined): { flowId: string; by: "spec" } | undefined => (id === undefined ? undefined : { flowId: id, by: "spec" });
-  if (cited) return bySpec(flows.find((flow) => endsWithSpecPath(cited, flow.specFile))?.id);
-  const named = flows.filter((flow) => namesSpecIn(finding.text, flow.specFile));
-  if (named.length > 0) return named.length === 1 ? bySpec(named[0]!.id) : undefined;
-  const ran = (flow: FlowUnderCorrection): boolean => finding.ranBy?.some((spec) => endsWithSpecPath(spec, flow.specFile)) ?? false;
-  const direct = (flow: FlowUnderCorrection): boolean => flow.directSeedFiles?.some((file) => sameSpecPath(file, finding.file!)) ?? false;
-  const rank = (flow: FlowUnderCorrection): number => (ran(flow) ? 0 : 2) + (direct(flow) ? 0 : 1);
-  const owner = flowsHoldingFile(finding, flows).reduce<FlowUnderCorrection | undefined>((best, flow) => (best === undefined || rank(flow) < rank(best) ? flow : best), undefined);
-  return owner === undefined ? undefined : { flowId: owner.id, by: "candidate" };
+/* The flow a finding belongs to and what decided it: the spec it cites or names, the spec that evaluated what it is about, or the changed file that seeds a use case the flow covers. */
+export type FindingRoute = { flowId: string; by: "spec" | "evaluator" | "candidate" };
+
+/* The flows of the pass whose spec's tests evaluated what the finding is about, in the pass's order. */
+function evaluatorsOf(finding: CorrectionFinding, flows: readonly FlowUnderCorrection[]): FlowUnderCorrection[] {
+  return flows.filter((flow) => finding.ranBy?.some((spec) => endsWithSpecPath(spec, flow.specFile)) ?? false);
 }
 
-/* The ids of the flows the lead may give a finding to, when its owner is settled by the file it names and several flows hold that file; empty otherwise. */
-function movableAmong(finding: CorrectionFinding, flows: readonly FlowUnderCorrection[]): string[] {
-  if (routeOfFinding(finding, flows)?.by !== "candidate") return [];
+/* What the facts of one finding settle without the turn's other findings: its route, none, or the flows that share it. */
+type Placement = { route: FindingRoute | undefined } | { evaluators: FlowUnderCorrection[] };
+
+function placementOf(finding: CorrectionFinding, flows: readonly FlowUnderCorrection[]): Placement {
+  const cited = finding.spec;
+  const bySpec = (id: string | undefined): Placement => ({ route: id === undefined ? undefined : { flowId: id, by: "spec" } });
+  if (cited) return bySpec(flows.find((flow) => endsWithSpecPath(cited, flow.specFile))?.id);
+  const named = flows.filter((flow) => namesSpecIn(finding.text, flow.specFile));
+  if (named.length > 0) return named.length === 1 ? bySpec(named[0]!.id) : { route: undefined };
+  const evaluators = evaluatorsOf(finding, flows);
+  if (evaluators.length > 0) return { evaluators };
+  const direct = (flow: FlowUnderCorrection): boolean => flow.directSeedFiles?.some((file) => sameSpecPath(file, finding.file!)) ?? false;
+  const owner = flowsHoldingFile(finding, flows).reduce<FlowUnderCorrection | undefined>((best, flow) => (best === undefined || (direct(flow) && !direct(best)) ? flow : best), undefined);
+  return { route: owner === undefined ? undefined : { flowId: owner.id, by: "candidate" } };
+}
+
+const bySpecPath = (a: FlowUnderCorrection, b: FlowUnderCorrection): number => (a.specFile < b.specFile ? -1 : a.specFile > b.specFile ? 1 : 0);
+
+/*
+ * The route of each finding of a turn. A finding several flows evaluated goes to the one holding the fewest findings of the turn
+ * (those the other facts placed, then those already shared out, in the order of the findings), then to the first by spec path, so the
+ * same findings reach the same flows whatever order the flows are listed in.
+ */
+export function routesOfFindings(findings: readonly CorrectionFinding[], flows: readonly FlowUnderCorrection[]): Array<FindingRoute | undefined> {
+  const placed = findings.map((finding) => placementOf(finding, flows));
+  const load = new Map<string, number>();
+  const take = (flowId: string): void => void load.set(flowId, (load.get(flowId) ?? 0) + 1);
+  for (const placement of placed) if ("route" in placement && placement.route) take(placement.route.flowId);
+  return placed.map((placement): FindingRoute | undefined => {
+    if ("route" in placement) return placement.route;
+    const [owner] = [...placement.evaluators].sort((a, b) => (load.get(a.id) ?? 0) - (load.get(b.id) ?? 0) || bySpecPath(a, b));
+    take(owner!.id);
+    return { flowId: owner!.id, by: "evaluator" };
+  });
+}
+
+/* The route of one finding as if it were the turn's only one. */
+export function routeOfFinding(finding: CorrectionFinding, flows: readonly FlowUnderCorrection[]): FindingRoute | undefined {
+  return routesOfFindings([finding], flows)[0];
+}
+
+/* The ids of the flows the lead may give a finding to, when its owner is settled by the file it names and several flows hold that file or evaluated what it is about; empty otherwise. */
+function movableAmong(finding: CorrectionFinding, flows: readonly FlowUnderCorrection[], route: FindingRoute | undefined): string[] {
+  if (route?.by !== "candidate" && route?.by !== "evaluator") return [];
+  const evaluators = evaluatorsOf(finding, flows);
   const holders = flowsHoldingFile(finding, flows);
-  return holders.length > 1 ? holders.map((flow) => flow.id) : [];
+  const among = flows.filter((flow) => evaluators.includes(flow) || holders.includes(flow));
+  return among.length > 1 ? among.map((flow) => flow.id) : [];
+}
+
+/* Why a finding stays with the flow its facts gave it. */
+function staysWith(route: FindingRoute): string {
+  if (route.by === "spec") return `the finding cites flow ${route.flowId}'s spec and stays with it`;
+  return `the flow covers no use case the finding's file seeds and its spec did not run what the finding is about; it stays with flow ${route.flowId}`;
 }
 
 /* The correction turn's prompt, as data: the flows and the findings numbered, assembled from the registered sections. How to route them and the answer's shape are the lead's role prompt. */
 export function assembleLeadCorrection(redaction: RedactionPort, flows: readonly FlowUnderCorrection[], findings: readonly CorrectionFinding[], origin: CorrectionOrigin = CORRECTION_ORIGIN.REVIEW, fit?: (bytes: number) => WindowFitOutcome): AssembledPrompt {
   const text = ORIGIN_TEXT[origin];
+  const routes = routesOfFindings(findings, flows);
   return assembleDefs(
     LEAD_CORRECTION_SECTIONS,
-    { flows, findings, owner: findings.map((finding) => flowOfFinding(finding, flows)), holders: findings.map((finding) => movableAmong(finding, flows)), origin: { heading: text.heading, lead: text.lead, rebuttable: rebuttable(origin) }, scrub: (value) => redaction.redact(value) },
+    { flows, findings, owner: routes.map((route) => route?.flowId), holders: findings.map((finding, i) => movableAmong(finding, flows, routes[i])), origin: { heading: text.heading, lead: text.lead, rebuttable: rebuttable(origin) }, scrub: (value) => redaction.redact(value) },
     { separator: "\n\n", ...(fit ? { fit } : {}) },
   );
 }
@@ -201,9 +245,9 @@ function textOf(redaction: RedactionPort, value: unknown, max: number): string {
 
 export function admitLeadCorrection(redaction: RedactionPort, output: string, flows: readonly FlowUnderCorrection[], findings: readonly CorrectionFinding[], origin: CorrectionOrigin = CORRECTION_ORIGIN.REVIEW): CorrectionAdmission {
   const admission: CorrectionAdmission = { readable: false, unreadable: [], orders: [], rebuttals: [], unrouted: [], refused: [] };
-  const route = findings.map((finding) => routeOfFinding(finding, flows));
+  const route = routesOfFindings(findings, flows);
   const owner = route.map((r) => r?.flowId);
-  const movable = findings.map((finding) => movableAmong(finding, flows));
+  const movable = findings.map((finding, i) => movableAmong(finding, flows, route[i]));
   /* The flow the lead gave a finding several flows hold: the first order that names it, which replaces the default owner. */
   const given = new Map<number, string>();
   const byId = new Map(flows.map((flow) => [flow.id, flow]));
@@ -243,14 +287,13 @@ export function admitLeadCorrection(redaction: RedactionPort, output: string, fl
       admission.unreadable.push(...numbers.unreadable);
       for (const index of numbers.entries) {
         if (movable[index]!.length > 0) {
-          if (!movable[index]!.includes(flow.id)) admission.refused.push({ flowId: flow.id, finding: index + 1, reason: `the finding's file seeds no use case the flow covers; it stays with flow ${given.get(index) ?? owner[index]}` });
+          if (!movable[index]!.includes(flow.id)) admission.refused.push({ flowId: flow.id, finding: index + 1, reason: staysWith({ flowId: given.get(index) ?? owner[index]!, by: "candidate" }) });
           else if (given.has(index) && given.get(index) !== flow.id) admission.refused.push({ flowId: flow.id, finding: index + 1, reason: `the finding was already given to flow ${given.get(index)}` });
           else given.set(index, flow.id);
           continue;
         }
         if (owner[index] !== undefined && owner[index] !== flow.id) {
-          const why = route[index]!.by === "spec" ? `the finding cites flow ${owner[index]}'s spec and stays with it` : `the finding's file seeds no use case the flow covers; it stays with flow ${owner[index]}`;
-          admission.refused.push({ flowId: flow.id, finding: index + 1, reason: why });
+          admission.refused.push({ flowId: flow.id, finding: index + 1, reason: staysWith(route[index]!) });
           continue;
         }
         if (owner[index] === undefined) extra.add(index);

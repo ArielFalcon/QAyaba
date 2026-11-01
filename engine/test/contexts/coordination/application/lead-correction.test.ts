@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { CORRECTION_ORIGIN, DEFAULT_CORRECTION_INSTRUCTION, admitLeadCorrection, correctionPreamble, flowOfFinding, routeOfFinding, renderLeadCorrection, type FlowUnderCorrection, type CorrectionFinding } from "@contexts/coordination/application/lead-correction.ts";
+import { CORRECTION_ORIGIN, DEFAULT_CORRECTION_INSTRUCTION, admitLeadCorrection, correctionPreamble, flowOfFinding, routeOfFinding, routesOfFindings, renderLeadCorrection, type FlowUnderCorrection, type CorrectionFinding } from "@contexts/coordination/application/lead-correction.ts";
 import { REVIEW_ACTION } from "@contexts/coordination/application/lead-review.ts";
 import { PatternRedactionAdapter } from "../../../../src/shared-infrastructure/redaction/pattern-redaction.adapter.ts";
 
@@ -213,9 +213,9 @@ test("a file several flows hold goes by default to the flow whose spec's coverag
   const direct: FlowUnderCorrection[] = [{ ...covering[0]! }, { ...covering[1]!, directSeedFiles: ["src/shared.ts"] }];
   assert.equal(flowOfFinding({ text: "x", file: "src/shared.ts", ranBy: ["flows/cart.spec.ts"] }, direct), "cart", "what the run executed over the seeds");
   assert.equal(flowOfFinding({ text: "x", file: "src/shared.ts", ranBy: ["flows/orders.spec.ts"] }, direct), "login", "a spec of no flow that holds the file is no evidence for one");
-  assert.equal(flowOfFinding({ text: "x", file: "src/shared.ts", ranBy: ["flows/cart.spec.ts", "flows/login.spec.ts"] }, direct), "login", "both ran it: the direct seed decides");
+  assert.equal(flowOfFinding({ text: "x", file: "src/shared.ts", ranBy: ["flows/cart.spec.ts", "flows/login.spec.ts"] }, direct), "cart", "both ran it: a measured fact outranks the seeds, and the tie goes by spec path");
   assert.equal(flowOfFinding({ text: "x", file: "src/shared.ts", ranBy: ["flows/login.spec.ts"] }, covering), "login");
-  assert.equal(flowOfFinding({ text: "x", file: "src/other.ts", ranBy: ["flows/cart.spec.ts"] }, covering), undefined, "a flow that holds no use case the file seeds does not own it for having run it");
+  assert.equal(flowOfFinding({ text: "x", file: "src/other.ts", ranBy: ["flows/cart.spec.ts"] }, covering), "cart", "the flow whose spec ran it owns it, whatever it seeds");
   assert.equal(flowOfFinding({ text: "x", file: "src/shared.ts", spec: "flows/login.spec.ts", ranBy: ["flows/cart.spec.ts"] }, covering), "login", "the spec it cites comes first");
 });
 
@@ -243,4 +243,62 @@ test("a finding is routed by the spec it names or by the changed file that seeds
   assert.deepEqual(routeOfFinding({ text: "x", spec: "e2e/flows/cart.spec.ts" }, seeded), { flowId: "cart", by: "spec" });
   assert.deepEqual(routeOfFinding({ text: "x", file: "src/cart.ts" }, seeded), { flowId: "cart", by: "candidate" });
   assert.equal(routeOfFinding({ text: "x" }, seeded), undefined);
+});
+
+/* ── one ownership rule: the spec that evaluated it, then the least loaded, then the static route ─────── */
+
+const trio: FlowUnderCorrection[] = [
+  { id: "alpha", objective: "a", specFile: "flows/alpha.spec.ts", sessionOpen: true, seedFiles: ["src/hub.ts"], candidates: ["uc-a"] },
+  { id: "beta", objective: "b", specFile: "flows/beta.spec.ts", sessionOpen: true, seedFiles: ["src/hub.ts"], candidates: ["uc-b"] },
+  { id: "gamma", objective: "c", specFile: "flows/gamma.spec.ts", sessionOpen: true, seedFiles: ["src/hub.ts"], candidates: ["uc-c"] },
+];
+const evaluated = (line: number, ...ranBy: string[]): CorrectionFinding => ({ text: `decision ${line}`, file: "src/hub.ts", line, ranBy });
+const assignment = (found: readonly CorrectionFinding[], plan: readonly FlowUnderCorrection[]) => routesOfFindings(found, plan).map((r) => r?.flowId);
+
+test("a finding goes to the flow whose spec evaluated its decision although an earlier flow of the plan also seeds the file", () => {
+  assert.deepEqual(routeOfFinding(evaluated(7, "flows/beta.spec.ts"), trio), { flowId: "beta", by: "evaluator" });
+  assert.deepEqual(routeOfFinding(evaluated(7, "flows/gamma.spec.ts"), trio), { flowId: "gamma", by: "evaluator" });
+});
+
+test("findings several specs evaluated are spread over those flows by the fewest findings held, then by spec path, whatever the order of the flows array", () => {
+  const found = [1, 2, 3, 4, 5].map((line) => evaluated(line, "flows/gamma.spec.ts", "flows/alpha.spec.ts"));
+  const plans = [trio, [...trio].reverse(), [trio[1]!, trio[2]!, trio[0]!]];
+
+  for (const plan of plans) assert.deepEqual(assignment(found, plan), ["alpha", "gamma", "alpha", "gamma", "alpha"]);
+});
+
+test("the load that spreads findings counts every finding the turn already gave a flow, whatever fact gave it", () => {
+  const cited: CorrectionFinding[] = [1, 2, 3].map((n) => ({ text: `cart ${n}`, spec: "flows/alpha.spec.ts" }));
+  const found = [...cited, evaluated(4, "flows/alpha.spec.ts", "flows/beta.spec.ts"), evaluated(5, "flows/alpha.spec.ts", "flows/beta.spec.ts")];
+
+  assert.deepEqual(assignment(found, trio), ["alpha", "alpha", "alpha", "beta", "beta"]);
+  assert.deepEqual(assignment(found, [...trio].reverse()), ["alpha", "alpha", "alpha", "beta", "beta"]);
+});
+
+test("a spec spelled differently from the flow's own still counts as evaluating, and a spec of no flow of the pass evaluates for none: the static route stands", () => {
+  assert.equal(flowOfFinding(evaluated(3, "e2e/flows/beta.spec.ts"), trio), "beta");
+  const direct: FlowUnderCorrection[] = [trio[0]!, { ...trio[1]!, directSeedFiles: ["src/hub.ts"] }, trio[2]!];
+  assert.deepEqual(routeOfFinding(evaluated(3, "flows/elsewhere.spec.ts"), direct), { flowId: "beta", by: "candidate" });
+  assert.deepEqual(routeOfFinding({ text: "x", file: "src/hub.ts", line: 3, ranBy: [] }, trio), { flowId: "alpha", by: "candidate" }, "never evaluated: today's static route, first of the plan");
+});
+
+test("a finding that cites or names a spec stays with it whatever ran the decision", () => {
+  assert.deepEqual(routeOfFinding({ ...evaluated(3, "flows/beta.spec.ts"), spec: "flows/gamma.spec.ts" }, trio), { flowId: "gamma", by: "spec" });
+  assert.deepEqual(routeOfFinding({ ...evaluated(3, "flows/beta.spec.ts"), text: "see flows/alpha.spec.ts" }, trio), { flowId: "alpha", by: "spec" });
+});
+
+test("the lead may still give an evaluated finding to a flow that evaluated it or holds the file, and the admission sends the default owner's findings to it", () => {
+  const found = [evaluated(1, "flows/beta.spec.ts"), evaluated(2, "flows/beta.spec.ts")];
+  const unplaced = admitLeadCorrection(redaction, JSON.stringify({ corrections: [] }), trio, found, CORRECTION_ORIGIN.COVERAGE);
+  assert.deepEqual(unplaced.orders.map((o) => [o.flowId, o.indices]), [["beta", [0, 1]]]);
+
+  const moved = admitLeadCorrection(redaction, JSON.stringify({ corrections: [{ flow: "gamma", action: "revise", findings: [2] }] }), trio, found, CORRECTION_ORIGIN.COVERAGE);
+  assert.deepEqual(moved.orders.map((o) => [o.flowId, o.indices]), [["beta", [0]], ["gamma", [1]]]);
+  assert.deepEqual(moved.refused, []);
+});
+
+test("the prompt lists a finding evaluated by one flow under it and offers it to the other holders of the file", () => {
+  const text = renderLeadCorrection(redaction, trio, [evaluated(1, "flows/beta.spec.ts")], CORRECTION_ORIGIN.COVERAGE);
+  assert.match(text, /### Flow `beta`[\s\S]*decision 1/);
+  assert.match(text, /^- 1: .*`alpha`.*`beta`.*`gamma`/m);
 });

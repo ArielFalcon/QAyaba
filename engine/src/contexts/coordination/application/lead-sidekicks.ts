@@ -64,7 +64,7 @@ import { namesTemplatePage } from "@contexts/generation/application/index.ts";
 import type { HarnessFacts } from "@kernel/grounding.ts";
 import type { RedactionPort } from "@kernel/ports/redaction.port.ts";
 import { candidateFlowId, candidateFlowOf, maintenanceFlowId, maintenanceFlowOf, seedsNoCandidate, specNamedBy, uncoveredCandidateOf } from "./maintenance-flow.ts";
-import { CORRECTION_ORIGIN, admitLeadCorrection, correctionPreamble, routeOfFinding, assembleLeadCorrection, assembleRefusedCorrection, type CorrectionOrigin, type CorrectionOrder, type CorrectionRebuttal, type FlowUnderCorrection, type CorrectionFinding } from "./lead-correction.ts";
+import { CORRECTION_ORIGIN, admitLeadCorrection, correctionPreamble, routesOfFindings, assembleLeadCorrection, assembleRefusedCorrection, type CorrectionOrigin, type CorrectionOrder, type CorrectionRebuttal, type FlowUnderCorrection, type CorrectionFinding } from "./lead-correction.ts";
 
 /* The flow's slice of the Context Pack, as a brief field, or nothing when the pack did not read its pages. */
 const pagesOf = (pack: string | undefined, routes: readonly string[]): { pages: string } | undefined => {
@@ -1052,7 +1052,7 @@ export class LeadSidekicks {
     const { input } = context;
     const nothing = (why: string, code: string): PassCorrection => {
       tally.unrouted += findings.length;
-      this.record(input, { kind: "lead-decision", origin, findings: findings.length, routes: { spec: 0, candidate: 0, lead: 0, candidateFlow: 0, unrouted: findings.length }, unroutedReasons: findings.length > 0 ? [code] : [], reason: `correction (${origin}): ${why}; the findings stand` });
+      this.record(input, { kind: "lead-decision", origin, findings: findings.length, routes: { spec: 0, evaluator: 0, candidate: 0, lead: 0, candidateFlow: 0, unrouted: findings.length }, unroutedReasons: findings.length > 0 ? [code] : [], reason: `correction (${origin}): ${why}; the findings stand` });
       return { readable: false, specs: [], rebuttals: [], unrouted: findings.map((_, i) => i) };
     };
     if (state.released) return nothing("the pass was released", "pass-released");
@@ -1479,15 +1479,17 @@ function routingSummary(findings: readonly CorrectionFinding[], under: readonly 
   const ordered = new Set(orders.flatMap((o) => o.indices));
   const opened = new Set(maintenance.flatMap((m) => m.indices));
   const unrouted = new Set(left);
-  const routes = { spec: 0, candidate: 0, lead: 0, candidateFlow: 0, unrouted: 0 };
+  const routes = { spec: 0, evaluator: 0, candidate: 0, lead: 0, candidateFlow: 0, unrouted: 0 };
+  const routed = routesOfFindings(findings, under);
   const reasons = new Set<string>();
-  findings.forEach((finding, i) => {
+  findings.forEach((_, i) => {
     if (unrouted.has(i)) {
       routes.unrouted += 1;
       reasons.add(codeOf(i));
     } else if (ordered.has(i)) {
-      const by = routeOfFinding(finding, under)?.by;
+      const by = routed[i]?.by;
       if (by === "spec") routes.spec += 1;
+      else if (by === "evaluator") routes.evaluator += 1;
       else if (by === "candidate") routes.candidate += 1;
       else routes.lead += 1;
     } else if (opened.has(i)) routes.candidateFlow += 1;

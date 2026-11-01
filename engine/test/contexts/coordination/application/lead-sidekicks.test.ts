@@ -2335,7 +2335,7 @@ test("a correction turn summarises how its findings were routed: by the spec the
   await outcome.pass!.release();
   const summary = r.events.find((e) => e.origin === CORRECTION_ORIGIN.COVERAGE && e.routes !== undefined);
   assert.equal(summary?.findings, 3);
-  assert.deepEqual(summary?.routes, { spec: 1, candidate: 0, lead: 1, candidateFlow: 0, unrouted: 1 });
+  assert.deepEqual(summary?.routes, { spec: 1, evaluator: 0, candidate: 0, lead: 1, candidateFlow: 0, unrouted: 1 });
   assert.deepEqual(summary?.unroutedReasons, ["no-seed-use-case"]);
   const sent = r.events.find((e) => e.flowId === "cart" && e.decision === "revise" && e.findings === 2);
   assert.ok(sent, "the flow's order says how many findings it was sent");

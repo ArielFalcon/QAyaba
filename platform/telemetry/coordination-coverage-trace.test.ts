@@ -44,7 +44,7 @@ test("a coordination event carries its flow, candidates, routes, drop bases and 
   const ids = Array.from({ length: 40 }, (_, i) => `uc-${i}`);
   const event: CoordinationTelemetryEvent = {
     runId: "r", kind: "lead-decision", reason: "correction (coverage): 3 finding(s) routed", at: 1, flowId: "cart", candidateIds: ids, origin: "coverage", findings: 7,
-    routes: { spec: 1, candidate: 2, lead: 1, candidateFlow: 1, unrouted: 2 }, unroutedReasons: ids, dropBases: ids, dropContradicted: true, decision: "revise", overridden: true, overrideReason: "unverified-sent-back",
+    routes: { spec: 1, evaluator: 3, candidate: 2, lead: 1, candidateFlow: 1, unrouted: 2 }, unroutedReasons: ids, dropBases: ids, dropContradicted: true, decision: "revise", overridden: true, overrideReason: "unverified-sent-back",
   };
   inPhase(h, "qayaba.phase.generate", () => new TracedCoordinationTelemetry({ record: () => {} }, h.telemetry).record(event));
   const a = h.only("qayaba.coordination.event").attributes;
@@ -52,7 +52,7 @@ test("a coordination event carries its flow, candidates, routes, drop bases and 
   assert.equal((a["qayaba.coordination.candidate_ids"] as string[]).length <= 12, true);
   assert.equal(a["qayaba.coordination.origin"], "coverage");
   assert.equal(a["qayaba.coordination.findings"], 7);
-  assert.deepEqual([a["qayaba.coordination.findings_by_spec"], a["qayaba.coordination.findings_by_candidate"], a["qayaba.coordination.findings_by_lead"], a["qayaba.coordination.findings_by_candidate_flow"], a["qayaba.coordination.findings_unrouted"]], [1, 2, 1, 1, 2]);
+  assert.deepEqual([a["qayaba.coordination.findings_by_spec"], a["qayaba.coordination.findings_by_evaluator"], a["qayaba.coordination.findings_by_candidate"], a["qayaba.coordination.findings_by_lead"], a["qayaba.coordination.findings_by_candidate_flow"], a["qayaba.coordination.findings_unrouted"]], [1, 3, 2, 1, 1, 2]);
   assert.equal((a["qayaba.coordination.unrouted_reasons"] as string[]).length <= 6, true);
   assert.equal((a["qayaba.coordination.drop_bases"] as string[]).length <= 12, true);
   assert.equal(a["qayaba.coordination.drop_contradicted"], true);

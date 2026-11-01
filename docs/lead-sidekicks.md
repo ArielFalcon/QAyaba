@@ -380,18 +380,19 @@ findings, the run asks the lead, in the same planning session, instead of regene
    (`declaredResourcesOf`, `implementation-resources.ts`), and the candidate holds the file whole (`DECLARED_FILE_SEED_SYMBOL`),
    direct when a seed's file declares it, shared when only a hub's does; the brief names its origin `declared`. Nothing is
    inferred from a name, and a file whose declaring source did not change seeds nothing.
-   A finding that names a changed source file (a coverage finding: `CorrectionFinding.file`, and `line` for an arm) goes to a flow
-   that holds the file, one that covers a use case the file seeds (`flowsHoldingFile`), and to no other. With one such flow it is
-   that flow's whatever the lead answers. With several it reaches exactly one: the flow the lead's first order naming it gives it
-   to, when that flow holds the file; when the lead says nothing about it, the default (`routeOfFinding`): the first flow, in the
-   pass's order (the plan's, then the flows the pass opened), whose spec's tests ran the file (`CorrectionFinding.ranBy`, the spec
-   files whose coverage dumps ran a line of it: what the run executed; the V8 collector names the dumps that ran each changed file,
-   `ObjectiveSignalPort.measure`/`recount` tell them apart among the passing cases' spec files by the dump's name
-   (`isDumpOfSpecFile`), a dump no such spec wrote counting for none, from exactly the dumps that measurement read, and the gap's
-   units carry them; held in memory, never a gate signal or persisted), preferring among those, and then among the rest, the one
-   whose use case holds the file as one of its own seeds over one that holds it only as a hub's code. The lead sees it under that
-   default flow and, in a section of its own, the flows it may give it to instead; an order that gives it to a flow that does not
-   hold the file, or to a second flow, is refused with why and the finding keeps its flow. A finding that cites a flow's spec
+   A finding that names a changed source file (a coverage finding: `CorrectionFinding.file`, and `line` for a decision) has one
+   owner, decided by facts in the order of their strength (`routesOfFindings`, `routeOfFinding`): the spec it cites or names; else the
+   flow whose spec evaluated what it is about (`CorrectionFinding.ranBy`: for a decision the spec files whose dumps ran one of its
+   arms, `UntakenArm.evaluatedBy`; for the lines of a file the spec files whose dumps ran a line of it; `ObjectiveSignalPort.measure`
+   and `recount` tell them apart among the passing cases' spec files by the dump's name (`isDumpOfSpecFile`), a dump no such spec
+   wrote counting for none, from exactly the dumps that measurement read; held in memory, never a gate signal or persisted), and
+   when several flows' specs did, the one holding the fewest findings of the turn (those the other facts placed, then those already
+   shared out in the order of the findings), then the first by spec path, so the same findings reach the same flows whatever the
+   order of the plan; else, for a finding no flow's spec evaluated, the static route: the flow that holds the file, one that covers a
+   use case the file seeds (`flowsHoldingFile`), the one whose use case holds it as one of its own seeds over one that holds it only
+   as a hub's code, the first in the pass's order among equals. The lead sees it under that
+   default flow and, in a section of its own, the flows it may give it to instead (those that evaluated it or hold the file); an
+   order that gives it to a flow that neither evaluated it nor holds the file, or to a second flow, is refused with why and the finding keeps its flow. A finding that cites a flow's spec
    still goes to that flow and no other. With findings no flow owns, the prompt lists every flow with its use cases. A file that
    is one of a use case's own seeds, where no flow of the pass covers that use case (dropped or unplanned), opens one flow for that
    use case (a hub's code a use case only shares opens none: the hub reaches many pages and any one of them is arbitrary, so such a
