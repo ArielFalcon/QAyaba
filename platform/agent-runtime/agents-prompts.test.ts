@@ -204,6 +204,16 @@ describe("agent prompt guard", () => {
     }
   });
 
+  it("qa-author.md leaves a flow's closing shape to the brief and scopes specMetas to the run's own task", () => {
+    for (const rel of GENERATOR_PROMPTS) {
+      const md = readFile(rel);
+      assert.equal(md.includes("delegationId"), false, `${rel}: the flow's DelegationResult shape is the brief's alone`);
+      const blocks = md.split(/^(?=#{2,3} )/m).filter((block) => block.includes("specMetas"));
+      assert.ok(blocks.length > 0, `${rel}: the run's own task still declares specMetas`);
+      for (const block of blocks) assert.match(block.slice(0, 400), /run's own task/, `${rel}: ${block.split("\n")[0]} names the turn kind it is for`);
+    }
+  });
+
   it("no example in qa-author.md reports an approval", () => {
     for (const rel of GENERATOR_PROMPTS) {
       for (const example of finalOutputExamples(rel)) {

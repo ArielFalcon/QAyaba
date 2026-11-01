@@ -106,16 +106,19 @@ function suiteRender({ brief, scrub }: BriefPromptContext): SectionRender {
 
 const withCandidates = (brief: DelegationBrief): boolean => brief.candidates !== undefined && brief.candidates.length > 0;
 
-/* The author's answer: the DelegationResult JSON, one acceptance entry per numbered criterion and one candidate entry per use case of the Change section. */
+/* The flow turn's one closing shape: every field `readDelegationResult` accepts, one acceptance entry per numbered criterion and one candidate entry per use case of the Change section. */
 function authorReturnShape({ brief }: BriefPromptContext): string {
   const candidates = withCandidates(brief);
   return [
     "## Output contract",
     "End with ONLY JSON:",
-    `{"delegationId":"${brief.delegationId}","runId":"${brief.runId}","status":"completed"|"completed-with-concerns"|"blocked"|"needs-lead"|"failed","summary":"...","filesChanged":[{"path":"..."}],"acceptance":[{"criterion":1,"status":${ACCEPTANCE_STATUSES.map((st) => JSON.stringify(st)).join("|")},"note":"..."}],${candidates ? `"candidates":[{"id":"uc-...","status":${CANDIDATE_CLAIMS.map((st) => JSON.stringify(st)).join("|")},"spec":"<test title>"}],` : ""}"concerns":[],"unresolvedQuestions":[]}`,
+    `{"delegationId":"${brief.delegationId}","runId":"${brief.runId}","status":"completed"|"completed-with-concerns"|"blocked"|"needs-lead"|"failed","summary":"...","filesChanged":[{"path":"..."}],"acceptance":[{"criterion":1,"status":${ACCEPTANCE_STATUSES.map((st) => JSON.stringify(st)).join("|")},"note":"..."}],${candidates ? `"candidates":[{"id":"uc-...","status":${CANDIDATE_CLAIMS.map((st) => JSON.stringify(st)).join("|")},"spec":"<test title>"}],` : ""}"concerns":[],"unresolvedQuestions":[],"testCorrect":{"cause":"app"|"env","reason":"..."}}`,
+    "filesChanged: every file you wrote or edited, by its path; a file outside writablePaths makes the result blocked.",
     "acceptance: one entry for every numbered acceptance criterion, by its number: met only when you checked it holds, unmet when your work does not satisfy it, unverified when you could not check it; [] when there are none. Only an unmet entry reports a failure — concerns are notes.",
     "An unmet that DEV's state causes (DEV cannot be brought to the state the criterion needs, as pages you read in this turn show) takes `\"cause\":\"dev-state\",\"pages\":[\"/path\"]` in its entry. The orchestrator checks the pages against what its own browser and run_spec calls saw you read; an unmet without them, or that it cannot confirm, blocks the flow.",
     ...(candidates ? ["candidates: one entry for every use case of the Change section, by its id: covered when a test of yours exercises it, not-covered when none does, blocked when you could not. It is your claim; the orchestrator's own run of the spec decides."] : []),
+    "testCorrect: leave it out unless a later turn asks whether a failing test is right; the orchestrator checks the claim against its own evidence.",
+    "needs-lead is a control state, not a success. A follow-up from the lead is answered with this same shape for the same delegationId and runId.",
     "This is the only closing JSON of your turn: no other verdict object (such as one with a `specs` list) comes with or after it.",
   ].join("\n");
 }

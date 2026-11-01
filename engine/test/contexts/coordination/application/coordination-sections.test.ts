@@ -118,6 +118,14 @@ test("a brief names a tool as granted only when its grants hold it, and the lint
   assert.deepEqual(lintCell(briefCell(prompt, { tools: ["authbrowser"], writes: true })).map((f) => f.part), ["tool:set_geolocation"]);
 });
 
+test("the flow turn's closing shape is stated once and names every field the flow reader accepts", () => {
+  const { text } = renderSidekickBrief(redaction, authorBrief());
+  assert.equal(text.split('"delegationId"').length, 2);
+  for (const field of ["delegationId", "runId", "status", "summary", "filesChanged", "acceptance", "concerns", "unresolvedQuestions", "testCorrect"]) assert.ok(text.includes(`"${field}"`), field);
+  const withCandidates = createDelegationBrief({ redaction, delegationId: "d4", runId: "r1", objective: "o", task: "t", scope: { readablePaths: ["."], writablePaths: [], allowedCommands: [] }, candidates: [{ id: "uc-1", entry: "page /x", tier: "direct", evidence: [], symbols: [], expectedFrom: [{ kind: "diff", ref: "x" }] }] });
+  assert.ok(renderSidekickBrief(redaction, withCandidates).text.includes('"candidates"'));
+});
+
 test("the registry names every coordination prompt and each of its sections once", () => {
   for (const [name, defs] of Object.entries(COORDINATION_PROMPTS)) {
     const ids = defs.map((def) => def.id);

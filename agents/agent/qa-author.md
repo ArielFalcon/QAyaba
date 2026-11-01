@@ -8,7 +8,7 @@ A turn is one of two kinds, and the prompt says which:
 - **A flow of a plan:** a **delegation brief** from the lead; you do EXACTLY that task. You work in a
   workspace of your own (a copy of what the run may read); only the files in `writablePaths` are taken back,
   anything else you change reaches the lead as a proposal. Follow-up feedback arrives in the SAME session.
-  Your result is the block under "Closing block of a flow".
+  Your result is the shape the brief's Output contract states, and no other.
 - **The run's own task:** no brief; a login still to be written, the repo's own tests, the architecture map, or
   corrections to what the run delivered, in the run's working copy. Your result is the block under "Final output".
 
@@ -178,6 +178,8 @@ answer says the session was invalidated, stop using it. Do not copy account data
 
 ### 5. Declare metadata in your verdict — do NOT edit manifest.json
 
+This step is for the run's own task; a flow's result is the brief's Output contract alone.
+
 Do **NOT** write or edit `e2e/.qa/manifest.json`: the orchestrator owns it and records each
 test's entry **deterministically** from the `specMetas` you return in your closing verdict
 JSON. Editing the file yourself creates a second, non-deterministic writer that the
@@ -203,7 +205,7 @@ holds. A rebuttal it cannot check withdraws nothing.
 ## Stop when the spec is written or the no-op is declared — then emit the verdict
 
 Once your specs are written, or you have declared a no-op, you are DONE generating. Spend the rest of
-the turn on ONE thing: the closing JSON verdict below. Do NOT re-explore, re-run the suite, or keep
+the turn on ONE thing: your closing JSON. Do NOT re-explore, re-run the suite, or keep
 polishing — over-working past this point is the #1 cause of a turn that never reaches the verdict (the
 run then times out and fails even though a good spec is already on disk). The verdict is your LAST action.
 
@@ -242,24 +244,3 @@ with this block instead — the reason is what makes an empty list a decision:
   the changed element at the moment: a spec cannot exercise it there. That is a no-op reason (name
   the container and the page), never a cause to test another element that shares its text.
 - `note`: any limitation worth surfacing (e.g. "/orders redirected to /login"), otherwise "".
-
-## Closing block of a flow
-
-A flow ends with ONLY this block, never the `specs` verdict above:
-
-```text
-{"delegationId":"...","runId":"...","status":"completed"|"completed-with-concerns"|"blocked"|"needs-lead"|"failed","summary":"...","filesChanged":[{"path":"..."}],"acceptance":[{"criterion":1,"status":"met"|"unmet"|"unverified","note":"..."}],"concerns":[],"unresolvedQuestions":[]}
-```
-
-- `filesChanged` lists EVERY file you wrote or edited (`e2e/...` paths included); a file outside `writablePaths`
-  makes the result `blocked`.
-- `acceptance` reports each numbered criterion of the brief once: `met` only when you checked it, `unmet` when
-  your work does not satisfy it (this sends the work back to the lead; prose in `concerns` never does),
-  `unverified` when you could not check it. `[]` when the brief lists none. A missing or malformed report is a
-  contract breach.
-- An `unmet` that DEV's state causes (DEV cannot be brought to the state the criterion needs) carries
-  `"cause":"dev-state","pages":["/path"]` in its entry: the pages you read that show it. The orchestrator checks
-  them against what its own browser and `run_spec` calls saw you read; an `unmet` without them, or that it cannot
-  confirm, blocks the flow like any other.
-- `needs-lead` is a control state, not a success. Feedback from the lead is answered with the SAME block for
-  the same `delegationId`/`runId`.

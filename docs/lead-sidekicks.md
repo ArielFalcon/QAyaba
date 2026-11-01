@@ -131,7 +131,7 @@ signed-in app (see below); without either, no sidekick can author and the run en
    roster itself allows, such as reading and searching, is not listed, and `## Scope` states what it may read and write), and its task states the
    flow's `budgetMs`, the time that arms the flow's timer (a follow-up turn states no number: its room depends on the time spent), and a section with nothing to state is not rendered. The sidekick reports a
    claim per id (`covered`, `not-covered`, `blocked`), which the plan snapshot keeps beside the flow's outcome and no
-   grader trusts; its return contract asks for nothing else nobody reads (no evidence, validation or assumptions of its
+   grader trusts; its return contract (the brief's `## Output contract`, the one owner of the flow turn's closing shape; `agents/agent/qa-author.md` holds no flow shape and scopes `specMetas` to the run's own task) names every field `readDelegationResult` accepts and asks for nothing else nobody reads (no evidence, validation or assumptions of its
    own). `FanOutDispatcher` runs at most `maxParallel` flows. Each has its own abort signal and time
    (`flowBudgetMs`, cut to the time the deadline allots to the phase); a flow that throws does not stop the others. A flow whose time is that
    share keeps the dispatcher's timer: the end of a share is that flow's own timeout (the runtime raises `AllotmentSpentError`, an agent timeout,
