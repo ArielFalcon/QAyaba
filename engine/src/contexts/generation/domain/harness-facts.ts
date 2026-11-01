@@ -19,9 +19,16 @@ export interface HarnessFacts {
   };
   /* What the suite's Playwright config declares. */
   playwright?: PlaywrightConfigFacts;
+  /* How many facts or fact texts were left out at a safety bound (`boundHarnessFacts`); absent when none were. */
+  omitted?: number;
 }
 
-export const MAX_FIXTURE_EXPORTS = 40;
+/* The safety bound on one fact's text, in characters, the mark that says it was cut included. The text is the watched repo's. */
+export const HARNESS_TEXT_SAFETY_BOUND = 400;
+/* The safety bound on how many facts one list holds (exports, signatures, members, projects). */
+export const HARNESS_ITEMS_SAFETY_BOUND = 200;
+/* The omission reason of a fact or text left out at a safety bound. */
+export const HARNESS_FACT_SAFETY_BOUND_REASON = "harness-fact-safety-bound";
 export const MAX_EXPORT_NAME_LENGTH = 64;
 export const MAX_ATTRIBUTE_NAME_LENGTH = 64;
 
@@ -73,14 +80,11 @@ export function extractExportedNames(source: string): string[] {
     ...foundBy(code, LIST_RE, (match) => listedNames(match[1]!)),
   ];
   const ordered = found.sort((x, y) => x.at - y.at).flatMap((f) => f.names);
-  return [...new Set(ordered)].filter(isSafeIdentifier).slice(0, MAX_FIXTURE_EXPORTS);
+  return [...new Set(ordered)].filter(isSafeIdentifier);
 }
 
-/* ---- What a suite's fixtures and Playwright config declare, as bounded one-line facts ---- */
+/* ---- What a suite's fixtures and Playwright config declare, as one-line facts ---- */
 
-export const MAX_DECLARATION_LINES = 16;
-export const MAX_DECLARATION_LENGTH = 140;
-export const MAX_PROJECTS = 8;
 export const MAX_PROJECT_NAME_LENGTH = 48;
 
 export interface PlaywrightProjectFact {
@@ -101,10 +105,7 @@ export interface PlaywrightConfigFacts {
   projects: readonly PlaywrightProjectFact[];
 }
 
-const oneLine = (text: string): string => {
-  const flat = text.replace(/\s+/g, " ").trim();
-  return flat.length > MAX_DECLARATION_LENGTH ? `${flat.slice(0, MAX_DECLARATION_LENGTH - 1)}…` : flat;
-};
+const oneLine = (text: string): string => text.replace(/\s+/g, " ").trim();
 
 /* The source up to the body of a declaration: a function's signature ends where its block opens. */
 function declarationHead(line: string): string {
@@ -112,13 +113,12 @@ function declarationHead(line: string): string {
   return oneLine(fn ? fn[1]! : line.replace(/\s*=\s*.*$/, ""));
 }
 
-/* One line per runtime export that is a function, as declared (`export function ns(namespace: string, name: string): string`). Constants and re-exports state their name only (the export list has it). */
+/* One whole line per runtime export that is a function, as declared (`export function ns(namespace: string, name: string): string`). Constants and re-exports state their name only (the export list has it). */
 export function exportedSignatures(source: string): string[] {
   const out: string[] = [];
   for (const line of source.split("\n")) {
     if (!/^export\s+(?:async\s+)?function\b/.test(line)) continue;
     out.push(declarationHead(line));
-    if (out.length >= MAX_DECLARATION_LINES) break;
   }
   return out;
 }
@@ -135,7 +135,6 @@ export function fixtureMembers(source: string): string[] {
     const member = depth === 1 ? /^\s*([A-Za-z][\w$]*)\??\s*:/.exec(line) : null;
     if (member) {
       out.push(oneLine(line));
-      if (out.length >= MAX_DECLARATION_LINES) break;
     }
     for (const ch of line.replace(/\/\/.*$/, "")) {
       if (ch === "{") depth += 1;
@@ -158,7 +157,7 @@ function projectOf(chunk: string): PlaywrightProjectFact | undefined {
   const size = /\bviewport\s*:\s*\{\s*width\s*:\s*(\d{2,5})\s*,\s*height\s*:\s*(\d{2,5})/.exec(chunk);
   const deps = /\bdependencies\s*:\s*\[([^\]]*)\]/.exec(chunk)?.[1];
   const dependencies = deps === undefined ? [] : Array.from(deps.matchAll(new RegExp(LITERAL, "g")), (m) => safeText(literalOf(m), MAX_PROJECT_NAME_LENGTH)).filter((d): d is string => d !== undefined);
-  const testMatch = safeText(keyed("testMatch", chunk), MAX_DECLARATION_LENGTH);
+  const testMatch = safeText(keyed("testMatch", chunk), HARNESS_TEXT_SAFETY_BOUND);
   return {
     name,
     ...(device ? { device } : {}),
@@ -175,13 +174,57 @@ export function playwrightConfigFacts(source: string): PlaywrightConfigFacts | u
   const at = code.search(/\bprojects\s*:\s*\[/);
   const head = at < 0 ? code : code.slice(0, at);
   const tail = at < 0 ? "" : code.slice(at);
-  const testDir = safeText(keyed("testDir", head), MAX_DECLARATION_LENGTH);
-  const testMatch = safeText(keyed("testMatch", head), MAX_DECLARATION_LENGTH);
+  const testDir = safeText(keyed("testDir", head), HARNESS_TEXT_SAFETY_BOUND);
+  const testMatch = safeText(keyed("testMatch", head), HARNESS_TEXT_SAFETY_BOUND);
   const storageState = /\bstorageState\s*:/.test(head);
   const chunks = tail.split(/(?=\bname\s*:)/).slice(1);
-  const projects = chunks.map(projectOf).filter((p): p is PlaywrightProjectFact => p !== undefined).slice(0, MAX_PROJECTS);
+  const projects = chunks.map(projectOf).filter((p): p is PlaywrightProjectFact => p !== undefined);
   if (testDir === undefined && testMatch === undefined && !storageState && projects.length === 0) return undefined;
   return { ...(testDir ? { testDir } : {}), ...(testMatch ? { testMatch } : {}), storageState, projects };
+}
+
+function withinItemsBound<T>(items: readonly T[]): { kept: T[]; cut: number } {
+  return { kept: items.slice(0, HARNESS_ITEMS_SAFETY_BOUND), cut: Math.max(0, items.length - HARNESS_ITEMS_SAFETY_BOUND) };
+}
+
+function withinTextBound(text: string): { text: string; cut: boolean } {
+  const characters = [...text];
+  if (characters.length <= HARNESS_TEXT_SAFETY_BOUND) return { text, cut: false };
+  const room = characters.slice(0, HARNESS_TEXT_SAFETY_BOUND - 1).join("");
+  const lastSpace = room.lastIndexOf(" ");
+  return { text: `${lastSpace > 0 ? room.slice(0, lastSpace) : room}…`, cut: true };
+}
+
+function boundedTexts(texts: readonly string[] | undefined): { kept: string[]; cut: number } {
+  const { kept, cut } = withinItemsBound(texts ?? []);
+  const bounded = kept.map(withinTextBound);
+  return { kept: bounded.map((b) => b.text), cut: cut + bounded.filter((b) => b.cut).length };
+}
+
+/* The facts held to the safety bounds on the repo's text: a list past its bound loses its tail, a text past its bound ends at its last whole word, and both are counted in `omitted`. A fact under the bounds is untouched. */
+export function boundHarnessFacts(facts: HarnessFacts): HarnessFacts {
+  const { omitted: _previous, fixtures, playwright, ...rest } = facts;
+  let omitted = 0;
+  let boundedFixtures = fixtures;
+  if (fixtures) {
+    const exports = withinItemsBound(fixtures.exports);
+    const signatures = boundedTexts(fixtures.signatures);
+    const members = boundedTexts(fixtures.members);
+    omitted += exports.cut + signatures.cut + members.cut;
+    boundedFixtures = { file: fixtures.file, exports: exports.kept, ...(signatures.kept.length > 0 ? { signatures: signatures.kept } : {}), ...(members.kept.length > 0 ? { members: members.kept } : {}) };
+  }
+  let boundedPlaywright = playwright;
+  if (playwright) {
+    const projects = withinItemsBound(playwright.projects);
+    omitted += projects.cut;
+    boundedPlaywright = { ...playwright, projects: projects.kept };
+  }
+  return { ...rest, ...(boundedFixtures ? { fixtures: boundedFixtures } : {}), ...(boundedPlaywright ? { playwright: boundedPlaywright } : {}), ...(omitted > 0 ? { omitted } : {}) };
+}
+
+/* What a section stating these facts records as left out. */
+export function harnessFactOmissions(facts: HarnessFacts): readonly { class: "truncation"; reason: string; count: number }[] {
+  return facts.omitted ? [{ class: "truncation", reason: HARNESS_FACT_SAFETY_BOUND_REASON, count: facts.omitted }] : [];
 }
 
 /* The facts as prompt lines, each value passed through `scrub` (the caller's sanitizer or redaction). Facts only, never an instruction. Nothing when there is nothing to state. */

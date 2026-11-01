@@ -1,4 +1,5 @@
 /* Harness facts are computed from the spec directory the run is grounded on (the per-run checkout), never from the static composition-time directory. They are best-effort: a fixtures file that cannot be scanned is never a reason to fail the run or to hand the agent a substitute instruction. */
+import { HARNESS_ITEMS_SAFETY_BOUND } from "@contexts/generation/domain/harness-facts.ts";
 import { test, mock, after } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -143,13 +144,14 @@ test("an export name that would need redaction is not passed on", async () => {
   );
 });
 
-test("only the first exports up to the cap are listed", async () => {
+test("only the first exports up to the safety bound are listed, and the loss is recorded", async () => {
   await withSuite(
-    (dir) => writeFileSync(join(dir, "fixtures.ts"), Array.from({ length: 100 }, (_, i) => `export const n${i} = ${i};`).join("\n")),
+    (dir) => writeFileSync(join(dir, "fixtures.ts"), Array.from({ length: HARNESS_ITEMS_SAFETY_BOUND + 20 }, (_, i) => `export const n${i} = ${i};`).join("\n")),
     async (dir) => {
       const { result } = await groundWith(dir);
       const names = result.harnessFacts?.fixtures?.exports ?? [];
-      assert.ok(names.length > 0 && names.length < 100);
+      assert.equal(names.length, HARNESS_ITEMS_SAFETY_BOUND);
+      assert.equal(result.harnessFacts?.omitted, 20);
       assert.deepEqual(names.slice(0, 3), ["n0", "n1", "n2"]);
     },
   );
