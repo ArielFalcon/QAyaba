@@ -46,7 +46,6 @@ export { assembleLeadCorrection, assembleRefusedCorrection } from "./lead-correc
 export { assembleRejectedPlanRequest } from "./lead-plan.ts";
 export { COORDINATION_PROMPTS } from "./coordination-sections/index.ts";
 export {
-  AGENT_TOOL,
   AUTHOR_TARGET,
   REGISTERED_SIDEKICK_KINDS,
   SIDEKICK_BUDGET,
@@ -55,7 +54,6 @@ export {
   authorTargetSpec,
   delegatingKindSpec,
   sidekickKindSpec,
-  type AgentTool,
   type AuthorTarget,
   type AuthorTargetSpec,
   type DelegatingKindSpec,
@@ -86,6 +84,7 @@ export {
   type LeadDecisionAction,
   type CoordinationTelemetryPort,
 } from "./coordination-telemetry.ts";
+export { SIDEKICK_AUTHORING, sidekickGrants } from "./sidekick-authoring.ts";
 export { CORRECTION_ORIGIN } from "./lead-correction.ts";
 export type { CorrectionFinding, CorrectionOrigin } from "./lead-correction.ts";
 export { LeadSidekicks } from "./lead-sidekicks.ts";

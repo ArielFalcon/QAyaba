@@ -7,8 +7,9 @@
 import { claim, countByDirectory, harnessFactLines, NOT_SHOWN, pagesDegrade, stepsDegrade, suiteEntryFile } from "@contexts/generation/application/index.ts";
 import type { PromptSectionDef, SectionRender } from "@kernel/prompt-sections.ts";
 import type { PromptClaim } from "@kernel/prompt-claim.ts";
+import { SIDEKICK_CAPABILITY, type SidekickCapability } from "../sidekick-authoring.ts";
 import { ACCEPTANCE_STATUSES } from "../acceptance-report.ts";
-import { briefTools, type DelegationBrief } from "../delegation-brief.ts";
+import type { DelegationBrief } from "../delegation-brief.ts";
 import type { EvidenceRef } from "../evidence-ref.ts";
 import { CANDIDATE_CLAIMS } from "../delegation-result.ts";
 import { decisionText } from "@kernel/changed-decision.ts";
@@ -21,18 +22,13 @@ export interface BriefPromptContext {
   scrub(text: string): string;
 }
 
-/* What each tool family lets the sidekick do, in the words the brief states it. A tool the table does not know is named alone. */
-const TOOL_STATEMENT: Readonly<Record<string, string>> = {
-  read: "read the files under readablePaths",
-  write: "write the files under writablePaths and no other",
-  run_spec: "run the spec you wrote",
-  authbrowser: "read DEV through the authenticated browser (authbrowser_*); it never writes",
-  set_geolocation: "move the authoring location",
-  codegraph: "walk the code graph (codegraph_explore), read-only",
-  playwright: "drive a browser against DEV",
+/* What each capability the orchestrator grants lets the sidekick do, in the words the brief states it. */
+const TOOL_STATEMENT: Readonly<Record<SidekickCapability, string>> = {
+  [SIDEKICK_CAPABILITY.RUN_SPEC]: "run the spec you wrote",
+  [SIDEKICK_CAPABILITY.AUTHBROWSER]: "read DEV through the authenticated browser (authbrowser_*); it never writes",
+  [SIDEKICK_CAPABILITY.SET_GEOLOCATION]: "move the authoring location",
+  [SIDEKICK_CAPABILITY.PLAYWRIGHT]: "drive a browser against DEV",
 };
-
-const toolLine = (tool: string): string => (TOOL_STATEMENT[tool] ? `- ${tool}: ${TOOL_STATEMENT[tool]}` : `- ${tool}`);
 
 const section = (def: Omit<PromptSectionDef<BriefPromptContext>, "tier" | "applies"> & { applies?: PromptSectionDef<BriefPromptContext>["applies"] }): PromptSectionDef<BriefPromptContext> => ({
   tier: "task",
@@ -46,12 +42,17 @@ const taskSection = (heading: string, lines: (ctx: BriefPromptContext) => string
 
 const toolsSection = section({
   id: "tools",
-  priority: 95, stability: "static", reason: "The tools its turn grants and only those (R18) (07d8f70b)",
+  priority: 95, stability: "static", reason: "What the orchestrator grants and withholds this turn, derived from the grants that deny the session's tools (R18) (07d8f70b)",
   render: ({ brief }) => {
-    const tools = briefTools(brief);
+    const { granted = [], withheld = [] } = brief.grants ?? {};
     return {
-      content: ["## Tools", tools.length > 0 ? "You hold only these tools:" : "You hold no tool.", ...tools.map(toolLine)].join("\n"),
-      claims: [claim.statesContract("tools"), ...tools.map((tool) => claim.statesTool(tool))],
+      content: [
+        "## Tools",
+        granted.length > 0 ? "Granted by this run:" : "Granted by this run: none.",
+        ...granted.map((tool) => `- ${tool}: ${TOOL_STATEMENT[tool]}`),
+        ...(withheld.length > 0 ? [`Not granted: ${withheld.join(", ")}.`] : []),
+      ].join("\n"),
+      claims: [claim.statesContract("tools"), ...granted.map((tool) => claim.statesTool(tool))],
     };
   },
 });

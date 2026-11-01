@@ -1,11 +1,11 @@
 {
   "cells": {
     "flow-author-brief/full": {
-      "bytes": 3624,
+      "bytes": 3542,
       "directives": 5
     },
     "flow-author-brief/plain": {
-      "bytes": 1773,
+      "bytes": 1721,
       "directives": 2
     },
     "lead-answer-unreadable/review": {

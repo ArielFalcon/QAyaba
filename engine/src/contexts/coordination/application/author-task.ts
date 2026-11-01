@@ -19,6 +19,7 @@ export function authorTask(
       : `Write the Playwright E2E spec for ONE flow, as the single file ${flow.writablePaths[0]}. It is the only file you may write.`,
     flow.maintenance ? `Flow: ${flow.id}. ${flow.objective}` : `Flow: ${flow.id}. It proves: ${flow.objective}`,
     ...(flow.maintenance ? [flow.maintenance.preamble, ...flow.maintenance.findings.map((finding) => `- ${finding}`)] : []),
+    `Time: this flow's first turn is held to at most ${Math.round(flow.budgetMs / 1000)} seconds; a turn the orchestrator ends before your closing result delivers no result.`,
     flow.routes.length > 0 ? `Pages it visits: ${flow.routes.join(", ")}` : "",
     geolocation
       ? `Authoring location: ${formatGeoLocation(geolocation.current())}; the app's default is ${formatGeoLocation(geolocation.facts().default)}.${places.length > 0 ? ` Places it declares: ${places.join(", ")}.` : ""}${browserUsesLocation} run_spec and the suite run at the app's default. A spec that depends on a location must call setLocation(context, latitude, longitude) from the suite's fixtures with the coordinates.`

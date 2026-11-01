@@ -3,8 +3,11 @@ import assert from "node:assert/strict";
 import {
   SIDEKICK_AUTHORING,
   sidekickAuthoring,
-  sidekickDeniedTools,
+  sidekickGrants,
+  SIDEKICK_CAPABILITY,
   type AuthoringFacts,
+  type SidekickAuthoringMode,
+  type SidekickCapability,
 } from "@contexts/coordination/application/sidekick-authoring.ts";
 import { MAX_SESSION_PAGES } from "@kernel/agent-browser.ts";
 
@@ -40,16 +43,38 @@ test("an app with no login is authored with the unauthenticated browser, one flo
   }
 });
 
-test("the code-navigation server is always denied a sidekick, since its symbol edits write wherever it points", () => {
-  for (const mode of [SIDEKICK_AUTHORING.AUTHENTICATED_BROWSER, SIDEKICK_AUTHORING.RUN_SPEC_ONLY, SIDEKICK_AUTHORING.UNAUTHENTICATED_BROWSER]) {
-    assert.ok(sidekickDeniedTools(mode, true).includes("serena*"), mode);
+const MODES = Object.values(SIDEKICK_AUTHORING);
+const CAPABILITIES = Object.values(SIDEKICK_CAPABILITY);
+const DENY_PATTERN: Readonly<Partial<Record<SidekickCapability, string>>> = { [SIDEKICK_CAPABILITY.RUN_SPEC]: "run_spec", [SIDEKICK_CAPABILITY.PLAYWRIGHT]: "playwright*" };
+
+function everyCombination(): Array<{ mode: SidekickAuthoringMode; loop: boolean; agentBrowser: boolean; geolocation: boolean }> {
+  return MODES.flatMap((mode) => [true, false].flatMap((loop) => [true, false].flatMap((agentBrowser) => [true, false].map((geolocation) => ({ mode, loop, agentBrowser, geolocation })))));
+}
+
+test("a capability is granted exactly when the session's deny list does not hold its tool, for every mode and every flow", () => {
+  for (const { mode, ...flow } of everyCombination()) {
+    const grants = sidekickGrants(mode, flow);
+    for (const [capability, pattern] of Object.entries(DENY_PATTERN) as Array<[SidekickCapability, string]>) {
+      assert.equal(grants.granted.includes(capability), !grants.denyTools.includes(pattern), `${mode} ${JSON.stringify(flow)}: ${capability}`);
+    }
   }
 });
 
-test("the unauthenticated browser is denied unless the app has no login, and run_spec unless the flow has a loop", () => {
-  assert.ok(sidekickDeniedTools(SIDEKICK_AUTHORING.AUTHENTICATED_BROWSER, true).includes("playwright*"));
-  assert.ok(sidekickDeniedTools(SIDEKICK_AUTHORING.RUN_SPEC_ONLY, true).includes("playwright*"));
-  assert.equal(sidekickDeniedTools(SIDEKICK_AUTHORING.UNAUTHENTICATED_BROWSER, true).includes("playwright*"), false);
-  assert.equal(sidekickDeniedTools(SIDEKICK_AUTHORING.RUN_SPEC_ONLY, true).includes("run_spec"), false);
-  assert.ok(sidekickDeniedTools(SIDEKICK_AUTHORING.RUN_SPEC_ONLY, false).includes("run_spec"));
+test("every capability is either granted or withheld, never both and never neither", () => {
+  for (const { mode, ...flow } of everyCombination()) {
+    const grants = sidekickGrants(mode, flow);
+    assert.deepEqual([...grants.granted, ...grants.withheld].sort(), [...CAPABILITIES].sort(), `${mode} ${JSON.stringify(flow)}`);
+  }
+});
+
+test("run_spec follows the flow's loop, the authenticated browser follows its mode and grant, set_geolocation follows the flow's location", () => {
+  const flow = { loop: true, agentBrowser: true, geolocation: true };
+  assert.deepEqual([...sidekickGrants(SIDEKICK_AUTHORING.AUTHENTICATED_BROWSER, flow).granted].sort(), [SIDEKICK_CAPABILITY.AUTHBROWSER, SIDEKICK_CAPABILITY.RUN_SPEC, SIDEKICK_CAPABILITY.SET_GEOLOCATION].sort());
+  assert.deepEqual([...sidekickGrants(SIDEKICK_AUTHORING.RUN_SPEC_ONLY, flow).granted].sort(), [SIDEKICK_CAPABILITY.RUN_SPEC, SIDEKICK_CAPABILITY.SET_GEOLOCATION].sort());
+  assert.deepEqual(sidekickGrants(SIDEKICK_AUTHORING.UNAUTHENTICATED_BROWSER, { ...flow, loop: false, geolocation: false }).granted, [SIDEKICK_CAPABILITY.PLAYWRIGHT]);
+  assert.equal(sidekickGrants(SIDEKICK_AUTHORING.AUTHENTICATED_BROWSER, { ...flow, agentBrowser: false }).granted.includes(SIDEKICK_CAPABILITY.AUTHBROWSER), false);
+});
+
+test("the code-navigation server is always denied a sidekick, since its symbol edits write wherever it points", () => {
+  for (const { mode, ...flow } of everyCombination()) assert.ok(sidekickGrants(mode, flow).denyTools.includes("serena*"), mode);
 });

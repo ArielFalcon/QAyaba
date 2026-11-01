@@ -55,7 +55,7 @@ import { AUTHORING_FAILURE, authoringFailureFeedback, classifyAuthoringFailure, 
 import { FanOutDispatcher, FLOW_RESULT, type TimerPort } from "./fan-out-dispatcher.ts";
 import { aggregateFlowOutcomes, FLOW_OUTCOME, FLOW_OUTCOME_EFFECT, type AggregatedFlows, type FlowOutcome } from "./flow-outcomes.ts";
 import { admitLeadPlan, LEAD_PLAN_KIND, PLAN_DOWNGRADE, PLAN_REJECTED, assembleRejectedPlanRequest, type AdmittedFlow, type AdmittedPlan } from "./lead-plan.ts";
-import { SIDEKICK_AUTHORING, sidekickAuthoring, sidekickDeniedTools, type SidekickAuthoringMode } from "./sidekick-authoring.ts";
+import { SIDEKICK_AUTHORING, SIDEKICK_CAPABILITY, sidekickAuthoring, sidekickGrants, type FlowGrantFacts, type SidekickAuthoringMode } from "./sidekick-authoring.ts";
 import type { SidekickExecutor, SidekickSession } from "./sidekick-executor.ts";
 import { SESSION_GONE, turnEndOf } from "./sidekick-turn-end.ts";
 import { describeUnreadable, describeUnreadableEntry, readsBetter, type UnreadableEntry } from "./answer-reading.ts";
@@ -672,7 +672,7 @@ export class LeadSidekicks {
       timeoutMs: Math.max(1, timeoutMs),
       timeLimit: "flow-budget",
       delegationId: entry.delegationId,
-      denyTools: sidekickDeniedTools(context.mode, entry.loop !== undefined),
+      denyTools: sidekickGrants(context.mode, grantFactsOf(entry, context.input)).denyTools,
       devStateGround: () => devStateGroundOf(entry, context.input),
       ...(contextFit ? { contextFit } : {}),
       ...(fit ? { fit } : {}),
@@ -694,7 +694,7 @@ export class LeadSidekicks {
   }
 
   /*
-   * The flow author's brief: the flow's slice of the change, its own pages' facts and the tools its turn grants. The slice's owned
+   * The flow author's brief: the flow's slice of the change, its own pages' facts and the tools its turn grants and withholds. The slice's owned
    * hunks are preloaded while the whole brief fits the author's window; what does not fit is named
    * by file and range. The fit it was judged by rides on the turn's telemetry.
    */
@@ -702,15 +702,8 @@ export class LeadSidekicks {
   private briefOf(entry: LiveFlow, context: FlowContext): { brief: DelegationBrief; sent: string; contextFit?: ContextFit; fit?: (bytes: number) => WindowFitOutcome } {
     const { input, mode } = context;
     const { flow } = entry;
-    const browser = mode === SIDEKICK_AUTHORING.AUTHENTICATED_BROWSER && input.agentBrowser !== undefined;
-    const tools = [
-      "read",
-      ...(flow.writablePaths.length > 0 ? ["write"] : []),
-      ...(entry.loop ? ["run_spec"] : []),
-      ...(browser ? ["authbrowser"] : []),
-      ...(mode === SIDEKICK_AUTHORING.UNAUTHENTICATED_BROWSER ? ["playwright"] : []),
-      ...(entry.geolocation ? ["set_geolocation"] : []),
-    ];
+    const grants = sidekickGrants(mode, grantFactsOf(entry, input));
+    const browser = grants.granted.includes(SIDEKICK_CAPABILITY.AUTHBROWSER);
     const derived = briefChangeFor(flow, input.candidates, {
       diffs: input.change?.diffs ?? [],
       ...(input.change?.subject !== undefined ? { subject: input.change.subject } : {}),
@@ -726,7 +719,7 @@ export class LeadSidekicks {
         acceptanceCriteria: flow.acceptance,
         scope: { readablePaths: ["."], writablePaths: flow.writablePaths, allowedCommands: [] },
         knownFacts: [...knownFactsOf(this.deps.redaction, input, flow.routes), ...lessonFactsOf(this.deps.redaction, input, flow.routes)],
-        tools,
+        grants,
         ...(pagesOf(input.contextPack, flow.routes) ?? {}),
         ...(input.harnessFacts ? { harnessFacts: input.harnessFacts, specRelDir: input.specRelDir } : {}),
         ...(input.existingSpecs?.length ? { suite: input.existingSpecs } : {}),
@@ -1576,6 +1569,11 @@ function emptyReadPaths(ledger: readonly FlowLedgerEntry[]): string[] {
 
 function emptyReadEvidence(redaction: RedactionPort, ledger: readonly FlowLedgerEntry[]): EvidenceRef[] {
   return emptyReadPaths(ledger).map((path) => evidenceFromEmptyRead(redaction, path));
+}
+
+/* What the orchestrator holds of a flow's tools. */
+function grantFactsOf(entry: LiveFlow, input: Pick<CoordinateInput, "agentBrowser">): FlowGrantFacts {
+  return { loop: entry.loop !== undefined, agentBrowser: input.agentBrowser !== undefined, geolocation: entry.geolocation !== undefined };
 }
 
 /* What the orchestrator itself holds of a flow that an unmet criterion attributed to DEV's state is checked against: the pages its browser session was shown, the pages its run_spec calls read empty, and the pages the Context Pack read with results. */

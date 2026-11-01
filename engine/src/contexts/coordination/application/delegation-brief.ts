@@ -5,6 +5,7 @@ import type { EvidenceRef } from "./evidence-ref.ts";
 import { SIDEKICK_AUTHORITY, type SidekickAuthority } from "./authority.ts";
 import type { FileKind } from "@kernel/change-map.ts";
 import type { ChangedDecision } from "@kernel/changed-decision.ts";
+import type { SidekickGrants } from "./sidekick-authoring.ts";
 
 export interface DelegationScope {
   readonly readablePaths: readonly string[];
@@ -93,14 +94,8 @@ export interface DelegationBrief {
   readonly specRelDir?: string;
   /* The specs the suite holds, one line each (path, flow, objective), never source. */
   readonly suite?: readonly string[];
-  /* The tool families the turn grants the sidekick, as the kind table names them (`read`, `write`, `run_spec`, `authbrowser`, `codegraph`, ...). Absent: what the scope alone grants (see `briefTools`). */
-  readonly tools?: readonly string[];
-}
-
-/* The tools a brief states: those the turn named, or the ones its scope grants by itself (read where something is readable, write where something is writable). */
-export function briefTools(brief: Pick<DelegationBrief, "scope" | "tools">): readonly string[] {
-  if (brief.tools) return brief.tools;
-  return [...(brief.scope.readablePaths.length > 0 ? ["read"] : []), ...(brief.scope.writablePaths.length > 0 ? ["write"] : [])];
+  /* What the orchestrator grants and withholds this turn (`sidekickGrants`). Absent: none is stated. */
+  readonly grants?: Pick<SidekickGrants, "granted" | "withheld">;
 }
 
 export function createDelegationBrief(input: {
@@ -120,7 +115,7 @@ export function createDelegationBrief(input: {
   harnessFacts?: HarnessFacts;
   specRelDir?: string;
   suite?: readonly string[];
-  tools?: readonly string[];
+  grants?: Pick<SidekickGrants, "granted" | "withheld">;
 }): DelegationBrief {
   const scrub = (text: string): string => input.redaction.redact(text);
   if (!input.delegationId) throw new Error("DelegationBrief requires delegationId");
@@ -135,7 +130,7 @@ export function createDelegationBrief(input: {
     knownFacts: (input.knownFacts ?? []).map((fact) => ({ ...fact, summary: scrub(fact.summary) })),
     artifactRefs: input.artifactRefs ?? [],
     authority: SIDEKICK_AUTHORITY,
-    ...(input.tools ? { tools: [...input.tools] } : {}),
+    ...(input.grants ? { grants: { granted: [...input.grants.granted], withheld: [...input.grants.withheld] } } : {}),
     ...(input.pages ? { pages: scrub(input.pages) } : {}),
     ...(input.harnessFacts ? { harnessFacts: input.harnessFacts, ...(input.specRelDir ? { specRelDir: input.specRelDir } : {}) } : {}),
     ...(input.suite?.length ? { suite: input.suite.map(scrub) } : {}),
