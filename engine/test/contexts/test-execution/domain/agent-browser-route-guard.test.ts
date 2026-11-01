@@ -25,6 +25,17 @@ test("the origin role agrees with the origin step of the decision: declared orig
   }
 });
 
+test("a declared third-party origin is reachable for the guard but its role is third-party, so no observer lists it", () => {
+  const g = guard({ origins: [...POLICY.origins, "https://tiles.example", "https://*.fonts.example"], thirdPartyOrigins: ["https://tiles.example", "https://*.fonts.example"] });
+  for (const url of ["https://tiles.example/v4/1.pbf", "https://a.fonts.example/f.woff2"]) {
+    assert.equal(g.originRole(url), "third-party", url);
+    assert.equal(g.decide({ method: "GET", url }).allow, true, url);
+  }
+  assert.equal(g.originRole("https://tiles.example:444/x"), "counted-by-host");
+  assert.equal(g.originRole("https://dev.example.com/a"), "listed");
+  assert.equal(guard().originRole("https://tiles.example/v4/1.pbf"), "counted-by-host", "an app that declares none keeps its previous roles");
+});
+
 test("every method that can write is blocked, with the reason named", () => {
   const g = guard();
   for (const method of ["POST", "PUT", "PATCH", "DELETE", "post", "PROPFIND"]) {

@@ -760,7 +760,7 @@ function requestsFrom(value: unknown, scriptOmitted: unknown, originRole: (url: 
     if (typeof method !== "string" || !/^[A-Za-z]{1,16}$/.test(method) || typeof url !== "string" || !Number.isInteger(count) || (count as number) < 1) continue;
     const address = requestAddress(url);
     if (address === undefined || (address.protocol !== "http:" && address.protocol !== "https:")) continue;
-    if (originRole(url) === "counted-by-host") ledger.addHost(address.host, count as number);
+    if (originRole(url) !== "listed") ledger.addHost(address.host, count as number);
     else ledger.addListed(method.toUpperCase(), address.address, failed === true, count as number);
   }
   if (Number.isInteger(scriptOmitted) && (scriptOmitted as number) > 0) ledger.addOmitted(scriptOmitted as number);
@@ -893,11 +893,12 @@ export function createCaptureDomDeps(
   geolocation?: { latitude: number; longitude: number },
   dataState?: CaptureDataState,
   origins: readonly string[] = [],
+  thirdPartyOrigins: readonly string[] = [],
 ): CaptureDomDeps {
   if (!exec) {
     throw new Error("[qa] createCaptureDomDeps requires an execution launcher — there is no safe default (the capture loads a package from the agent-writable e2e project).");
   }
-  const originRole = requestOriginClassifier(origins);
+  const originRole = requestOriginClassifier(origins, thirdPartyOrigins);
   return {
     ...(geolocation ? { geolocation } : {}),
     ...(dataState ? { dataState } : {}),

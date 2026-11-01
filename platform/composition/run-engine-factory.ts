@@ -835,7 +835,7 @@ export function buildEngineRootDeps(
   };
   const e2eCleanupDeps = createDefaultE2eCleanupDeps(new ProcessKillAdapter(), exec);
   /* One launcher-backed DOM capture for every grounding seam (Context Pack, review DOM, pre-exec). */
-  const captureDomDeps = createCaptureDomDeps(exec, undefined, deps.telemetry ? domCaptureObserver(deps.telemetry) : undefined, app.dev.geolocation, app.dev.dataState, runOrigins.dev);
+  const captureDomDeps = createCaptureDomDeps(exec, undefined, deps.telemetry ? domCaptureObserver(deps.telemetry) : undefined, app.dev.geolocation, app.dev.dataState, runOrigins.dev, runOrigins.thirdParty);
   const e2e = new E2eExecutionStrategy((specDir, opts) => runE2E(specDir, opts, e2eExecuteDeps));
 
   /*
@@ -1128,6 +1128,7 @@ export function buildEngineRootDeps(
       ? {
           agentBrowser: {
             registry: deps.agentBrowserRegistry,
+            thirdPartyOrigins: runOrigins.thirdParty,
             setting: {
               enabled: agentBrowserEnabled(app),
               denyRoutes: app.qa.agentBrowser?.denyRoutes ?? [],

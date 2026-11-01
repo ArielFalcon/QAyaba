@@ -336,10 +336,10 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
 - **Requests the pages made** — the DOM capture records, per captured route, the data requests (fetch, XHR) the page's code made
   while it was read (`embedded/capture-dom.script.cjs`, in the sandbox like the rest of the capture) as method + origin + pathname with a
   count, never the query, fragment, body, headers, cookies or userinfo, and one that failed marked. The script reports every origin; the
-  orchestrator keeps as a request only one to an origin the run declares (`resolveRunOrigins(app).dev`, handed to `createCaptureDomDeps` like the
-  geolocation) and counts any other host, `dev.blockedOrigins` included, per host (`PageRequests.otherHosts`), by the one kernel rule
-  (`requestOriginClassifier` in `shared-kernel/observed-requests.ts`: the egress filter's own match of host and port) that the authenticated
-  browser's route guard and log apply too (`RouteGuard.originRole`); the kept
+  orchestrator keeps as a request only one to an origin the run declares for the app (`resolveRunOrigins(app).dev` less `.thirdParty`, handed to `createCaptureDomDeps` like the
+  geolocation) and counts any other host, `dev.blockedOrigins` and the declared `dev.thirdPartyOrigins` (map tiles, fonts: reachable, never the app's data, never an observable) included, per host (`PageRequests.otherHosts`), by the one kernel rule
+  (`requestOriginClassifier` in `shared-kernel/observed-requests.ts`: the egress filter's own match of host and port, role `listed`, `third-party` or `counted-by-host`) that the authenticated
+  browser's route guard and log apply too (`RouteGuard.originRole`; the guard admits a `third-party` origin and refuses only `counted-by-host`); the kept
   entries and their bounds are the kernel ledger's (`shared-kernel/observed-requests.ts`, `MAX_LOGGED_*`), the same one the authenticated
   browser's log uses, and what the script or the ledger leaves out is a count (`omitted`). The capture's output passes the run's
   by-value redaction where it enters and the pack text the pattern redaction. The pack lists them as the `Requests the pages made` section
@@ -837,7 +837,7 @@ test, and the verdict is its last action.
   runner, the mutation run) are a frozen list with a reason each (`engine/.dependency-cruiser-tooling-spawners.json`) that may only shrink. `QA_EXEC_SANDBOX=required` (compose) refuses to run agent code
   without the sandbox uid, or with a file boundary the boot check did not prove (`infra-error E-SANDBOX`, never learned from, no Issue).
 - **The sandbox uid's network is closed by default.** An iptables chain matched on that uid redirects its DNS and TCP to a
-  DNS filter and a transparent proxy that allow only the origins declared in config (`dev.allowedOrigins`, the app's own
+  DNS filter and a transparent proxy that allow only the origins declared in config (`dev.allowedOrigins`, `dev.thirdPartyOrigins`, the app's own
   origin, `egress.installOrigins`, `config/egress/registries.yaml`); everything else, IPv6 and the other loopback ports
   included, is rejected. `QA_EGRESS_MODE=enforce` (default) ends a run `E-SANDBOX` when the filter is not active. Origins are
   data: never add a host in code. Denied hosts land in `gateSignals.sandbox.denied`.

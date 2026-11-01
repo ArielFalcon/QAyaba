@@ -458,6 +458,25 @@ test("an origin cannot be both allowed and left blocked on purpose, the app's ow
   assert.throws(() => AppConfigSchema.parse({ ...base, dev: { baseUrl: "https://dev.shop.io", allowedOrigins: ["https://*.io"], blockedOrigins: ["https://stats.shop.io"] } }), (err: unknown) => String(err).includes("https://*.io"));
 });
 
+test("dev.thirdPartyOrigins accepts origins and wildcard origins, refuses a bad one naming it, and an unknown sibling key is still an error", () => {
+  const dev = { baseUrl: "https://dev.shop.io", allowedOrigins: ["https://idp.shop.io"] };
+  const cfg = AppConfigSchema.parse({ ...base, dev: { ...dev, thirdPartyOrigins: ["https://api.maps.io", "https://*.fonts.io"] } });
+  assert.deepEqual(cfg.dev?.thirdPartyOrigins, ["https://api.maps.io", "https://*.fonts.io"]);
+  for (const bad of ["api.maps.io", "https://api.maps.io/path", "https://*.io"]) {
+    assert.throws(() => AppConfigSchema.parse({ ...base, dev: { ...dev, thirdPartyOrigins: [bad] } }), (err: unknown) => String(err).includes(bad), bad);
+  }
+  assert.throws(() => AppConfigSchema.parse({ ...base, dev: { ...dev, thirdPartyOrigin: ["https://api.maps.io"] } }), /unknown key 'dev\.thirdPartyOrigin'/);
+});
+
+test("a third-party origin is declared once: not in allowedOrigins, not the app's own, not blocked", () => {
+  const dev = { baseUrl: "https://dev.shop.io", allowedOrigins: ["https://idp.shop.io", "https://*.cdn.shop.io"] };
+  for (const thirdPartyOrigins of [["https://idp.shop.io"], ["https://img.cdn.shop.io"], ["https://dev.shop.io"]]) {
+    assert.throws(() => AppConfigSchema.parse({ ...base, dev: { ...dev, thirdPartyOrigins } }), /thirdPartyOrigins/, JSON.stringify(thirdPartyOrigins));
+  }
+  assert.throws(() => AppConfigSchema.parse({ ...base, dev: { ...dev, thirdPartyOrigins: ["https://api.maps.io"], blockedOrigins: ["https://api.maps.io"] } }), /blockedOrigins/);
+  assert.doesNotThrow(() => AppConfigSchema.parse({ ...base, dev: { ...dev, thirdPartyOrigins: ["https://api.maps.io"], blockedOrigins: ["https://stats.maps.io"] } }));
+});
+
 test("an app that declares no extra origins loads as before", () => {
   const cfg = AppConfigSchema.parse(base);
   assert.equal(cfg.dev?.allowedOrigins, undefined);

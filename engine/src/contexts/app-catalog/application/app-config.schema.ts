@@ -172,6 +172,12 @@ export const AppConfigSchema = configObject({
          */
         blockedOrigins: OriginListSchema.optional(),
         /*
+         * Origins the app's pages load from a third party (map tiles, fonts, a geocoder): reachable by the sandbox like an allowed
+         * origin, so they are declared here and not in `allowedOrigins`, but their requests are never listed as the page's requests
+         * nor offered as observables; they are only counted by host.
+         */
+        thirdPartyOrigins: OriginListSchema.optional(),
+        /*
          * The browser position a suite and the Context Pack are given (Playwright's geolocation), and the places the authoring
          * agent may name when it moves that position at runtime. Optional: an app that does not depend on where the user is keeps
          * the seed's default and no run carries an authoring location. The position is app data, never a fact the engine infers.
@@ -225,25 +231,29 @@ export const AppConfigSchema = configObject({
           .optional(),
       }, (issue) => (issue.input === undefined ? "dev is required" : undefined))
       .superRefine((dev, ctx) => {
-        if (dev.blockedOrigins === undefined) return;
-        /* An origin that is both reachable and blocked on purpose says two things at once; the app's own origin is reachable by definition. */
+        /* An origin is reachable through one declaration; the app's own origin is reachable by definition. */
         const own = originOf(dev.baseUrl);
-        let reachable;
-        try {
-          reachable = compileEgressPolicy([...(dev.allowedOrigins ?? []), ...(own ? [own] : [])]);
-        } catch {
-          return; /* OriginListSchema has said what is wrong with allowedOrigins */
-        }
-        dev.blockedOrigins.forEach((origin, index) => {
-          let blocked;
+        const owned = [...(dev.allowedOrigins ?? []), ...(own ? [own] : [])];
+        const declaredOnce = (key: "blockedOrigins" | "thirdPartyOrigins", reachable: readonly string[], message: (origin: string) => string): void => {
+          let policy;
           try {
-            blocked = compileEgressPolicy([origin]);
+            policy = compileEgressPolicy(reachable);
           } catch {
-            return; /* OriginListSchema has said what is wrong with it */
+            return; /* OriginListSchema has said what is wrong with allowedOrigins */
           }
-          const contradicts = blocked.rules.some((rule) => reachable.allowsName(rule.host)) || reachable.rules.some((rule) => blocked.allowsName(rule.host));
-          if (contradicts) ctx.addIssue({ code: "custom", message: `dev.blockedOrigins ${JSON.stringify(origin)} is also reachable (dev.allowedOrigins or the app's own origin): an origin is one or the other`, path: ["blockedOrigins", index] });
-        });
+          (dev[key] ?? []).forEach((origin, index) => {
+            let declared;
+            try {
+              declared = compileEgressPolicy([origin]);
+            } catch {
+              return; /* OriginListSchema has said what is wrong with it */
+            }
+            const contradicts = declared.rules.some((rule) => policy.allowsName(rule.host)) || policy.rules.some((rule) => declared.allowsName(rule.host));
+            if (contradicts) ctx.addIssue({ code: "custom", message: message(origin), path: [key, index] });
+          });
+        };
+        declaredOnce("thirdPartyOrigins", owned, (origin) => `dev.thirdPartyOrigins ${JSON.stringify(origin)} is also declared (dev.allowedOrigins or the app's own origin): a third-party origin is declared once, here`);
+        declaredOnce("blockedOrigins", [...owned, ...(dev.thirdPartyOrigins ?? [])], (origin) => `dev.blockedOrigins ${JSON.stringify(origin)} is also reachable (dev.allowedOrigins, dev.thirdPartyOrigins or the app's own origin): an origin is one or the other`);
       }),
     /*
      * Extra origins for the e2e project's `npm ci`, on top of the registries in config/egress/registries.yaml: a private

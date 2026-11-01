@@ -14,11 +14,11 @@ const SECRET = "hunter2-account-password";
 const DECLARED = ["http://dev.example", "https://maps.example"];
 
 /* What the capture script printed for one route, read back as the orchestrator reads it. */
-async function readBack(lines: unknown[], inRun?: () => ReturnType<typeof createRunSecretScope>, origins: readonly string[] = DECLARED): Promise<RouteSnapshot[]> {
+async function readBack(lines: unknown[], inRun?: () => ReturnType<typeof createRunSecretScope>, origins: readonly string[] = DECLARED, thirdParty: readonly string[] = []): Promise<RouteSnapshot[]> {
   const exec = sharedTestExec();
   const script = exec.writeScript("echo-capture.cjs", `process.stdout.write(${JSON.stringify(lines.map((line) => JSON.stringify(line)).join("\n"))});`);
   const wrapped = { ...exec, writeScript: () => script, spawn: (_cmd: string, _args: readonly string[], o: Parameters<typeof exec.spawn>[2]) => exec.spawn(process.execPath, [script], o) };
-  const render = (): Promise<RouteSnapshot[]> => createCaptureDomDeps(wrapped, undefined, undefined, undefined, undefined, origins).render(process.cwd(), "http://dev.example", ["/"]);
+  const render = (): Promise<RouteSnapshot[]> => createCaptureDomDeps(wrapped, undefined, undefined, undefined, undefined, origins, thirdParty).render(process.cwd(), "http://dev.example", ["/"]);
   return inRun ? withRunSecretScope(inRun(), render) : render();
 }
 
@@ -113,4 +113,17 @@ test("a page whose snapshot holds no request reports none", async () => {
   const reported: CapturedPage[] = [];
   await captureDomForRoutes(["/map"], { e2eDir: "/e2e", baseUrl: "http://dev.example", onPages: (pages) => reported.push(...pages) }, { render: async () => [{ route: "/map", nodes: ["heading: Map"] }] });
   assert.equal(reported[0]?.requests, undefined);
+});
+
+test("the capture and the authenticated browser's log count a declared third party's requests by host and list the rest identically", async () => {
+  const origins = ["http://dev.example", "https://tiles.example", "https://*.fonts.example"];
+  const thirdParty = ["https://tiles.example", "https://*.fonts.example"];
+  const urls = ["http://dev.example/api/a", "https://tiles.example/v4/1.pbf", "https://tiles.example/v4/2.pbf", "https://x.fonts.example/f.woff2", "https://o1.ingest.sentry.example/api/1/envelope"];
+  const guard = createRouteGuard({ origins, thirdPartyOrigins: thirdParty, denyRoutes: [], allowMutating: [] });
+  const log = new RequestLog(guard.originRole);
+  for (const url of urls) log.record({ method: "GET", url }, guard.decide({ method: "GET", url }));
+  const [snap] = await readBack([{ route: "/", yaml: "", requests: urls.map((url) => ({ method: "GET", url, count: 1 })) }], undefined, origins, thirdParty);
+  assert.deepEqual(snap?.requests, log.drain());
+  assert.deepEqual(snap?.requests?.listed.map((r) => r.url), ["http://dev.example/api/a"]);
+  assert.deepEqual(snap?.requests?.otherHosts.map((h) => [h.host, h.count]), [["tiles.example", 2], ["x.fonts.example", 1], ["o1.ingest.sentry.example", 1]]);
 });
