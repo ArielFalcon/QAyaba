@@ -40,7 +40,7 @@ test("calls_to_green is the mean run_spec calls a delivered spec took up to its 
 });
 
 test("the grader version moved with the new graders, and each new score is in the catalog under it", () => {
-  assert.equal(GRADER_VERSION, "6");
+  assert.equal(GRADER_VERSION, "7");
   for (const name of ["lessons_delivered", "data_state_failures", "calls_to_green", LESSON_SLICE_SCORE]) {
     const s = gradeEvidence(evidence({ sha: "abc1234", signals: signals({ lessons: { delivered: 1, dataStateFailures: 1 } }), deliveredSpecs: [delivered("flows/a.spec.ts")], runSpecCalls: [call("flows/a.spec.ts", "passed")] }), [name]).find((x) => x.name === name);
     assert.equal(s?.graderVersion, GRADER_VERSION, name);
