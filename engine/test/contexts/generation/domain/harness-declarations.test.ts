@@ -5,9 +5,11 @@ import {
   exportedSignatures,
   fixtureMembers,
   playwrightConfigFacts,
-  MAX_DECLARATION_LENGTH,
-  MAX_DECLARATION_LINES,
-  MAX_PROJECTS,
+  boundHarnessFacts,
+  harnessFactOmissions,
+  HARNESS_FACT_SAFETY_BOUND_REASON,
+  HARNESS_ITEMS_SAFETY_BOUND,
+  HARNESS_TEXT_SAFETY_BOUND,
 } from "@contexts/generation/domain/harness-facts.ts";
 
 const FIXTURES = `
@@ -45,11 +47,30 @@ test("a fixtures file whose extend type is not declared in it states no members"
   assert.deepEqual(fixtureMembers("export const test = base;"), []);
 });
 
-test("declarations are bounded in number and in length", () => {
-  const many = Array.from({ length: 50 }, (_, i) => `export function f${i}(${"a: string, ".repeat(40)}) {}`).join("\n");
-  const lines = exportedSignatures(many);
-  assert.equal(lines.length, MAX_DECLARATION_LINES);
-  assert.ok(lines.every((line) => line.length <= MAX_DECLARATION_LENGTH));
+test("a declaration under the safety bound is stated whole, trailing comment included", () => {
+  const member = `namespace: string; // ${"prefix for data a test creates, use to NAME and find it ".repeat(2)}`.trim();
+  const facts = boundHarnessFacts({ fixtures: { file: "fixtures.ts", exports: ["test"], members: [member] } });
+  assert.deepEqual(facts.fixtures?.members, [member]);
+  assert.equal(facts.omitted, undefined);
+});
+
+test("a text past the safety bound ends at a whole word and is counted as omitted", () => {
+  const words = Array.from({ length: 200 }, (_, i) => `word${i}`).join(" ");
+  const facts = boundHarnessFacts({ fixtures: { file: "fixtures.ts", exports: ["test"], signatures: [`export function f(${words}): void`] } });
+  const [cut] = facts.fixtures!.signatures!;
+  assert.ok(cut!.length <= HARNESS_TEXT_SAFETY_BOUND && cut!.endsWith("…"));
+  assert.ok(/ word\d+…$/.test(cut!));
+  assert.equal(facts.omitted, 1);
+});
+
+test("a list past the safety bound loses its tail and the loss is counted", () => {
+  const exports = Array.from({ length: HARNESS_ITEMS_SAFETY_BOUND + 3 }, (_, i) => `name${i}`);
+  const projects = Array.from({ length: HARNESS_ITEMS_SAFETY_BOUND + 2 }, (_, i) => ({ name: `p${i}` }));
+  const facts = boundHarnessFacts({ fixtures: { file: "fixtures.ts", exports }, playwright: { storageState: false, projects } });
+  assert.equal(facts.fixtures?.exports.length, HARNESS_ITEMS_SAFETY_BOUND);
+  assert.equal(facts.playwright?.projects.length, HARNESS_ITEMS_SAFETY_BOUND);
+  assert.equal(facts.omitted, 5);
+  assert.deepEqual(harnessFactOmissions(facts), [{ class: "truncation", reason: HARNESS_FACT_SAFETY_BOUND_REASON, count: 5 }]);
 });
 
 const CONFIG = `
@@ -80,11 +101,6 @@ test("the config's spec location, session carrying and projects are stated from 
 test("a value computed at run time states nothing, and a config with nothing literal states nothing", () => {
   assert.equal(playwrightConfigFacts("export default defineConfig({ testDir: dir, projects: build() });"), undefined);
   assert.equal(playwrightConfigFacts("// testDir: 'x'\nexport default {};"), undefined);
-});
-
-test("projects are capped", () => {
-  const projects = Array.from({ length: 30 }, (_, i) => `{ name: "p${i}" }`).join(",");
-  assert.equal(playwrightConfigFacts(`export default { projects: [${projects}] };`)?.projects.length, MAX_PROJECTS);
 });
 
 test("a name that is not plain text is not stated", () => {

@@ -26,6 +26,8 @@ export interface HarnessFacts {
     storageState: boolean;
     projects: readonly { name: string; device?: string; viewport?: string; dependencies?: readonly string[]; testMatch?: string }[];
   };
+  /** How many facts or fact texts were left out at a safety bound. */
+  omitted?: number;
 }
 
 /** What a grounding step left out of the context it built, and why. */

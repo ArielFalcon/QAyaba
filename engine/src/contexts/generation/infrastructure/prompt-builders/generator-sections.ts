@@ -17,6 +17,7 @@ import {
 } from "@contexts/generation/domain/prompt-contract-lint.ts";
 import { STEP_MILESTONE_SECTION_ID } from "@contexts/generation/domain/step-limit.ts";
 import { isReGenTurn } from "@contexts/generation/domain/regen-turn.ts";
+import { harnessFactOmissions } from "@contexts/generation/domain/harness-facts.ts";
 import { LISTING_ENTRY_SAFETY_BOUND_REASON } from "@contexts/generation/domain/suite-listing.ts";
 import { suiteListingDegrade } from "@contexts/generation/domain/suite-listing-render.ts";
 import type { PromptContext } from "./generator-context.ts";
@@ -553,7 +554,7 @@ export const GENERATOR_SECTIONS: readonly PromptSectionDef<PromptContext>[] = [
     tier: "semi-stable",
     priority: 0, stability: "run", reason: "Authors read the fixtures and the Playwright config on every turn; the run already held them (2ffab22f)",
     applies: (ctx) => ctx.isGenerationMode && Boolean(ctx.input.harnessFacts),
-    render: (ctx) => ({ content: renderHarnessFacts(ctx.input.harnessFacts!, ctx.input.e2eRelDir), claims: [claim.provides("harness-facts")] }),
+    render: (ctx) => ({ content: renderHarnessFacts(ctx.input.harnessFacts!, ctx.input.e2eRelDir), claims: [claim.provides("harness-facts")], omissions: harnessFactOmissions(ctx.input.harnessFacts!) }),
   },
   {
     id: CLOSED_LOOP_SECTION_ID,

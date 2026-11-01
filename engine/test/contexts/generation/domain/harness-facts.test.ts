@@ -6,7 +6,6 @@ import {
   isSafeAttributeName,
   MAX_ATTRIBUTE_NAME_LENGTH,
   MAX_EXPORT_NAME_LENGTH,
-  MAX_FIXTURE_EXPORTS,
 } from "@contexts/generation/domain/harness-facts.ts";
 
 test("declared exports are found by kind: const, let, var, function, async function, generator, class and enum", () => {
@@ -63,15 +62,10 @@ test("a name is listed once, in the order first exported", () => {
   assert.deepEqual(extractExportedNames("export const a = 1;\nexport { a, b };\nexport const b = 2;"), ["a", "b"]);
 });
 
-test("a name that is not a plain identifier or is too long is dropped, and the list is capped", () => {
+test("a name that is not a plain identifier or is too long is dropped", () => {
   const long = "x".repeat(MAX_EXPORT_NAME_LENGTH + 1);
   const fine = "y".repeat(MAX_EXPORT_NAME_LENGTH);
   assert.deepEqual(extractExportedNames(`export const ${long} = 1;\nexport const ${fine} = 2;`), [fine]);
-
-  const many = Array.from({ length: MAX_FIXTURE_EXPORTS + 15 }, (_, i) => `export const name${i} = ${i};`).join("\n");
-  const names = extractExportedNames(many);
-  assert.equal(names.length, MAX_FIXTURE_EXPORTS);
-  assert.deepEqual(names.slice(0, 2), ["name0", "name1"]);
 });
 
 test("source with nothing exported, or empty, yields no names", () => {
@@ -182,8 +176,7 @@ test("a well-formed export list after a pile of unclosed ones is still read", ()
   assert.deepEqual(extractExportedNames(source), ["real", "alias"]);
 });
 
-test("a long export list yields its first names up to the cap", () => {
-  const names = Array.from({ length: MAX_FIXTURE_EXPORTS * 5 }, (_, i) => `name${i}`);
-  const listed = extractExportedNames(`export { ${names.join(", ")} };`);
-  assert.deepEqual(listed, names.slice(0, MAX_FIXTURE_EXPORTS));
+test("a long export list yields every name", () => {
+  const names = Array.from({ length: 300 }, (_, i) => `name${i}`);
+  assert.deepEqual(extractExportedNames(`export { ${names.join(", ")} };`), names);
 });

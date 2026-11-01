@@ -4,7 +4,7 @@ import { engineLog } from "@kernel/ports/process-logger.ts";
 import type { GroundingChange } from "../../domain/grounding-change.ts";
 import type { PreGenerationGroundingPort } from "../../application/ports/pre-generation-grounding.port.ts";
 import type { GroundingResult } from "../../domain/pre-generation-grounding.ts";
-import { exportedSignatures, fixtureMembers, playwrightConfigFacts, type HarnessFacts } from "../../domain/harness-facts.ts";
+import { boundHarnessFacts, exportedSignatures,fixtureMembers, playwrightConfigFacts, type HarnessFacts } from "../../domain/harness-facts.ts";
 import { join } from "node:path";
 import { buildContextPack, defaultContextPackDeps, packDeliveredItemIds } from "@contexts/generation/infrastructure/context-pack.ts";
 import type { ContextPackAssembly, ContextPackDeps } from "@contexts/generation/infrastructure/context-pack.ts";
@@ -226,7 +226,7 @@ export function readHarnessFacts(input: { specDir: string; testIdAttribute?: str
   const fixtures = readFixtureFacts(input.specDir);
   const playwright = readPlaywrightFacts(input.specDir);
   if (testIdAttribute === undefined && fixtures === undefined && playwright === undefined) return undefined;
-  return { ...(testIdAttribute !== undefined ? { testIdAttribute } : {}), ...(fixtures ? { fixtures } : {}), ...(playwright ? { playwright } : {}) };
+  return boundHarnessFacts({ ...(testIdAttribute !== undefined ? { testIdAttribute } : {}), ...(fixtures ? { fixtures } : {}), ...(playwright ? { playwright } : {}) });
 }
 
 /* The elements and quoted labels of a diff, with the unchanged lines of the working copy that already hold each label. With a map, the labels of the changed files it links to pages come first (see `filesLinkedToPages`). A single repo only: across repos the diff is the service's, so its labels say nothing about the pages and the working copy belongs to the other repo. */
