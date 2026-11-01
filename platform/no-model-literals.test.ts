@@ -29,7 +29,8 @@ function declaredModelIds(): string[] {
 function sourcesIn(dir: string, keep: (name: string) => boolean): string[] {
   const found: string[] = [];
   for (const entry of readdirSync(join(ROOT, dir), { withFileTypes: true })) {
-    if (entry.name === "node_modules") continue;
+    /* Generated output repeats the source this scan already reads, and is never the copy that decides a model. */
+    if (entry.name === "node_modules" || entry.name === "dist") continue;
     const path = `${dir}/${entry.name}`;
     if (entry.isDirectory()) found.push(...sourcesIn(path, keep));
     else if (keep(entry.name)) found.push(path);
