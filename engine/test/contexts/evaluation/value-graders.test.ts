@@ -1,18 +1,43 @@
 /* The graders that answer "do the tests find bugs": mutation kill rate, coverage ratios, the review verdict, defects found, routed survivors, flaky triage, contradicted drops. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { assembleRunEvidence } from "@contexts/evaluation/application/index.ts";
 import { gradeEvidence } from "@contexts/evaluation/domain/graders.ts";
 import type { PlanEvidence } from "@contexts/evaluation/domain/run-evaluation-evidence.ts";
+import type { RunOutcome } from "@kernel/run-outcome.ts";
 import { evidence, signals } from "./evidence-fixtures.ts";
 
 const grade = (e: ReturnType<typeof evidence>, name: string) => gradeEvidence(e, [name]).find((s) => s.name === name);
 const withSignals = (over: Parameters<typeof signals>[0], rest: Partial<ReturnType<typeof evidence>> = {}) => evidence({ signals: signals(over), ...rest });
 
+/* The judged bundle mutants a run's outcome records, assembled into evidence and graded: what the record says of each survivor is what reaches the score. */
+const scoredFromRecord = (bundleMutation: NonNullable<RunOutcome["gateSignals"]["bundleMutation"]>) => {
+  const outcome = { errorClass: null, at: "2026-10-17T10:00:00.000Z", gateSignals: { static: true, coverageRatio: null, reviewerCorrections: [], flaky: false, retries: 0, bundleMutation } };
+  const sources = {
+    runId: "run-1",
+    record: { app: "app", sha: "abcdef1", mode: "diff", status: "done", verdict: "pass", cases: [], at: "2026-10-17T10:00:00.000Z" },
+    phases: { furthestPhase: "execute" },
+    facts: undefined,
+    outcome,
+    spans: [],
+    turns: [],
+    snapshots: [],
+    plan: undefined,
+  };
+  return grade(assembleRunEvidence(sources, { references: [], reviewerAgent: "qa-reviewer" }), "mutation_kill_rate");
+};
+
 test("mutation_kill_rate is killed over judged bundle mutants, and says nothing when none was judged", () => {
-  assert.equal(grade(withSignals({ bundleMutation: { applied: 3, killed: 1 } }), "mutation_kill_rate")?.value, 1 / 3);
+  assert.equal(grade(withSignals({ bundleMutation: { applied: 3, killed: 1 } }), "mutation_kill_rate")?.value, 1 / 3, "a record without survivor detail keeps the judged count");
   assert.equal(grade(withSignals({ bundleMutation: { applied: 2, killed: 0 } }), "mutation_kill_rate")?.value, 0, "a measured zero is a zero");
   assert.equal(grade(withSignals({ bundleMutation: { applied: 0, killed: 0 } }), "mutation_kill_rate"), undefined);
   assert.equal(grade(withSignals({ bundleMutation: undefined }), "mutation_kill_rate"), undefined);
+  assert.equal(grade(withSignals({ bundleMutation: { applied: 2, killed: 1, survivors: { moved: 1, unmoved: 0, unobserved: 0 } } }), "mutation_kill_rate")?.value, 1 / 2, "a survivor that moved an observable counts in the denominator and not the numerator");
+  assert.equal(grade(withSignals({ bundleMutation: { applied: 2, killed: 1, survivors: { moved: 0, unmoved: 1, unobserved: 0 } } }), "mutation_kill_rate")?.value, 1, "an equivalent mutant is left out of the denominator");
+  assert.equal(grade(withSignals({ bundleMutation: { applied: 2, killed: 1, survivors: { moved: 0, unmoved: 0, unobserved: 1 } } }), "mutation_kill_rate")?.value, 1, "a survivor with no observation is left out of the denominator");
+  assert.equal(scoredFromRecord({ applied: 2, killed: 1, survived: [{ file: "src/a.ts", line: 1, operator: "negate condition" }] })?.value, 1, "a survivor whose observation is absent is left out of the denominator");
+  assert.equal(grade(withSignals({ bundleMutation: { applied: 2, killed: 0, survivors: { moved: 0, unmoved: 1, unobserved: 1 } } }), "mutation_kill_rate"), undefined, "a denominator of nothing leaves no score");
+  assert.match(grade(withSignals({ bundleMutation: { applied: 4, killed: 2, survivors: { moved: 1, unmoved: 1, unobserved: 1 } } }), "mutation_kill_rate")?.comment ?? "", /2 of 3.*1 equivalent.*1 unobserved/, "the comment states the counts it rests on");
 });
 
 test("change_coverage_ratio and branch_coverage_ratio are numbers, and nothing when the coverage is unknown", () => {

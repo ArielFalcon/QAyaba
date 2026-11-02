@@ -510,13 +510,22 @@ const sidekickReportConsistent: Grader = {
 
 /* ---- do the tests find bugs: mutation, coverage, review, causal label, triage ---- */
 
-/* Bundle mutants noticed by a test / mutants judged. Silent when none was judged: a ratio over nothing is not a 0. */
+/*
+ * Bundle mutants a test noticed / the judged mutants the suite had evidence for: a survivor whose mutation moved an observable was there
+ * to see and no test saw it, while one that moved nothing (an equivalent mutant) or that no run compared says nothing about the suite
+ * either way. Silent when none was judged or nothing was there to see: a ratio over nothing is not a 0. A record holding no survivor
+ * detail keeps the judged count, since nothing is known to leave out.
+ */
 const mutationKillRate: Grader = {
   names: ["mutation_kill_rate"],
   grade: finishedOnly((e) => {
     const m = e.signals?.bundleMutation;
     if (!m || m.applied <= 0) return [];
-    return [{ name: "mutation_kill_rate", value: ratio(m.killed, m.applied), comment: `${m.killed} of ${m.applied} bundle mutants killed` }];
+    const s = m.survivors;
+    if (!s) return [{ name: "mutation_kill_rate", value: ratio(m.killed, m.applied), comment: `${m.killed} of ${m.applied} bundle mutants killed; the survivor detail was not recorded` }];
+    const seen = m.killed + s.moved;
+    if (seen === 0) return [];
+    return [{ name: "mutation_kill_rate", value: ratio(m.killed, seen), comment: `${m.killed} of ${seen} bundle mutants killed; ${s.unmoved} equivalent and ${s.unobserved} unobserved left out` }];
   }),
 };
 

@@ -5,9 +5,10 @@
  * it was. Where a fact was never recorded the evidence says so (undefined or null) and the graders stay silent. Pure: the history reads
  * belong to the caller, which hands them over as `EvidenceSources`.
  */
-import type { RunEvaluationEvidence } from "../domain/run-evaluation-evidence.ts";
+import type { BundleMutationEvidence, RunEvaluationEvidence } from "../domain/run-evaluation-evidence.ts";
 import type { UseCaseReference } from "../domain/use-case-reference.ts";
 import type { EvidenceSources } from "../domain/evidence-sources.ts";
+import type { ObservedDifference } from "@kernel/observed-difference.ts";
 import { planEvidenceOf } from "../domain/plan-evidence.ts";
 import { deliveredSpecNames, deliveredSpecsOf, specCountsOf } from "../domain/spec-evidence.ts";
 import { causalOf, contextOf, limitIntentOf, runSpecCallsOf, sidekickReportsOf, stepIntentsOf, survivorsOf } from "../domain/span-evidence.ts";
@@ -60,7 +61,7 @@ export function assembleRunEvidence(sources: EvidenceSources, context: EvidenceC
           droppedRejections: g.reviewer?.droppedRejections,
           coverageRatio: g.coverageRatio ?? undefined,
           branchCoverage: g.branchCoverage,
-          bundleMutation: g.bundleMutation ? { applied: g.bundleMutation.applied, killed: g.bundleMutation.killed } : undefined,
+          bundleMutation: g.bundleMutation ? bundleMutationEvidence(g.bundleMutation) : undefined,
           survivors: survivorsOf(spans),
           survivorClosure: g.survivorClosure ? { judged: g.survivorClosure.judged, closed: g.survivorClosure.closed } : undefined,
           flakyTriage: g.flakyTriage,
@@ -82,4 +83,17 @@ export function assembleRunEvidence(sources: EvidenceSources, context: EvidenceC
     sidekickReports: sidekickReportsOf(spans),
     finishedAt: outcome?.at ?? record.at,
   };
+}
+
+/*
+ * The bundle mutation signal as the grader reads it: each judged survivor's observation says whether a test could see what the mutation
+ * moved (`moved`), that nothing moved (an equivalent mutant) or that nothing was compared (no evidence either way, `moved` absent
+ * included). A run that recorded no survivor to leave out keeps the judged count alone.
+ */
+function bundleMutationEvidence(signal: { applied: number; killed: number; survived?: readonly { readonly moved?: ObservedDifference }[] }): BundleMutationEvidence {
+  const survivors = signal.survived;
+  if (!survivors || survivors.length === 0) return { applied: signal.applied, killed: signal.killed };
+  const moved = survivors.filter((s) => s.moved?.kind === "moved").length;
+  const unmoved = survivors.filter((s) => s.moved?.kind === "unmoved").length;
+  return { applied: signal.applied, killed: signal.killed, survivors: { moved, unmoved, unobserved: survivors.length - moved - unmoved } };
 }

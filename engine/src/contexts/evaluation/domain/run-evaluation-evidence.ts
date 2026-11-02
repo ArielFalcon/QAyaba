@@ -106,6 +106,19 @@ export interface SidekickReportEvidence {
   lastRunSpec: string | undefined;
 }
 
+/*
+ * The bundle mutants a run judged, and how its observation of each survivor classified it: `moved` an observable (a request or a line of
+ * the accessible tree) differed between the same tests run with and without the mutation, so a test had something to see and did not;
+ * `unmoved` nothing differed, an equivalent mutant; `unobserved` no evidence either way (the runs were not compared, or the survivor
+ * recorded no observation).
+ */
+export interface BundleMutationEvidence {
+  applied: number;
+  killed: number;
+  /* The judged survivors by what the observation found; absent when the run recorded no survivor to leave out. */
+  survivors?: { moved: number; unmoved: number; unobserved: number };
+}
+
 /* What a person labelled for the change the run measures, set against the candidates the run detected; only the use cases reachable on dev. */
 export interface ReferenceEvidence {
   /* Each dev-reachable use case of the change and whether a candidate of the run names one of its routes. */
@@ -161,7 +174,7 @@ export interface RunEvaluationEvidence {
         /* The arms of the decisions on changed lines and how many ran; undefined when no decision was seen. */
         branchCoverage?: { changed: number; taken: number } | undefined;
         /* The mutants of the changed code in the served script: judged and noticed by a test; undefined when none was judged. */
-        bundleMutation?: { applied: number; killed: number } | undefined;
+        bundleMutation?: BundleMutationEvidence | undefined;
         /* The surviving mutants a delivered spec's tests reached (so they reached its flow) and the total; undefined when the run recorded no survivor count. */
         survivors?: { routed: number; total: number } | undefined;
         /* The surviving mutants the regeneration they drove was re-checked against, and how many a test now fails under (`gateSignals.survivorClosure`); undefined when no accepted regeneration answered a survivor. */
