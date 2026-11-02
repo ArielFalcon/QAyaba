@@ -15,6 +15,10 @@ config/benchmarks/efficiency-results/
 config/benchmarks/probe-results/
 config/benchmarks/campaign-cases.json
 config/benchmarks/campaigns/
+# A suite-store snapshot exported for a campaign arm (scripts/warm-suite.ts) names a watched app's stored
+# suite: its paths and their hashes, and the fingerprint of its stored login. User data; the store itself
+# lives in the data volume.
+config/benchmarks/suite-snapshots/
 # Ground truths name real files and routes of watched apps (user data) — only the neutral-placeholder
 # config/benchmarks/ground-truth.example.json ships tracked (see scripts/probe-metrics.ts).
 config/benchmarks/ground-truth/
