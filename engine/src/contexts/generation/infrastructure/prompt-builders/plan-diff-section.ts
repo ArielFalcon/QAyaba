@@ -1,10 +1,11 @@
 /*
  * The commit diff section (COMMIT_DIFF_HEADING) of the lead's planning turn: the change map (one line per changed file: path, added and removed
  * lines, kind, relevance class, whether it is an app test file, the use cases its changed code seeds), then the first `shown`
- * ranked pieces of the diff in one ```diff fence (the judges read the fence back), then every other piece named by its location,
- * size, kind and why. The map and the references are never cut; how many pieces are shown is fitted to the lead's window by the
- * builder, which reads the section's size for any count from `bytes` without rendering it. Every text is redacted before it is
- * measured. Never import platform/.
+ * ranked pieces of the diff in one ```diff fence (the judges read the fence back), then one line stating what the selection held
+ * back, then every other piece named by its location, size, kind and why. The map and the references are never cut; how many pieces
+ * are shown is fitted to the lead's window by the builder, which reads the section's size for any count from `bytes` without rendering
+ * it. Every text that reaches the prompt is redacted before it is measured; the withheld counts are the diff's own bytes, a count only,
+ * of which nothing reaches the prompt. Never import platform/.
  */
 import { sanitizeText } from "../../../../shared-infrastructure/redaction/pattern-redaction.adapter.ts";
 import { changeFileLine } from "@kernel/change-map.ts";
@@ -16,8 +17,23 @@ const WHY_TEXT: Readonly<Record<PlanReferenceWhy, string>> = {
   "test-file": "an app test file",
   generated: "a generated file",
   "low-relevance": "a file whose diff says little",
+  "no-candidate": "no use-case candidate stands on it",
+  "formatting-only": "a change of whitespace alone",
   window: "past what the lead's context window holds",
 };
+
+/* The short label of each reason in the line that counts what was withheld. */
+const HELD_TEXT: Readonly<Record<PlanReferenceWhy, string>> = {
+  "no-candidate": "no-use-case candidate",
+  "formatting-only": "formatting only",
+  "test-file": "app test file",
+  generated: "generated file",
+  "low-relevance": "low-relevance file",
+  window: "past the window",
+};
+
+/* The order the withheld line counts its reasons in: the selection's own first, then the kinds a file is only ever named for. */
+const HELD_ORDER: readonly PlanReferenceWhy[] = ["no-candidate", "formatting-only", "test-file", "generated", "low-relevance", "window"];
 
 const MAP_INTRO = "Changed files, each once (path (+added -removed) | kind | relevance class | app test file | the use cases its changed code seeds):";
 const REFERENCES_INTRO = "Parts of the diff not shown above; read each in the working copy (location (+added -removed, kind, why)):";
@@ -31,11 +47,28 @@ function referenceLine(piece: PlanDiffPiece, why: PlanReferenceWhy): string {
   return `- ${forPrompt(pieceLocation(piece))} (+${piece.added} -${piece.removed}, ${piece.kind}, ${WHY_TEXT[why]})`;
 }
 
+/* The bytes the withheld pieces hold as the diff carries them, each file's `diff --git` header counted once, where the piece opens it. */
+function withheldBytes(pieces: readonly PlanDiffPiece[]): number {
+  return pieces.reduce((total, piece, i) => {
+    const header = piece.path !== "" && pieces[i - 1]?.path !== piece.path ? bytesOf(`diff --git a/${piece.path} b/${piece.path}\n`) : 0;
+    return total + header + bytesOf(piece.text);
+  }, 0);
+}
+
+/* The line after the fence that says what the selection held back: the pieces and bytes of the commit diff, counted per reason; nothing when it held nothing back. */
+function withheldLine(plan: PlanDiff): string | undefined {
+  if (plan.referenceOnly.length === 0) return undefined;
+  const counts = HELD_ORDER.map((why) => ({ why, count: plan.referenceOnly.filter((piece) => piece.why === why).length })).filter(({ count }) => count > 0);
+  const held = counts.map(({ why, count }) => `${count} ${HELD_TEXT[why]}`).join(", ");
+  return `${plan.referenceOnly.length} of ${plan.ranked.length + plan.referenceOnly.length} pieces, ${withheldBytes(plan.referenceOnly)} bytes, held back by the selection: ${held}`;
+}
+
 export class PlanDiffSection {
   private readonly fixed: string[];
   private readonly blocks: string[];
   private readonly windowReferences: string[];
   private readonly otherReferences: string[];
+  private readonly withheld: string | undefined;
 
   constructor(plan: PlanDiff) {
     this.fixed = [
@@ -60,6 +93,7 @@ export class PlanDiffSection {
     });
     this.windowReferences = plan.ranked.map((piece) => referenceLine(piece, "window"));
     this.otherReferences = plan.referenceOnly.map((piece) => referenceLine(piece, piece.why));
+    this.withheld = withheldLine(plan);
   }
 
   /* How many ranked pieces there are to show. */
@@ -80,12 +114,13 @@ export class PlanDiffSection {
     const partBytes =
       sizes.fixed +
       (k > 0 ? bytesOf(FENCE_OPEN) + sizes.blocks[k]! + bytesOf(FENCE_CLOSE) : 0) +
+      (this.withheld !== undefined ? sizes.withheld : 0) +
       (references > 0 ? bytesOf(REFERENCES_INTRO) + windowReferences + sizes.otherReferences : 0);
-    const partCount = this.fixed.length + (k > 0 ? k + 2 : 0) + (references > 0 ? references + 1 : 0);
+    const partCount = this.fixed.length + (k > 0 ? k + 2 : 0) + (this.withheld !== undefined ? 1 : 0) + (references > 0 ? references + 1 : 0);
     return partBytes + partCount - 1;
   }
 
-  private measured?: { fixed: number; blocks: number[]; windowReferences: number[]; otherReferences: number };
+  private measured?: { fixed: number; blocks: number[]; windowReferences: number[]; otherReferences: number; withheld: number };
 
   /* Prefix sums of the parts' bytes: `blocks[k]` is the bytes of the first k blocks. */
   private sizes(): NonNullable<PlanDiffSection["measured"]> {
@@ -99,6 +134,7 @@ export class PlanDiffSection {
       blocks: prefix(this.blocks),
       windowReferences: prefix(this.windowReferences),
       otherReferences: this.otherReferences.reduce((sum, part) => sum + bytesOf(part), 0),
+      withheld: this.withheld !== undefined ? bytesOf(this.withheld) : 0,
     };
     return this.measured;
   }
@@ -113,6 +149,7 @@ export class PlanDiffSection {
     return [
       ...this.fixed,
       ...(k > 0 ? [FENCE_OPEN, ...this.blocks.slice(0, k), FENCE_CLOSE] : []),
+      ...(this.withheld !== undefined ? [this.withheld] : []),
       ...(references.length > 0 ? [REFERENCES_INTRO, ...references] : []),
     ];
   }
