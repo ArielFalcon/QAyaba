@@ -109,14 +109,16 @@ L5. Evidence for each task is observed, not asserted: `npm run typecheck` clean,
 answers `null` on the fixture line that the new test reads.
 
 L6. Full-suite evidence and its limits. `npm run test:isolated` passes the whole suite
-(12535 pass, 0 fail, 2 skipped). The shared-process run reports two failures that pass in
-isolation and exercise code this feature does not touch:
-`git-hardening.test.ts` ("a gitfile that redirects git…", a filesystem-permission fixture)
-and `agent-browser-port.adapter.test.ts` ("an ended session closes its page…", which races
-`setImmediate` against the lease chain). Both are recorded here as pre-existing
-shared-process flakes, not regressions. `npm run previous-forms:check` reports 8
-violations, all in `AGENTS.md`, `docs/engine-platform-architecture.md` and RFC-0016, i.e.
-the working tree's pre-existing documentation split, no file of this feature.
+(12547 of 12550; see below). The shared-process run reports failures that pass in
+isolation and exercise code this feature does not touch: `git-hardening.test.ts` ("a
+gitfile that redirects git…", a filesystem-permission fixture). One other,
+`agent-browser-port.adapter.test.ts` ("an ended session closes its page…"), reproduced in
+isolation too: it unbound the session after one `setImmediate`, but the call crosses the
+account lease before it reaches the page, so under jitter the unbind won and the page was
+never touched. Fixed in the test by waiting for the call to reach the host; ten
+consecutive runs pass. `npm run previous-forms:check` reports 8 violations, all in
+`AGENTS.md`, `docs/engine-platform-architecture.md` and RFC-0016, i.e. the working tree's
+pre-existing documentation split, no file of this feature.
 
 L7. Committed on `main` as three work units (T1, T2, T3) plus this document, each staged by
 explicit path. Two other change sets were in the working tree and were left untouched: the

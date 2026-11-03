@@ -133,7 +133,8 @@ test("an ended session closes its page and stops its call; the browser stays for
   let observed: AbortSignal | undefined;
   r.host.page = async () => { observed = r.host.performed.at(-1)!.options.signal; await new Promise((resolve) => setTimeout(resolve, 20)); throw new BrowserActionError("cancelled"); };
   const pending = call(r.registry, "ses-1");
-  await new Promise((resolve) => setImmediate(resolve));
+  /* The call crosses the account lease before it reaches the page: wait for it there, so the unbind lands while it is in flight. */
+  for (let tick = 0; tick < 100 && r.host.performed.length === 0; tick += 1) await new Promise((resolve) => setImmediate(resolve));
   r.registry.unbindSession("ses-1");
   await pending;
   assert.equal(observed?.aborted, true);
