@@ -7,15 +7,18 @@
  * passes here. A value that passes can never be read as an option, so the callers need no `--end-of-options` of their own.
  */
 
-/* An abbreviated or full SHA-1 commit id: the commit a run is asked to test. Seven characters is git's own default abbreviation. */
-const COMMIT_SHA = /^[0-9a-f]{7,40}$/i;
+/* The shortest abbreviation a commit id may carry: git's own default. A module that compares two ids by their shorter one starts here too. */
+export const MIN_COMMIT_SHA_CHARS = 7;
+
+/* An abbreviated or full SHA-1 commit id: the commit a run is asked to test. */
+const COMMIT_SHA = new RegExp(`^[0-9a-f]{${MIN_COMMIT_SHA_CHARS},40}$`, "i");
 
 export function isCommitSha(value: unknown): value is string {
   return typeof value === "string" && COMMIT_SHA.test(value);
 }
 
 export function assertCommitSha(value: unknown): asserts value is string {
-  if (!isCommitSha(value)) throw new Error(`invalid commit sha (must be 7–40 hex chars): ${JSON.stringify(value)}`);
+  if (!isCommitSha(value)) throw new Error(`invalid commit sha (must be ${MIN_COMMIT_SHA_CHARS}–40 hex chars): ${JSON.stringify(value)}`);
 }
 
 /*

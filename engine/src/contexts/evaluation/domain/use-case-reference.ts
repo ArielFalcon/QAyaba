@@ -40,9 +40,7 @@ export interface UseCaseReference {
   changes: ReferenceChange[];
 }
 
-const SHA = /^[0-9a-f]{7,40}$/;
-/* A short sha names a commit only from this length on. */
-const MIN_SHA_CHARS = 7;
+import { MIN_COMMIT_SHA_CHARS, isCommitSha } from "@kernel/git-revision.ts";
 
 const isRecord = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === "object" && !Array.isArray(value);
 const nonEmpty = (value: unknown): value is string => typeof value === "string" && value.trim() !== "";
@@ -66,8 +64,8 @@ function useCaseOf(value: unknown, where: string): ReferenceUseCase {
 
 function changeOf(value: unknown, where: string): ReferenceChange {
   if (!isRecord(value)) throw new Error(`${where}: a change is an object`);
-  if (typeof value.sha !== "string" || !SHA.test(value.sha)) throw new Error(`${where}: sha is a commit id of at least ${MIN_SHA_CHARS} hex characters`);
-  if (value.base !== undefined && (typeof value.base !== "string" || !SHA.test(value.base))) throw new Error(`${where} ${value.sha}: base is a commit id`);
+  if (!isCommitSha(value.sha)) throw new Error(`${where}: sha is a commit id of at least ${MIN_COMMIT_SHA_CHARS} hex characters`);
+  if (value.base !== undefined && !isCommitSha(value.base)) throw new Error(`${where} ${value.sha}: base is a commit id`);
   if (!nonEmpty(value.summary)) throw new Error(`${where} ${value.sha}: summary is required`);
   if (!Array.isArray(value.useCases)) throw new Error(`${where} ${value.sha}: useCases is a list (empty for a change with none)`);
   const useCases = value.useCases.map((u, i) => useCaseOf(u, `${where} ${value.sha} useCases[${i}]`));
@@ -84,8 +82,8 @@ export function parseUseCaseReference(raw: unknown, name: string): UseCaseRefere
   return { app: raw.app, changes };
 }
 
-/** The change of `app` a run of commit `sha` measures, or undefined. Shas are compared on the shorter of the two, from MIN_SHA_CHARS on. */
+/** The change of `app` a run of commit `sha` measures, or undefined. Shas are compared on the shorter of the two, from `MIN_COMMIT_SHA_CHARS` on. */
 export function referenceFor(sets: readonly UseCaseReference[], app: string, sha: string): ReferenceChange | undefined {
-  const same = (a: string, b: string): boolean => Math.min(a.length, b.length) >= MIN_SHA_CHARS && (a.startsWith(b) || b.startsWith(a));
+  const same = (a: string, b: string): boolean => Math.min(a.length, b.length) >= MIN_COMMIT_SHA_CHARS && (a.startsWith(b) || b.startsWith(a));
   return sets.filter((s) => s.app === app).flatMap((s) => s.changes).find((c) => same(c.sha.toLowerCase(), sha.toLowerCase()));
 }

@@ -6,6 +6,7 @@
 import { readFileSync, statSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { isCommitSha } from "@kernel/git-revision";
 import type { VersionInfo } from "./contract/commands";
 
 export const WIRE_API_VERSION = "v1";
@@ -30,14 +31,19 @@ function readServerVersion(): string {
   }
 }
 
-const COMMIT_ID = /^[0-9a-f]{40}$/;
-
 function readText(path: string): string | null {
   try {
     return readFileSync(path, "utf8").trim();
   } catch {
     return null;
   }
+}
+
+/* The value of a git file's single line, when it carries the expected prefix: `.git` says `gitdir: <path>` and `HEAD` says `ref: <ref>`. The prefix is exact, so a path holding a colon is kept whole. */
+function prefixedLine(text: string | null, prefix: string): string | undefined {
+  if (text === null || !text.startsWith(prefix)) return undefined;
+  const value = text.slice(prefix.length).trim();
+  return value === "" ? undefined : value;
 }
 
 /* The git directory of a checkout: `.git` itself, or the one a linked worktree's `.git` file points at. */
@@ -48,7 +54,7 @@ function gitDirOf(root: string): string | null {
   } catch {
     return null;
   }
-  const pointer = readText(dot)?.match(/^gitdir:\s*(.+)$/)?.[1];
+  const pointer = prefixedLine(readText(dot), "gitdir:");
   return pointer ? (isAbsolute(pointer) ? pointer : resolve(root, pointer)) : null;
 }
 
@@ -57,10 +63,10 @@ function commitOfRef(gitDir: string, ref: string): string | null {
   const commonDir = readText(join(gitDir, "commondir"));
   const common = commonDir ? resolve(gitDir, commonDir) : gitDir;
   const loose = readText(join(common, ref));
-  if (loose !== null) return COMMIT_ID.test(loose) ? loose : null;
+  if (loose !== null) return isCommitSha(loose) ? loose : null;
   for (const line of (readText(join(common, "packed-refs")) ?? "").split("\n")) {
     const [id, name] = line.split(" ");
-    if (name === ref && id !== undefined && COMMIT_ID.test(id)) return id;
+    if (name === ref && id !== undefined && isCommitSha(id)) return id;
   }
   return null;
 }
@@ -71,12 +77,13 @@ function commitOfRef(gitDir: string, ref: string): string | null {
  */
 export function revisionOf(root: string = APP_ROOT): string | null {
   const baked = readText(join(root, "REVISION"));
-  if (baked !== null) return COMMIT_ID.test(baked) ? baked : null;
+  if (baked !== null) return isCommitSha(baked) ? baked : null;
   const gitDir = gitDirOf(root);
   const head = gitDir ? readText(join(gitDir, "HEAD")) : null;
   if (head === null) return null;
-  if (COMMIT_ID.test(head)) return head;
-  const ref = head.match(/^ref:\s*(.+)$/)?.[1];
+  const headCommit = isCommitSha(head) ? head : null;
+  if (headCommit !== null) return headCommit;
+  const ref = prefixedLine(head, "ref:");
   return ref && gitDir ? commitOfRef(gitDir, ref) : null;
 }
 
