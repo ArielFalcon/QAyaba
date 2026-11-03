@@ -2,12 +2,12 @@ import type { RunDeadlineView } from "@kernel/run-deadline.ts";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { AccountLock } from "@contexts/test-execution/domain/account-lock.ts";
-import { AgentBrowserCapability, AGENT_BROWSER_REFUSAL } from "@contexts/test-execution/domain/agent-browser-capability.ts";
+import { AgentBrowserCapability } from "@contexts/test-execution/domain/agent-browser-capability.ts";
 import { createRouteGuard } from "@contexts/test-execution/domain/agent-browser-route-guard.ts";
 import { AgentBrowserUseCase, LOW_CALLS, MAX_REPORTED_BLOCKS, MAX_SNAPSHOT_CHARS, MAX_TYPED_CHARS, MAX_URL_CHARS, type AgentBrowserRequest } from "@contexts/test-execution/application/agent-browser.use-case.ts";
 import { BrowserActionError, type BrowserAction, type PageState } from "@contexts/test-execution/domain/agent-browser-host.ts";
 import { type AgentBrowserHostPort } from "@contexts/test-execution/application/ports/agent-browser-host.port.ts";
-import { DEFAULT_AGENT_BROWSER_LIMITS } from "@kernel/agent-browser.ts";
+import { DEFAULT_AGENT_BROWSER_LIMITS, AGENT_BROWSER_REFUSAL } from "@kernel/agent-browser.ts";
 
 const BASE = "https://dev.example.com";
 

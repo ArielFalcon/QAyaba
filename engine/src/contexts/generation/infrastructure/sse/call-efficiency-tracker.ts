@@ -27,6 +27,7 @@
  * the exhaustion notice in the final step remains the veto for that case.
  */
 import { engineLog } from "@kernel/ports/process-logger.ts";
+import { readAgentBrowserAnswer, type AgentBrowserAnswerFacts } from "@kernel/agent-browser.ts";
 import { isAbsolute, relative, resolve } from "node:path";
 import type { RawOpencodeEvent } from "./activity-mapper.ts";
 import { CALL_BUCKETS, bucketForTool, isCodeGraphTool, isShellTool, toolInputPath, type CallBucket } from "../../domain/tool-call-taxonomy.ts";
@@ -101,6 +102,8 @@ interface TrackedCall {
   stepAbs: number | null;
   /** A bounded prefix of a navigation's answer, kept for the outcome classifier. */
   navOutput?: string;
+  /** The facts of a navigation the orchestrator itself served, read from its answer before that answer is bounded. */
+  navAnswer?: AgentBrowserAnswerFacts;
   /** How the call ended, as its latest sighting showed. */
   outcome: ToolOutcome;
   /** Up to PROVIDED_CONTEXT_SAMPLE_LINES normalized lines of a completed content read. */
@@ -550,9 +553,12 @@ export class CallEfficiencyTracker implements StreamLifecycleSink {
     call.status = status;
     call.startedAt = stamp(part.state?.time?.start) ?? call.startedAt;
     call.endedAt = stamp(part.state?.time?.end) ?? call.endedAt;
-    if (status !== "running" && isNavigationCall(part.tool) && (call.navOutput !== undefined || session.navKept < NAV_OUTPUT_MAX_KEPT)) {
+    if (status !== "running" && isNavigationCall(part.tool)) {
       const answer = toolAnswerOf(part);
-      if (typeof answer === "string") {
+      /* The orchestrator's own browser answers JSON: its fields are read whether or not the text is kept, and before the text is bounded. */
+      const facts = readAgentBrowserAnswer(answer);
+      if (facts !== undefined) call.navAnswer = facts;
+      if (typeof answer === "string" && (call.navOutput !== undefined || session.navKept < NAV_OUTPUT_MAX_KEPT)) {
         if (call.navOutput === undefined) session.navKept += 1;
         call.navOutput = answer.slice(0, NAV_OUTCOME_READ_CHARS);
       }
@@ -629,6 +635,7 @@ export class CallEfficiencyTracker implements StreamLifecycleSink {
       target: call.target.target,
       ...(call.target.relPath !== undefined ? { relPath: call.target.relPath } : {}),
       ...(call.navOutput !== undefined ? { navOutput: call.navOutput } : {}),
+      ...(call.navAnswer !== undefined ? { navAnswer: call.navAnswer } : {}),
     }));
     return {
       startedAt,

@@ -5,28 +5,13 @@
  * Every limit is a count the orchestrator keeps, so a model cannot talk its way past one.
  */
 
-import { DEFAULT_AGENT_BROWSER_LIMITS, type AgentBrowserGateSignal, type AgentBrowserLimits } from "@kernel/agent-browser.ts";
+import { AGENT_BROWSER_REFUSAL, type AgentBrowserRefusalCode, DEFAULT_AGENT_BROWSER_LIMITS, type AgentBrowserGateSignal, type AgentBrowserLimits } from "@kernel/agent-browser.ts";
 
 /* The only agents whose sessions may hold the capability: the role that authors tests. Every other role is denied the tools in agents/opencode.json, and refused here. */
 export const AGENT_BROWSER_AGENTS: ReadonlySet<string> = new Set(["qa-author"]);
 
 /* A session that finds the login page again after this many renewals is not going to be helped by another. */
 export const MAX_RENEWALS = 2;
-
-export const AGENT_BROWSER_REFUSAL = {
-  REVOKED: "revoked",
-  EXPIRED: "expired",
-  UNKNOWN_SESSION: "unknown-session",
-  WRONG_AGENT: "wrong-agent",
-  NO_CALLS: "no-calls",
-  INVALID_REQUEST: "invalid-request",
-  BLOCKED: "blocked",
-  BUSY: "busy",
-  SESSION_INVALIDATED: "session-invalidated",
-  FAILED: "failed",
-} as const;
-
-export type AgentBrowserRefusalCode = (typeof AGENT_BROWSER_REFUSAL)[keyof typeof AGENT_BROWSER_REFUSAL];
 
 export interface AgentBrowserRefusal {
   ok: false;

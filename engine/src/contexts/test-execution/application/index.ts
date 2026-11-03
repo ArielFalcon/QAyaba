@@ -25,7 +25,7 @@ export type { SpecLoadError } from "../domain/spec-load-error.ts";
 export type { SkippedTest } from "../domain/skipped-test.ts";
 export type { ValidationRunInfo } from "../domain/validation.ts";
 export type { RunSpecRefusalCode } from "./run-spec.use-case.ts";
-export type { AgentBrowserRefusalCode } from "../domain/agent-browser-capability.ts";
+export type { AgentBrowserRefusalCode } from "@kernel/agent-browser.ts";
 export { mutatingEntryError, routePatternError } from "../domain/agent-browser-route-guard.ts";
 export { DevLease } from "../domain/dev-lease.ts";
 export { detectInterceptedTests } from "../domain/intercepted-tests.ts";

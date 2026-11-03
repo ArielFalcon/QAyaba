@@ -1217,6 +1217,17 @@ test("a navigation keeps a bounded prefix of its answer for the outcome classifi
   assert.equal(calls.find((c) => c.callId === "r1")!.navOutput, undefined);
 });
 
+test("a navigation the orchestrator served carries its answer's facts even past the text budget", async () => {
+  const tracker = tracked();
+  await tracker.prepareAttempt("s1", 0);
+  tracker.record(stepStart("s1", "a"));
+  const answer = JSON.stringify({ ok: true, page: { url: "https://app.example/dashboard", title: "Dashboard", snapshot: "y".repeat(100_000), status: 404 }, blocked: [], requests: { listed: [], otherHosts: [], omitted: 0 }, notes: [], budget: { callsLeft: 1 } });
+  tracker.record(timedTool("s1", "n1", "authbrowser_navigate", "completed", { start: 1, end: 2 }, { url: "https://app.example/dashboard" }, answer));
+  const nav = tracker.take("s1", "")!.trace!.calls.find((c) => c.callId === "n1")!;
+  assert.deepEqual(nav.navAnswer, { ok: true, url: "https://app.example/dashboard", documentStatus: 404 });
+  assert.ok((nav.navOutput ?? "").length <= 8_000, "the text the fallback reads stays bounded");
+});
+
 test("a step-finish that arrives with no open step is still a step, with no start time", async () => {
   const tracker = tracked();
   await tracker.prepareAttempt("s1", 0);

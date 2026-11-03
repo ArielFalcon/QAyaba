@@ -5,11 +5,15 @@
  * leaves this function, so the outcome is safe to record in every capture mode. It reads a bounded prefix, so a huge page costs
  * a bounded amount, and it never throws.
  *
- * Heuristic by nature: the tool's answer is text, not a structured status. It is anchored to the part that speaks for the tool
+ * Heuristic by nature when the answer is another tool's text: that text is anchored to the part that speaks for the tool
  * (the code it ran, the page URL and title, an error section) and never to the page's own content: everything from the
  * "Page Snapshot" marker on is the page. A signal found only there is not evidence, so the answer is `unknown`, never a false
- * `http_error`, `auth_challenge` or `blocked`. A tool call that failed is all status, so its whole answer is read.
+ * `http_error`, `auth_challenge` or `blocked`. A tool call that failed is all status, so its whole answer is read. An answer the
+ * orchestrator's own authenticated browser produced is no text at all: its fields (`ok`, the refusal code, the page address and
+ * the document status) decide, and the text is not read.
  */
+
+import { AGENT_BROWSER_REFUSAL, type AgentBrowserAnswerFacts } from "@kernel/agent-browser.ts";
 
 export const NAV_OUTCOMES = ["ok", "auth_challenge", "http_error", "blocked", "unknown"] as const;
 export type NavOutcome = (typeof NAV_OUTCOMES)[number];
@@ -20,6 +24,8 @@ export const NAV_OUTCOME_READ_CHARS = 8_000;
 export interface NavOutcomeInput {
   status: "completed" | "error";
   output: string;
+  /* The facts of an answer the orchestrator's own browser produced. When they are here they decide, and the text is not read. */
+  answer?: AgentBrowserAnswerFacts;
   /* The address the call asked for, when its input carried one. */
   requestedUrl?: string;
   /* Absolute addresses of the app's declared login page(s). */
@@ -65,8 +71,30 @@ function isAuthPage(url: URL, input: NavOutcomeInput): boolean {
   });
 }
 
+/* Landing on a login step after asking for another page is a challenge; asking for the login page and getting it is a page that loaded. */
+function isAuthChallenge(landed: URL, input: NavOutcomeInput): boolean {
+  if (!isAuthPage(landed, input)) return false;
+  const asked = input.requestedUrl === undefined ? undefined : parse(input.requestedUrl);
+  return asked === undefined || !isAuthPage(asked, input);
+}
+
+/* The outcome of an answer the orchestrator's own browser produced: its fields decide, never its text. A call refused before a page loaded names no navigation at all, so it is `unknown` rather than a page that loaded. */
+function classifyAnswer(answer: AgentBrowserAnswerFacts, input: NavOutcomeInput): NavOutcome {
+  if (!answer.ok) {
+    if (answer.code === AGENT_BROWSER_REFUSAL.BLOCKED) return "blocked";
+    if (answer.code === AGENT_BROWSER_REFUSAL.SESSION_INVALIDATED) return "auth_challenge";
+    return "unknown";
+  }
+  const landed = answer.url === undefined ? undefined : parse(answer.url);
+  if (landed !== undefined && isAuthChallenge(landed, input)) return "auth_challenge";
+  if (answer.documentStatus === 401 || answer.documentStatus === 403) return "auth_challenge";
+  if (answer.documentStatus !== undefined && answer.documentStatus >= 400) return "http_error";
+  return "ok";
+}
+
 export function classifyNavOutcome(input: NavOutcomeInput): NavOutcome {
   try {
+    if (input.answer !== undefined) return classifyAnswer(input.answer, input);
     const text = typeof input.output === "string" ? input.output.slice(0, NAV_OUTCOME_READ_CHARS) : "";
     if (text.trim() === "") return "unknown";
     const marker = SNAPSHOT_MARKER.exec(text);
@@ -77,11 +105,7 @@ export function classifyNavOutcome(input: NavOutcomeInput): NavOutcome {
 
     const landed = PAGE_URL.exec(status)?.[1];
     const landedUrl = landed === undefined ? undefined : parse(landed);
-    if (landedUrl !== undefined && isAuthPage(landedUrl, input)) {
-      const asked = input.requestedUrl === undefined ? undefined : parse(input.requestedUrl);
-      /* Asking for the login page and getting it is a page that loaded; getting it after asking for another is a challenge. */
-      if (asked === undefined || !isAuthPage(asked, input)) return "auth_challenge";
-    }
+    if (landedUrl !== undefined && isAuthChallenge(landedUrl, input)) return "auth_challenge";
     if (HTTP_ERROR.test(status)) return "http_error";
     /* A signal that sits only in the page's content proves nothing about the navigation. */
     if (content && (BLOCKED.test(text) || SESSION_GONE.test(text) || UNAUTHORIZED.test(text) || HTTP_ERROR.test(text))) return "unknown";

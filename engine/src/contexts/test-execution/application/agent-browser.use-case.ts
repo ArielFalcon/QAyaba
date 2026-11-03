@@ -13,7 +13,8 @@ import { redactThenBound } from "@kernel/redact-then-bound.ts";
 import { heldTo } from "@kernel/allotment-cap.ts";
 import type { Attrs } from "@kernel/telemetry/attribute-registry.ts";
 import type { AccountLock } from "../domain/account-lock.ts";
-import { AGENT_BROWSER_REFUSAL, type AgentBrowserCapability, type AgentBrowserRefusalCode } from "../domain/agent-browser-capability.ts";
+import { AGENT_BROWSER_REFUSAL, type AgentBrowserRefusalCode } from "@kernel/agent-browser.ts";
+import type { AgentBrowserCapability } from "../domain/agent-browser-capability.ts";
 import type { RouteGuard } from "../domain/agent-browser-route-guard.ts";
 import { detectInvalidation } from "../domain/agent-browser-session-invalidation.ts";
 import type { AgentBrowserHostPort } from "./ports/agent-browser-host.port.ts";
@@ -48,6 +49,8 @@ export interface AgentBrowserPageReport {
   url: string;
   title: string;
   snapshot: string;
+  /* The status the document answered, when the browser reported one: a page that loaded an error page is not a page that loaded. */
+  status?: number;
   truncated?: true;
 }
 
@@ -233,6 +236,7 @@ export class AgentBrowserUseCase {
         url: redact(withoutQuery(state.url, redact)),
         title: redactThenBound(state.title, MAX_TITLE_CHARS, redact),
         snapshot: redactThenBound(state.snapshot, MAX_SNAPSHOT_CHARS, redact),
+        ...(state.documentStatus !== undefined ? { status: state.documentStatus } : {}),
         ...(truncated ? { truncated: true as const } : {}),
       },
       blocked: state.blocked.slice(0, MAX_REPORTED_BLOCKS).map((b) => ({ reason: b.reason, detail: redact(b.detail) })),

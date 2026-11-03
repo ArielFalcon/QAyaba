@@ -52,6 +52,7 @@ function navigation(call: CallTrace, intent: StepIntentContext): NavOutcomeInput
   return {
     status: call.status === "error" ? "error" : "completed",
     output: call.navOutput ?? "",
+    ...(call.navAnswer !== undefined ? { answer: call.navAnswer } : {}),
     ...(call.targetKind === "url" && call.target !== null ? { requestedUrl: call.target } : {}),
     loginUrls: intent.loginUrls,
     authOnlyOrigins: intent.authOnlyOrigins,

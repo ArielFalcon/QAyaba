@@ -4,6 +4,7 @@
  * persisted. Times are wall-clock milliseconds: a call's are the runtime's own (`state.time`), a step's are the moments the
  * orchestrator received its start and finish (the runtime stamps neither).
  */
+import type { AgentBrowserAnswerFacts } from "@kernel/agent-browser.ts";
 import type { CallBucket } from "./tool-call-taxonomy.ts";
 import type { ToolOutcome, ToolStatus } from "./tool-outcome.ts";
 
@@ -57,6 +58,8 @@ export interface CallTrace {
   relPath?: string;
   /* A bounded prefix of a navigation's answer, kept only for the outcome classifier; never exported. */
   navOutput?: string;
+  /* The facts of a navigation the orchestrator itself served, read from its answer before that answer is bounded: the classifier decides from these, never from the text. */
+  navAnswer?: AgentBrowserAnswerFacts;
 }
 
 export interface TurnTrace {

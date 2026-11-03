@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { AGENT_BROWSER_AGENTS, AGENT_BROWSER_REFUSAL, AgentBrowserCapability, MAX_RENEWALS } from "@contexts/test-execution/domain/agent-browser-capability.ts";
+import { AGENT_BROWSER_REFUSAL } from "@kernel/agent-browser.ts";
+import { AGENT_BROWSER_AGENTS, AgentBrowserCapability, MAX_RENEWALS } from "@contexts/test-execution/domain/agent-browser-capability.ts";
 import { DEFAULT_AGENT_BROWSER_LIMITS } from "@kernel/agent-browser.ts";
 
 function capability(over: { now?: () => number; expiresAtMs?: number; maxCalls?: number } = {}) {

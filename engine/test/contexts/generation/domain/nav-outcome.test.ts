@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import type { AgentBrowserAnswerFacts, AgentBrowserRefusalCode } from "@kernel/agent-browser.ts";
 import { NAV_OUTCOMES, classifyNavOutcome, isNavigationCall } from "@contexts/generation/domain/nav-outcome.ts";
 
 const page = (url: string, title: string, body = "") => `### Ran Playwright code\nawait page.goto('${url}');\n\n### Page state\n- Page URL: ${url}\n- Page Title: ${title}\n- Page Snapshot:\n${body}`;
@@ -60,6 +61,25 @@ test("the classifier reads a bounded prefix and never throws", () => {
   const huge = "x".repeat(2_000_000) + " 404 Not Found";
   assert.equal(classifyNavOutcome({ status: "completed", output: huge, ...login }), "ok");
   assert.equal(classifyNavOutcome({ status: "completed", output: undefined as unknown as string, ...login }), "unknown");
+});
+
+test("the orchestrator's own browser answer is read by its fields, never by its text", () => {
+  const answer = (facts: AgentBrowserAnswerFacts) => ({ status: "completed" as const, output: "", ...login, answer: facts });
+  assert.equal(classifyNavOutcome(answer({ ok: true, url: "https://app.example/dashboard", documentStatus: 200 })), "ok");
+  assert.equal(classifyNavOutcome(answer({ ok: true, url: "https://app.example/nope", documentStatus: 404 })), "http_error", "a page that loaded an error page is not a page that loaded");
+  assert.equal(classifyNavOutcome(answer({ ok: true, url: "https://app.example/admin", documentStatus: 403 })), "auth_challenge");
+  assert.equal(classifyNavOutcome(answer({ ok: false, code: "blocked" })), "blocked");
+  assert.equal(classifyNavOutcome(answer({ ok: false, code: "session-invalidated" })), "auth_challenge");
+  assert.equal(classifyNavOutcome({ ...answer({ ok: true, url: "https://app.example/login", documentStatus: 200 }), requestedUrl: "https://app.example/login" }), "ok", "asking for the login page and getting it is a page that loaded");
+  assert.equal(classifyNavOutcome(answer({ ok: true, url: "https://app.example/login", documentStatus: 200 })), "auth_challenge", "asking for nothing and landing on the login page is a challenge, as the text path reads it");
+  assert.equal(classifyNavOutcome({ ...answer({ ok: true, url: "https://app.example/login", documentStatus: 200 }), requestedUrl: "https://app.example/dashboard" }), "auth_challenge");
+});
+
+test("a call refused before a page loaded is no navigation, not a page that loaded", () => {
+  const codes: AgentBrowserRefusalCode[] = ["busy", "revoked", "expired", "no-calls", "wrong-agent", "unknown-session", "invalid-request", "failed"];
+  for (const code of codes) {
+    assert.equal(classifyNavOutcome({ status: "completed", output: "", ...login, answer: { ok: false, code } }), "unknown", code);
+  }
 });
 
 test("a tool call is a navigation by its name, whatever server prefix it carries", () => {
