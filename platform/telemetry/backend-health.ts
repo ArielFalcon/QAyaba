@@ -43,14 +43,47 @@ export interface BackendHealthDeps {
   readonly timeoutMs?: number;
 }
 
+/* One sample line of the Prometheus exposition format: `name{labels} value`. The name ends at the first brace or space; with a brace the sample runs to its closing one, whose label values may hold a `}` or a space. A line with no value names no sample. */
+function sampleOf(line: string): { metric: string; value: string } | undefined {
+  let at = 0;
+  while (at < line.length && line[at] !== " " && line[at] !== "\t" && line[at] !== "{") at += 1;
+  const metric = line.slice(0, at);
+  if (line[at] === "{") {
+    let quoted = false;
+    for (at += 1; at < line.length; at += 1) {
+      const char = line[at];
+      if (char === "\\") at += 1;
+      else if (char === '"') quoted = !quoted;
+      else if (char === "}" && !quoted) {
+        at += 1;
+        break;
+      }
+    }
+  }
+  while (at < line.length && (line[at] === " " || line[at] === "\t")) at += 1;
+  if (at >= line.length) return undefined;
+  let end = at;
+  while (end < line.length && line[end] !== " " && line[end] !== "\t") end += 1;
+  return { metric, value: line.slice(at, end) };
+}
+
+const isNameStart = (char: string): boolean => char === "_" || char === ":" || (char >= "a" && char <= "z") || (char >= "A" && char <= "Z");
+const isNameChar = (char: string): boolean => isNameStart(char) || (char >= "0" && char <= "9");
+
+function isMetricName(name: string): boolean {
+  if (name === "" || !isNameStart(name.charAt(0))) return false;
+  for (let i = 1; i < name.length; i++) if (!isNameChar(name.charAt(i))) return false;
+  return true;
+}
+
 /* Sum of the samples of every metric whose name matches. Labels are ignored; comments and unparsable lines are skipped. */
 function sumMetric(text: string, name: RegExp): number | undefined {
   let sum: number | undefined;
   for (const line of text.split("\n")) {
     if (line.startsWith("#")) continue;
-    const m = /^([a-zA-Z_:][a-zA-Z0-9_:]*)(?:\{[^}]*\})?\s+(\S+)/.exec(line);
-    if (!m || !name.test(m[1]!)) continue;
-    const value = Number(m[2]);
+    const sample = sampleOf(line);
+    if (!sample || !isMetricName(sample.metric) || !name.test(sample.metric)) continue;
+    const value = Number(sample.value);
     if (Number.isFinite(value)) sum = (sum ?? 0) + value;
   }
   return sum;

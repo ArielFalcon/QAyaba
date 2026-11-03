@@ -117,6 +117,16 @@ function systemMonitor(): EventLoopMonitor {
   return monitorEventLoopDelay({ resolution: EVENT_LOOP_RESOLUTION_MS });
 }
 
+/* One field of a `Field:<value>` line. The first colon ends the name, so a value that holds a colon stays whole; a name is compared as written. */
+function procField(text: string, name: string): string | undefined {
+  for (const line of text.split("\n")) {
+    const colon = line.indexOf(":");
+    if (colon === -1 || line.slice(0, colon) !== name) continue;
+    return line.slice(colon + 1).trim();
+  }
+  return undefined;
+}
+
 /* The zombies (state Z) of one uid, or undefined when /proc cannot be listed. A process that vanishes or reads oddly between the listing and the read is skipped. */
 export function countSandboxZombies(proc: ProcFs, uid: number): number | undefined {
   let pids: string[] | undefined;
@@ -135,9 +145,9 @@ export function countSandboxZombies(proc: ProcFs, uid: number): number | undefin
       continue;
     }
     if (text === undefined) continue;
-    const state = /^State:\s*(\S)/m.exec(text)?.[1];
-    const owner = /^Uid:\s*(\d+)/m.exec(text)?.[1];
-    if (state === "Z" && owner !== undefined && Number(owner) === uid) zombies += 1;
+    const state = procField(text, "State");
+    const owner = procField(text, "Uid");
+    if (state?.charAt(0) === "Z" && owner !== undefined && Number.parseInt(owner, 10) === uid) zombies += 1;
   }
   return zombies;
 }

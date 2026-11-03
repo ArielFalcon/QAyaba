@@ -187,6 +187,20 @@ test("the write path is proven by one push, not one per poll: later probes watch
   assert.equal(pushes(), 1);
 });
 
+test("a label value that holds a brace does not hide the sample that follows it", async () => {
+  let failures = 0;
+  const routes = healthyRoutes({ "GET lgtm:3100/metrics": () => ({ status: 200, body: `${lokiMetrics(0, 0.5)}loki_distributor_ingester_append_failures_total{ingester="a}b"} ${failures}\n` }) });
+  const { m, clock } = monitor(routes);
+  assert.equal((await m.get())?.loki.status, "ok");
+  clock.t += 31_000;
+  assert.equal((await m.get())?.loki.status, "ok");
+  clock.t += 31_000;
+  assert.equal((await m.get())?.loki.status, "ok");
+  failures = 4;
+  clock.t += 31_000;
+  assert.equal((await m.get())?.loki.status, "degraded");
+});
+
 test("a write probe that failed is tried again on the next poll until one is accepted", async () => {
   const calls: string[] = [];
   let status = 500;
