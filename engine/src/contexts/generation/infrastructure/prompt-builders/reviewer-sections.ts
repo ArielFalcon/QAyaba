@@ -1,8 +1,10 @@
 /* The sections of a reviewer prompt, in prompt order, and the context they render from. The reviewer is independent of the generator: it sees the diff, the specs and the orchestrator's evidence, never the generator's reasoning. Never import platform/. */
 
+import { engineLog } from "@kernel/ports/process-logger.ts";
 import { SUBMIT_TOOL } from "@kernel/submission.ts";
 import { sanitizeText } from "../../../../shared-infrastructure/redaction/pattern-redaction.adapter.ts";
 import { claim, SPEC_CONTENTS_INLINE_FACT, type PromptClaim } from "@contexts/generation/domain/prompt-contract-lint.ts";
+import { fragileLocatorCalls } from "@contexts/generation/domain/selector-check.ts";
 import {
   REVIEWER_PROMPT_VERSION,
   REVIEW_CORRECTIONS_MAX,
@@ -27,6 +29,14 @@ import { availabilityLine } from "../../domain/route-availability-section.ts";
 export const REVIEWER_STEP_LIMIT_SECTION_ID = "reviewer-step-limit";
 /* The reviewer section that lists the arms of the changed code no delivered test ran. */
 export const REVIEWER_MISSING_CASES_SECTION_ID = "reviewer-missing-cases";
+/* The reviewer section that lists the locators the seed's static gate leaves alone. */
+export const REVIEWER_FRAGILE_LOCATORS_SECTION_ID = "reviewer-fragile-locators";
+
+/* One locator the reviewer's own rule calls fragile, with the spec it was found in: a candidate it judges, never a finding. */
+export interface FragileLocator {
+  spec: string;
+  locator: string;
+}
 
 export interface ReviewerContext {
   readonly input: ReviewInput;
@@ -36,6 +46,8 @@ export interface ReviewerContext {
   readonly specContents: ReviewSpecContents;
   readonly kind: string;
   readonly obj: ReturnType<typeof reviewObjective>;
+  /* What the orchestrator read out of the specs' own text and left to the reviewer to judge: empty when the specs were named as references. */
+  readonly fragileLocators: readonly FragileLocator[];
   /* The parts of a planned run's change shown as references because the prompt did not fit the reviewer's window; empty otherwise. */
   readonly degraded: ReadonlySet<string>;
 }
@@ -52,10 +64,17 @@ export interface BuildReviewerPromptOpts {
 
 export function deriveReviewerContext(input: ReviewInput, opts: ReviewerContextOpts = {}): ReviewerContext {
   const changeType = input.intent?.type ?? input.mode;
-  const { text: specBlock, contents: specContents } = reviewSpecsOutcome(input, { asReferences: opts.specsAsReferences === true });
+  const shown = reviewSpecsOutcome(input, { asReferences: opts.specsAsReferences === true });
+  const { text: specBlock, contents: specContents } = shown;
+  /* What the specs' own text says about its locators, read once here so the section renders it without opening a file again. */
+  const fragileLocators: FragileLocator[] = shown.sources.flatMap(({ path, text }) => fragileLocatorCalls(text).map((locator) => ({ spec: path, locator })));
+  if (fragileLocators.length > 0) {
+    const specs = new Set(fragileLocators.map(({ spec }) => spec)).size;
+    engineLog.info(`[qa] reviewer prompt: ${fragileLocators.length} fragile locator candidate(s) in ${specs} spec(s) (advisory: the reviewer decides)`);
+  }
   const kind = "E2E tests";
   const obj = reviewObjective(input);
-  return { input, changeType, specBlock, specContents, kind, obj, degraded: new Set() };
+  return { input, changeType, specBlock, specContents, kind, obj, fragileLocators, degraded: new Set() };
 }
 
 function renderRoleFraming(ctx: ReviewerContext): SectionRender {
@@ -242,6 +261,33 @@ function renderAmbientDataPins({ input }: ReviewerContext): SectionRender {
   };
 }
 
+/* The locators the reviewer's own rule calls fragile, read out of the specs by the orchestrator: a candidate list, never a finding. Only the reviewer can say whether the page offers a role, test-id, label or text to build the same locator on, so it decides what each one is worth. */
+function renderFragileLocators({ fragileLocators }: ReviewerContext): SectionRender {
+  const heading = `## Locators that are not role, test-id, label or text based — read by the orchestrator from the specs`;
+  const head = [
+    heading,
+    `Each line is one of them, with the spec it is in. Where the page offers an accessible name, a test`,
+    `id, a label or its text, a locator built on it is preferred: a CSS or XPath selector breaks on a`,
+    `refactor that leaves the user-visible behaviour intact.`,
+    `This is a candidate list, not a finding, and whether an alternative exists is YOUR judgment: an`,
+    `unlabeled third-party widget with no accessible name and no test id is a legitimate reason to keep`,
+    `the locator as it is. The [fragile-selector] rules of your instructions decide what it is worth.`,
+  ];
+  const counts = new Map<string, number>();
+  for (const { spec } of fragileLocators) counts.set(spec, (counts.get(spec) ?? 0) + 1);
+  /* Over the window: each spec with how many candidates it holds, and none of their text — a candidate left out cannot be misjudged, so the escape hatch has nothing to govern here. */
+  const asCounts = [
+    heading,
+    `The ${fragileLocators.length} candidate(s) are ${NOT_SHOWN}; each spec with how many it holds:`,
+    ...[...counts].map(([spec, count]) => sanitizeText(`- ${spec}: ${count}`, "model").text),
+  ].join("\n");
+  return {
+    content: [...head, ...fragileLocators.map(({ spec, locator }) => sanitizeText(`- ${spec}: ${locator}`, "model").text)].join("\n"),
+    overflow: "summarize",
+    degrade: stepsDegrade([{ content: asCounts, items: fragileLocators.length }]),
+  };
+}
+
 function renderPriorCorrections(ctx: ReviewerContext): SectionRender {
   const { input } = ctx;
   const corrections = input.priorCorrections ?? [];
@@ -319,6 +365,8 @@ export const REVIEWER_SECTIONS: readonly PromptSectionDef<ReviewerContext>[] = [
   /* VOLATILE: runtime execution evidence. Deterministic orchestrator evidence (HTTP status codes + final URLs captured via page.on('response')) injected BEFORE the spec contents so the reviewer can weigh the objective server-error signal before reading test code. Priority 1.5 — after DOM grounding (which grounds UI facts) but before specs themselves. Absent when the run produced no execution evidence (first-time generate, etc.). */
   { id: "reviewer-execution-result", tier: "volatile", priority: 1.5, stability: "run", reason: "Runtime server-error evidence, weighed before the test code (f8fa33f8)", applies: ({ input }) => Boolean(input.executionResult), render: ({ input }) => renderExecutionResultSection(input.executionResult ?? "") },
   { id: "reviewer-specs", tier: "volatile", priority: 2, stability: "run", reason: "The specs under review, inline or to be read, from the one outcome the instructions also render from", applies: () => true, render: ({ specBlock, specContents }) => ({ content: specBlock, overflow: "summarize", ...(specContents === "inline" ? { claims: [claim.provides(SPEC_CONTENTS_INLINE_FACT)] } : {}) }) },
+  /* The locators the seed's static gate says nothing about, read out of the spec text so the reviewer judges only whether an alternative exists: the comparison is the orchestrator's, the judgment is the reviewer's. */
+  { id: REVIEWER_FRAGILE_LOCATORS_SECTION_ID, tier: "volatile", priority: 3, stability: "run", reason: "A locator family no role/test-id/label/text rule covers, named by code so the reviewer judges only whether an alternative exists", applies: ({ fragileLocators }) => fragileLocators.length > 0, render: renderFragileLocators },
   { id: "reviewer-existing-suite", tier: "volatile", priority: 3, stability: "run", reason: "Existing specs as context only: the reviewer judges only what this run delivered (8fea750c)", applies: ({ input }) => Boolean(input.existingSpecFiles?.length), render: renderExistingSuite },
   /* The arms of the changed code no delivered test ran, measured by the orchestrator: a missing case cites one of them, and it is a record, never a reason to reject. */
   { id: REVIEWER_MISSING_CASES_SECTION_ID, tier: "volatile", priority: 3, stability: "run", reason: "The arms no test ran, so a missing case cites a measured arm and never gates (d717095d)", applies: ({ input }) => Boolean(input.untakenArms?.length), render: renderMissingCases },

@@ -252,15 +252,21 @@ export async function groundBeforeExecution(state: Readonly<RunState>, ctx: Work
   /* mutation-scope:end fail-closed-counter */
   const runPreExecGrounding = async (): Promise<{ corrections: string[]; attributedSpecFiles: string[] }> => {
     if (!deps.preExecGrounding) return { corrections: [], attributedSpecFiles: [] };
+    const announce = (text: string): void => {
+      engineLog.warn(text);
+      deps.observer?.onEvent({ type: "log.line", level: "warn", text });
+    };
     /* mutation-scope:begin pre-exec-capture-and-check */
     const { specFiles, specSources, routes } = await deps.preExecGrounding.capture(workspace.specDir, signal);
     /* mutation-scope:end pre-exec-capture-and-check */
-    const result = checkPreExecGrounding({ specSources, routes });
+    const result = checkPreExecGrounding({ specFiles, specSources, routes });
     preExecAmbiguityCatches += result.preExecAmbiguityCatches;
     if (result.ambiguities.length > 0) {
-      const text = `[qa] pre-exec ambiguity check (advisory, execution decides): ${result.ambiguities.join(" | ")}`;
-      engineLog.warn(text);
-      deps.observer?.onEvent({ type: "log.line", level: "warn", text });
+      announce(`[qa] pre-exec ambiguity check (advisory, execution decides): ${result.ambiguities.join(" | ")}`);
+    }
+    /* The DOM-assertion gate: what the captured trees proved absent is corrected with the catalog gate (the run goes on past it), and what they could not settle is told and left to execution. */
+    if (result.absentSelectorFailClosed > 0 || result.absentSelectorUnsettled > 0) {
+      announce(`[qa] pre-exec DOM gate: ${result.absentSelectorFailClosed} selector(s) the captured DOM proves absent, ${result.absentSelectorUnsettled} spec(s) whose own routes could not settle the check (advisory)`);
     }
     /* mutation-scope:begin catalog-gate-counters */
     catalogGateInWindow += result.catalogGateInWindow;

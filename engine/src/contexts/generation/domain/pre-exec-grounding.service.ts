@@ -1,10 +1,13 @@
-/* Pre-execution grounding. Two sub-checks share one captured route set: (1) ambiguity — MULTIPLE-node contradictions paired per spec to that spec's own routes. It is a regex over the spec text, with false positives that real execution does not have (a locator held in a variable, a name given by a constant or a RegExp), so its findings are ADVISORY telemetry: they are counted and told, never a correction, an origin or a block, and execution decides. (2) catalog — a test-id absent from a captured-and-settled route inside the confident window is the only thing that feeds the one-shot repair, and never a block. Pure: no browser, no I/O. */
+/* Pre-execution grounding. Three sub-checks share one captured route set: (1) ambiguity — MULTIPLE-node contradictions paired per spec to that spec's own routes. It is a regex over the spec text, with false positives that real execution does not have (a locator held in a variable, a name given by a constant or a RegExp), so its findings are ADVISORY telemetry: they are counted and told, never a correction, an origin or a block, and execution decides. (2) DOM assertion — the role/text/label selectors the spec's own captured-and-settled trees prove absent, over the part of the spec that runs on the page as loaded. A provable absence is a correction, like the catalog gate's; everything the tree cannot settle (a degraded or unsettled route, an empty tree, a role seen only as a marker, a later page) is counted and never corrected. (3) catalog — a test-id absent from a captured-and-settled route inside the confident window is likewise a correction. Neither (1) nor (3) blocks. Pure: no browser, no I/O. */
 
 import {
-  unscopedMultipleContradictions,
+  checkSpecSelectors,
   confidentWindowEnd,
+  extractProposedSelectors,
   extractTestIdSelectorsWithIndex,
   firstGotoRoute,
+  stripCommentsAndJoin,
+  unscopedMultipleContradictions,
 } from "./selector-check.ts";
 import type { ContradictionOrigin } from "@kernel/selector-findings.ts";
 
@@ -19,11 +22,13 @@ export interface RouteTree {
 
 export interface PreExecGroundingInput {
   specSources: string[];
+  /* The spec each source belongs to, index-aligned with `specSources`, so a correction can name the file it is about. Absent: a correction names only its selector, as the fix-loop family does. */
+  specFiles?: readonly string[];
   routes: RouteTree[];
 }
 
 export interface PreExecGroundingResult {
-  /* What the one-shot repair is asked to fix: the catalog gate's test-ids. Never an ambiguity. */
+  /* What the one-shot repair is asked to fix: the test-ids the catalog gate proved fabricated, and the role/text/label selectors the DOM gate proved absent. Never an ambiguity. */
   corrections: string[];
   /* The spec each correction was raised on, by its index among the input's specSources: a correction two specs raise has an origin for each. Only the specs that raised a correction are origins; one that uses a test-id the page has, or is on another route, is not. */
   origins: ContradictionOrigin[];
@@ -33,6 +38,10 @@ export interface PreExecGroundingResult {
   catalogGateInWindow: number;
   catalogGateAdvisory: number;
   catalogGateFailClosed: number;
+  /* The selectors the captured trees proved absent: the DOM gate's corrections. */
+  absentSelectorFailClosed: number;
+  /* The specs whose own routes could not settle the check (no pair captured, a degraded or unsettled route, an empty tree): told, never corrected. */
+  absentSelectorUnsettled: number;
 }
 
 function routesForSpec(specSrc: string, routes: readonly RouteTree[]): RouteTree[] {
@@ -63,6 +72,38 @@ function ambiguityContradictions(specSources: readonly string[], routes: readonl
     return unscopedMultipleContradictions([specSrc], trees, "pre-write");
   });
   return [...new Set(raised)];
+}
+
+/* The trees a spec's selectors may be judged absent against: its own routes, every one of them captured AND settled and each carrying nodes. A spec that names no captured route falls back to the full set (routesForSpec); anything less than every one of them trusted is no evidence, and no evidence is no finding. */
+function settledTreesOf(specSrc: string, routes: readonly RouteTree[]): string[][] | undefined {
+  const paired = routesForSpec(specSrc, routes);
+  if (paired.length === 0) return undefined;
+  const everyOneSettled = paired.every((r) => (r.status ?? "degraded") === "captured" && r.settled === true && r.nodes.length > 0);
+  return everyOneSettled ? paired.map((r) => r.nodes) : undefined;
+}
+
+/* The selectors the spec's own trees prove absent, over the part of the spec that runs on the page as it loaded: what an earlier click reveals, or another page holds, is not what the capture shows, so only a selector inside the confident window may be judged. Everything else fails open. */
+function absentSelectorCorrections(
+  specSources: readonly string[],
+  specFiles: readonly string[] | undefined,
+  routes: readonly RouteTree[],
+): { origins: ContradictionOrigin[]; unsettled: number } {
+  const origins: ContradictionOrigin[] = [];
+  let unsettled = 0;
+  for (const [specIndex, specSrc] of specSources.entries()) {
+    const trees = settledTreesOf(specSrc, routes);
+    if (trees === undefined) {
+      if (extractProposedSelectors(specSrc).length > 0) unsettled++;
+      continue;
+    }
+    const windowed = stripCommentsAndJoin(specSrc).slice(0, confidentWindowEnd(specSrc));
+    const file = specFiles?.[specIndex]?.trim();
+    const prefix = file ? `${file}: ` : "";
+    for (const contradiction of checkSpecSelectors([windowed], trees, "pre-exec").absentContradictions) {
+      origins.push({ contradiction: `${prefix}${contradiction}`, specIndex });
+    }
+  }
+  return { origins, unsettled };
 }
 
 function catalogCorrections(
@@ -112,15 +153,17 @@ function catalogCorrections(
   /* mutation-scope:end catalog-result */
 }
 
-/* One-shot pre-execution grounding: the catalog corrections for one corrective regen, and the ambiguities as an advisory. This function never blocks — the caller captures routes and feeds the corrections into one regen. */
+/* One-shot pre-execution grounding: the DOM and catalog corrections for one corrective regen, and the ambiguities as an advisory. This function never blocks — the caller captures routes and feeds the corrections into one regen. */
 export function checkPreExecGrounding(input: PreExecGroundingInput): PreExecGroundingResult {
-  const { specSources, routes } = input;
+  const { specSources, specFiles, routes } = input;
   const ambiguities = ambiguityContradictions(specSources, routes);
+  const absent = absentSelectorCorrections(specSources, specFiles, routes);
   const catalog = catalogCorrections(specSources, routes);
+  const origins = [...absent.origins, ...catalog.origins];
   return {
     /* mutation-scope:begin corrections-and-origins */
-    corrections: catalog.origins.map((origin) => origin.contradiction),
-    origins: catalog.origins,
+    corrections: origins.map((origin) => origin.contradiction),
+    origins,
     /* mutation-scope:end corrections-and-origins */
     ambiguities,
     preExecAmbiguityCatches: ambiguities.length,
@@ -129,5 +172,7 @@ export function checkPreExecGrounding(input: PreExecGroundingInput): PreExecGrou
     /* mutation-scope:begin fail-closed-count */
     catalogGateFailClosed: catalog.origins.length,
     /* mutation-scope:end fail-closed-count */
+    absentSelectorFailClosed: absent.origins.length,
+    absentSelectorUnsettled: absent.unsettled,
   };
 }

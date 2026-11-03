@@ -24,6 +24,8 @@ test("checkPreExecGrounding: no routes captured -> zero corrections, zero counte
   assert.equal(result.catalogGateInWindow, 0);
   assert.equal(result.catalogGateAdvisory, 0);
   assert.equal(result.catalogGateFailClosed, 0);
+  assert.equal(result.absentSelectorFailClosed, 0);
+  assert.equal(result.absentSelectorUnsettled, 0);
 });
 
 test("checkPreExecGrounding: a page-rooted MULTIPLE ambiguity on the spec's OWN route is counted and told, as an advisory and not as a correction", () => {
@@ -231,4 +233,95 @@ test("SAFE DIRECTION: an ambiguity on one spec and a catalog correction on anoth
   assert.equal(result.corrections.length, 1);
   assert.match(result.corrections[0]!, /ghost-id/);
   assert.deepEqual(result.origins.map((origin) => origin.specIndex), [1]);
+});
+
+/* ── The DOM-assertion gate: a verifiable-absent role/text/label selector is a correction ──
+   The engine already knows how to prove a selector absent from a captured a11y tree; the gate
+   turns a PROVABLE absence into the same one-shot correction family the catalog gate feeds, so
+   the reviewer no longer has to compare selectors to the DOM by hand.
+   Fail-closed in every other direction: no evidence, no finding. */
+
+const OWNERS_SPEC = "flows/owners.spec.ts";
+const CAPTURED_OWNERS: RouteTree[] = [
+  { route: "/owners", nodes: ["heading: Owners", "button: Add Owner"], status: "captured", settled: true, testIds: new Map() },
+];
+const ABSENT_ON_OWNERS = `await page.goto("/owners"); await page.getByRole("button", { name: "Delete owner" }).click();`;
+
+test("a role selector the captured tree proves absent is one correction naming the spec and the selector", () => {
+  const result = checkPreExecGrounding({ specFiles: [OWNERS_SPEC], specSources: [ABSENT_ON_OWNERS], routes: CAPTURED_OWNERS });
+  assert.equal(result.absentSelectorFailClosed, 1);
+  assert.equal(result.corrections.length, 1);
+  assert.match(result.corrections[0]!, /flows\/owners\.spec\.ts/);
+  assert.match(result.corrections[0]!, /button: "Delete owner"/);
+  assert.match(result.corrections[0]!, /NOT in the captured/);
+  assert.deepEqual(result.origins.map((origin) => origin.specIndex), [0]);
+});
+
+test("a role selector the captured tree shows is not a correction", () => {
+  const specSources = [`await page.goto("/owners"); await page.getByRole("button", { name: "Add Owner" }).click();`];
+  const result = checkPreExecGrounding({ specFiles: [OWNERS_SPEC], specSources, routes: CAPTURED_OWNERS });
+  assert.equal(result.absentSelectorFailClosed, 0);
+  assert.deepEqual(result.corrections, []);
+});
+
+test("a role seen only as the (present) marker is unverifiable and is never a correction", () => {
+  const specSources = [`await page.goto("/owners"); await page.getByRole("row", { name: "Invoice 7" }).click();`];
+  const routes: RouteTree[] = [{ route: "/owners", nodes: ["row: (present)"], status: "captured", settled: true, testIds: new Map() }];
+  const result = checkPreExecGrounding({ specFiles: [OWNERS_SPEC], specSources, routes });
+  assert.equal(result.absentSelectorFailClosed, 0);
+  assert.deepEqual(result.corrections, []);
+});
+
+test("no settled tree settles nothing: a degraded route, an unsettled one and an empty node list are counted and never corrected", () => {
+  const specSources = [ABSENT_ON_OWNERS];
+  const cases: RouteTree[][] = [
+    [{ route: "/owners", nodes: ["heading: Owners"], status: "degraded", settled: false, testIds: new Map() }],
+    [{ route: "/owners", nodes: ["heading: Owners"], status: "captured", settled: false, testIds: new Map() }],
+    [{ route: "/owners", nodes: [], status: "captured", settled: true, testIds: new Map() }],
+  ];
+  for (const routes of cases) {
+    const result = checkPreExecGrounding({ specFiles: [OWNERS_SPEC], specSources, routes });
+    assert.equal(result.absentSelectorFailClosed, 0);
+    assert.equal(result.absentSelectorUnsettled, 1);
+    assert.deepEqual(result.corrections, []);
+  }
+});
+
+test("one degraded route of a spec's own set leaves the whole spec uncorrected, never a half-read page", () => {
+  const specSources = [`await page.goto("/owners"); await page.goto("/owners/new"); await page.getByRole("button", { name: "Delete owner" }).click();`];
+  const routes: RouteTree[] = [
+    { route: "/owners", nodes: ["heading: Owners"], status: "captured", settled: true, testIds: new Map() },
+    { route: "/owners/new", nodes: [], status: "degraded", settled: false, testIds: new Map() },
+  ];
+  const result = checkPreExecGrounding({ specFiles: [OWNERS_SPEC], specSources, routes });
+  assert.equal(result.absentSelectorFailClosed, 0);
+  assert.equal(result.absentSelectorUnsettled, 1);
+});
+
+test("an absent selector is attributed to the spec whose own route lacks it, and to no other", () => {
+  const onOwners = `await page.goto("/owners"); await page.getByRole("button", { name: "Delete owner" }).click();`;
+  const onPets = `await page.goto("/pets"); await page.getByRole("button", { name: "Delete owner" }).click();`;
+  const routes: RouteTree[] = [
+    { route: "/owners", nodes: ["heading: Owners", "button: Add Owner"], status: "captured", settled: true, testIds: new Map() },
+    { route: "/pets", nodes: ["heading: Pets", "button: Delete owner"], status: "captured", settled: true, testIds: new Map() },
+  ];
+  const result = checkPreExecGrounding({ specFiles: ["flows/owners.spec.ts", "flows/pets.spec.ts"], specSources: [onOwners, onPets], routes });
+  assert.equal(result.corrections.length, 1);
+  assert.deepEqual(result.origins.map((origin) => origin.specIndex), [0]);
+  assert.match(result.corrections[0]!, /flows\/owners\.spec\.ts/);
+  assert.doesNotMatch(result.corrections[0]!, /flows\/pets\.spec\.ts/);
+});
+
+test("a selector after the page has changed (past the confident window) is never corrected", () => {
+  /* The capture is the page as loaded: what an earlier click may reveal, or another page may hold, the tree cannot settle. The role is there under another name, so absence would be conclusive without the window. */
+  const specSources = [`await page.goto("/owners"); await page.getByRole("button", { name: "Add Owner" }).click(); await page.getByRole("button", { name: "Confirm deletion" }).click();`];
+  const result = checkPreExecGrounding({ specFiles: [OWNERS_SPEC], specSources, routes: CAPTURED_OWNERS });
+  assert.equal(result.absentSelectorFailClosed, 0);
+  assert.deepEqual(result.corrections, []);
+});
+
+test("a spec that uses only a CSS locator raises no correction: the locator family is advisory, never a fact", () => {
+  const result = checkPreExecGrounding({ specFiles: [OWNERS_SPEC], specSources: [`await page.goto("/owners"); await page.locator(".btn-primary").click();`], routes: CAPTURED_OWNERS });
+  assert.deepEqual(result.corrections, []);
+  assert.deepEqual(result.origins, []);
 });

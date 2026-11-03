@@ -2,6 +2,8 @@
 
 export interface SpecSelectorFindings {
   contradictions: string[];
+  /* The contradictions of the absent family alone: selectors the tree proves absent. `contradictions` also carries the strict-mode MULTIPLE findings, which a caller may only advise on. */
+  absentContradictions: string[];
   absentKeys: Set<string>;
   anyVerifiedPresent: boolean;
   /* Locator family Lever-2 cannot extract — uniqueness is then indeterminate. */

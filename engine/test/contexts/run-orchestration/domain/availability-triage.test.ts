@@ -29,7 +29,7 @@ function harness() {
         return { specs: [] };
       },
     },
-    selectorCheck: { check: () => ({ contradictions: [], absentKeys: new Set<string>(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) },
+    selectorCheck: { check: () => ({ contradictions: [], absentContradictions: [], absentKeys: new Set<string>(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) },
   });
   return { loop, rec };
 }

@@ -15,6 +15,7 @@ test("checkSpecSelectors: present + unique selector", () => {
   const trees = [["button: Add Owner", "textbox: Name"]];
   assert.deepEqual(checkSpecSelectors(specs, trees), {
     contradictions: [],
+    absentContradictions: [],
     absentKeys: new Set(),
     anyVerifiedPresent: true,
     anyNonExtractable: false,
@@ -27,6 +28,7 @@ test("checkSpecSelectors: verifiable-absent selector", () => {
   const trees = [["button: Cancel", "textbox: Name"]];
   assert.deepEqual(checkSpecSelectors(specs, trees), {
     contradictions: [`button: "Submit" is NOT in the captured failure-point tree. Present roles: button, textbox`],
+    absentContradictions: [`button: "Submit" is NOT in the captured failure-point tree. Present roles: button, textbox`],
     absentKeys: new Set(["role|button|Submit|0|0"]),
     anyVerifiedPresent: false,
     anyNonExtractable: false,
@@ -39,6 +41,7 @@ test("checkSpecSelectors: MULTIPLE-node strict-mode ambiguity", () => {
   const trees = [["textbox: Owner name", "textbox: Owner name"]];
   assert.deepEqual(checkSpecSelectors(specs, trees), {
     contradictions: [`textbox: "Owner name" matches MULTIPLE nodes (strict-mode ambiguity — scope to a unique parent)`],
+    absentContradictions: [],
     absentKeys: new Set(),
     anyVerifiedPresent: true,
     anyNonExtractable: false,
@@ -51,6 +54,7 @@ test("checkSpecSelectors: unverifiable (role never seen with a real name)", () =
   const trees = [["textbox: Name"]];
   assert.deepEqual(checkSpecSelectors(specs, trees), {
     contradictions: [],
+    absentContradictions: [],
     absentKeys: new Set(),
     anyVerifiedPresent: false,
     anyNonExtractable: false,
@@ -63,6 +67,7 @@ test("checkSpecSelectors: non-extractable locator flags anyNonExtractable", () =
   const trees = [["button: Submit"]];
   assert.deepEqual(checkSpecSelectors(specs, trees), {
     contradictions: [],
+    absentContradictions: [],
     absentKeys: new Set(),
     anyVerifiedPresent: false,
     anyNonExtractable: true,
@@ -75,6 +80,7 @@ test("checkSpecSelectors: per-tree (never fused): present on tree A, absent on t
   const trees = [["button: Checkout"], ["textbox: Search"]];
   assert.deepEqual(checkSpecSelectors(specs, trees), {
     contradictions: [],
+    absentContradictions: [],
     absentKeys: new Set(),
     anyVerifiedPresent: true,
     anyNonExtractable: false,
@@ -89,6 +95,7 @@ test("checkSpecSelectors: a commented-out selector is not extracted", () => {
   const trees = [["button: Real"]];
   assert.deepEqual(checkSpecSelectors(specs, trees), {
     contradictions: [],
+    absentContradictions: [],
     absentKeys: new Set(),
     anyVerifiedPresent: true,
     anyNonExtractable: false,
@@ -101,6 +108,7 @@ test("checkSpecSelectors: a URL inside a string is not mistaken for a comment (s
   const trees = [["button: Pay"]];
   assert.deepEqual(checkSpecSelectors(specs, trees), {
     contradictions: [],
+    absentContradictions: [],
     absentKeys: new Set(),
     anyVerifiedPresent: true,
     anyNonExtractable: false,
@@ -113,6 +121,7 @@ test("checkSpecSelectors: empty trees yields empty findings (safe no-op)", () =>
   const trees: string[][] = [];
   assert.deepEqual(checkSpecSelectors(specs, trees), {
     contradictions: [],
+    absentContradictions: [],
     absentKeys: new Set(),
     anyVerifiedPresent: false,
     anyNonExtractable: false,
@@ -125,6 +134,7 @@ test("checkSpecSelectors: custom treeLabel threads into the absent message", () 
   const trees = [["button: Cancel"]];
   assert.deepEqual(checkSpecSelectors(specs, trees, "pre-write"), {
     contradictions: [`button: "Submit" is NOT in the captured pre-write tree. Present roles: button`],
+    absentContradictions: [`button: "Submit" is NOT in the captured pre-write tree. Present roles: button`],
     absentKeys: new Set(["role|button|Submit|0|0"]),
     anyVerifiedPresent: false,
     anyNonExtractable: false,
@@ -137,6 +147,7 @@ test("checkSpecSelectors: (present) structural marker never name-matches", () =>
   const trees = [["row: (present)"]];
   assert.deepEqual(checkSpecSelectors(specs, trees), {
     contradictions: [],
+    absentContradictions: [],
     absentKeys: new Set(),
     anyVerifiedPresent: false,
     anyNonExtractable: false,
@@ -151,6 +162,7 @@ test("checkSpecSelectors: getByText and getByLabel kinds", () => {
   const trees = [["text: Welcome back", "textbox: Email"]];
   assert.deepEqual(checkSpecSelectors(specs, trees), {
     contradictions: [],
+    absentContradictions: [],
     absentKeys: new Set(),
     anyVerifiedPresent: true,
     anyNonExtractable: false,
@@ -166,6 +178,7 @@ test("checkSpecSelectors: multiple spec sources aggregate findings", () => {
   const trees = [["button: Save"]];
   assert.deepEqual(checkSpecSelectors(specs, trees), {
     contradictions: [`button: "Delete" is NOT in the captured failure-point tree. Present roles: button`],
+    absentContradictions: [`button: "Delete" is NOT in the captured failure-point tree. Present roles: button`],
     absentKeys: new Set(["role|button|Delete|0|0"]),
     anyVerifiedPresent: true,
     anyNonExtractable: false,

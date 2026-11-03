@@ -219,6 +219,55 @@ export function hasNonExtractableLocator(specSrc: string): boolean {
   return NON_EXTRACTABLE_LOCATOR_RE.test(stripCommentsAndJoin(specSrc));
 }
 
+/* The index just past the `)` that closes the call whose `(` opens at `openIndex`, or the end of the source when it never closes. Walks the argument list so an options object's own brackets or a string holding one do not end the call early. */
+function callEnd(joined: string, openIndex: number): number {
+  let depth = 0;
+  let quote: string | null = null;
+  for (let i = openIndex; i < joined.length; i++) {
+    const ch = joined[i]!;
+    if (quote !== null) {
+      if (ch === "\\") i++;
+      else if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === "`") {
+      quote = ch;
+      continue;
+    }
+    if (ch === "(") {
+      depth++;
+      continue;
+    }
+    if (ch === ")") {
+      depth--;
+      if (depth === 0) return i + 1;
+    }
+  }
+  return joined.length;
+}
+
+/* The locators the reviewer's own rule calls fragile and the seed's static gate says nothing about: a `.locator(...)` call, whatever argument it takes, and a bare `xpath=` selector. Advisory by construction — whether a role, test-id, label or text alternative exists is the reviewer's judgment — so this names candidates, never findings. Read over the comment-stripped joined source, so a wrapped call is one candidate and a commented-out one is none. */
+export function fragileLocatorCalls(specSrc: string): string[] {
+  const joined = stripCommentsAndJoin(specSrc);
+  const found: Array<{ index: number; end: number; text: string }> = [];
+
+  /* The first argument alone, then the whole call is walked: `.locator(".row", { hasText: "x" })` and a nested `has` are the same family as the bare form. */
+  const callRe = /\.locator\(\s*("[^"]*"|'[^']*'|`[^`]*`)/g;
+  for (let m: RegExpExecArray | null; (m = callRe.exec(joined)) !== null; ) {
+    found.push({ index: m.index, end: callEnd(joined, m.index + m[0].indexOf("(")), text: `.locator(${m[1]!})` });
+  }
+
+  const xpathRe = /(["'`])(xpath=[^"'`]*)\1/g;
+  for (let m: RegExpExecArray | null; (m = xpathRe.exec(joined)) !== null; ) {
+    const at = m.index;
+    /* The `xpath=` of a `.locator(...)` argument is that one call, already named. */
+    if (found.some((call) => at >= call.index && at < call.end)) continue;
+    found.push({ index: at, end: at + m[0].length, text: m[2]! });
+  }
+
+  return [...new Set(found.sort((a, b) => a.index - b.index).map((call) => call.text))];
+}
+
 /* Surface a MULTIPLE only for a selector proven unscoped — rooted on `page` / `this.page`. Any other rooting (locator chain, variable-held locator) is indeterminate → suppress. */
 const PAGE_ROOT_BEFORE_RE = /(?:^|[^.\w$])(?:this\s*\.\s*)?page$/;
 function isPageRootedAt(joined: string, index: number): boolean {
@@ -313,6 +362,7 @@ export function checkSpecSelectors(
   treeLabel = "failure-point",
 ): SpecSelectorFindings {
   const contradictions: string[] = [];
+  const absentContradictions: string[] = [];
   const absentKeys = new Set<string>();
   let anyVerifiedPresent = false;
   let anyNonExtractable = false;
@@ -338,16 +388,16 @@ export function checkSpecSelectors(
         const roleLabel = sel.role ?? sel.kind;
         const nameLabel = sel.name ? ` "${sel.name}"` : "";
         const presentRoles = [...new Set(trees.flatMap((t) => t.map((l) => l.split(":")[0]?.trim())).filter(Boolean))].join(", ");
-        contradictions.push(
-          `${roleLabel}:${nameLabel} is NOT in the captured ${treeLabel} tree. Present roles: ${presentRoles || "(none)"}`,
-        );
+        const contradiction = `${roleLabel}:${nameLabel} is NOT in the captured ${treeLabel} tree. Present roles: ${presentRoles || "(none)"}`;
+        absentContradictions.push(contradiction);
+        contradictions.push(contradiction);
       } else {
         /* Neither present nor verifiable-absent → unverifiable (role never appeared with a real name). Not a contradiction; uniqueness cannot be trusted. */
         anyUnverifiable = true;
       }
     }
   }
-  return { contradictions, absentKeys, anyVerifiedPresent, anyNonExtractable, anyUnverifiable };
+  return { contradictions, absentContradictions, absentKeys, anyVerifiedPresent, anyNonExtractable, anyUnverifiable };
 }
 
 /* A contradiction and the spec that raised it: the index of that spec among the sources that were checked. */

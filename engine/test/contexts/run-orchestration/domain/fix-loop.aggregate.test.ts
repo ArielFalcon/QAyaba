@@ -83,7 +83,7 @@ test("break-issue with runner_infra evidence -> infra-error, no regen call", asy
     },
   };
   const { cycleBudget } = budgets();
-  const loop = new FixLoop({ execution, regeneration, selectorCheck: { check: () => ({ contradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) } });
+  const loop = new FixLoop({ execution, regeneration, selectorCheck: { check: () => ({ contradictions: [], absentContradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) } });
 
   const result = await loop.run({
     initialRun: { verdict: "fail", cases: [makeCase({ detail: "browserType.launch: Executable doesn't exist" })] },
@@ -113,7 +113,7 @@ test("break-issue with app_defect (an attributed 5xx) evidence -> realBugDetecte
   const loop = new FixLoop({
     execution,
     regeneration,
-    selectorCheck: { check: () => ({ contradictions: [], absentKeys: new Set(), anyVerifiedPresent: true, anyNonExtractable: false, anyUnverifiable: false }) },
+    selectorCheck: { check: () => ({ contradictions: [], absentContradictions: [], absentKeys: new Set(), anyVerifiedPresent: true, anyNonExtractable: false, anyUnverifiable: false }) },
   });
 
   const result = await loop.run({
@@ -158,7 +158,7 @@ test("loop condition — maxRetries=0 disables the fix-loop entirely (no regen, 
     },
   };
   const { cycleBudget } = budgets();
-  const loop = new FixLoop({ execution, regeneration, selectorCheck: { check: () => ({ contradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) } });
+  const loop = new FixLoop({ execution, regeneration, selectorCheck: { check: () => ({ contradictions: [], absentContradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) } });
 
   const result = await loop.run({
     initialRun: { verdict: "fail", cases: [makeCase()] },
@@ -181,7 +181,7 @@ test("loop condition — verdict!=='fail' skips the loop entirely (already pass)
   const execution: FixLoopExecutionPort = { execute: async () => { throw new Error("must not execute"); } };
   const regeneration: FixLoopRegenerationPort = { regenerate: async () => { throw new Error("must not regen"); } };
   const { cycleBudget } = budgets();
-  const loop = new FixLoop({ execution, regeneration, selectorCheck: { check: () => ({ contradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) } });
+  const loop = new FixLoop({ execution, regeneration, selectorCheck: { check: () => ({ contradictions: [], absentContradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) } });
 
   const result = await loop.run({
     initialRun: { verdict: "pass", cases: [{ name: "login", status: "pass" }] },
@@ -203,7 +203,7 @@ test("loop condition — generating=false skips the loop entirely (regression-on
   const execution: FixLoopExecutionPort = { execute: async () => { throw new Error("must not execute"); } };
   const regeneration: FixLoopRegenerationPort = { regenerate: async () => { throw new Error("must not regen"); } };
   const { cycleBudget } = budgets();
-  const loop = new FixLoop({ execution, regeneration, selectorCheck: { check: () => ({ contradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) } });
+  const loop = new FixLoop({ execution, regeneration, selectorCheck: { check: () => ({ contradictions: [], absentContradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) } });
 
   const result = await loop.run({
     initialRun: { verdict: "fail", cases: [makeCase()] },
@@ -254,6 +254,7 @@ test("Lever-2 absentKeys short-circuit — regenerates WITHOUT re-executing, loo
     selectorCheck: {
       check: () => ({
         contradictions: ['button:"Submit" is NOT in the captured failure-point tree. Present roles: (none)'],
+        absentContradictions: ['button:"Submit" is NOT in the captured failure-point tree. Present roles: (none)'],
         absentKeys: new Set(["role|button|Submit|0|0"]),
         anyVerifiedPresent: false,
         anyNonExtractable: false,
@@ -295,7 +296,7 @@ async function regenInputFor(findings: Partial<SpecSelectorFindings> & { origins
   const loop = new FixLoop({
     execution,
     regeneration,
-    selectorCheck: { check: () => ({ contradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false, ...findings }) },
+    selectorCheck: { check: () => ({ contradictions: [], absentContradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false, ...findings }) },
   });
   await loop.run({
     initialRun: { verdict: "fail", cases: [makeCase({ detail: "getByRole resolved to 0 elements" })] },
@@ -347,7 +348,7 @@ test("filtered-retry — canFilter true (regen stayed in failed set)", async () 
   const loop = new FixLoop({
     execution,
     regeneration,
-    selectorCheck: { check: () => ({ contradictions: [], absentKeys: new Set(), anyVerifiedPresent: true, anyNonExtractable: false, anyUnverifiable: false }) },
+    selectorCheck: { check: () => ({ contradictions: [], absentContradictions: [], absentKeys: new Set(), anyVerifiedPresent: true, anyNonExtractable: false, anyUnverifiable: false }) },
   });
 
   await loop.run({
@@ -378,7 +379,7 @@ async function retryScopeFor(failingFile: string, regenSpecs: string[]): Promise
       },
     },
     regeneration: { regenerate: async () => ({ specs: regenSpecs, approved: true }) },
-    selectorCheck: { check: () => ({ contradictions: [], absentKeys: new Set(), anyVerifiedPresent: true, anyNonExtractable: false, anyUnverifiable: false }) },
+    selectorCheck: { check: () => ({ contradictions: [], absentContradictions: [], absentKeys: new Set(), anyVerifiedPresent: true, anyNonExtractable: false, anyUnverifiable: false }) },
   });
   const { cycleBudget } = budgets();
   await loop.run({
@@ -430,7 +431,7 @@ test("filtered-retry — regen specs are ALL outside the failing set -> full re-
   const loop = new FixLoop({
     execution,
     regeneration,
-    selectorCheck: { check: () => ({ contradictions: [], absentKeys: new Set(), anyVerifiedPresent: true, anyNonExtractable: false, anyUnverifiable: false }) },
+    selectorCheck: { check: () => ({ contradictions: [], absentContradictions: [], absentKeys: new Set(), anyVerifiedPresent: true, anyNonExtractable: false, anyUnverifiable: false }) },
   });
 
   await loop.run({
@@ -468,7 +469,7 @@ test("filtered-retry — a run that is measured for change-coverage still re-run
   const loop = new FixLoop({
     execution,
     regeneration,
-    selectorCheck: { check: () => ({ contradictions: [], absentKeys: new Set(), anyVerifiedPresent: true, anyNonExtractable: false, anyUnverifiable: false }) },
+    selectorCheck: { check: () => ({ contradictions: [], absentContradictions: [], absentKeys: new Set(), anyVerifiedPresent: true, anyNonExtractable: false, anyUnverifiable: false }) },
   });
 
   await loop.run({
@@ -517,7 +518,7 @@ test("bestRunSoFar regression guard — a worse terminal retry is discarded for 
   const loop = new FixLoop({
     execution,
     regeneration,
-    selectorCheck: { check: () => ({ contradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) },
+    selectorCheck: { check: () => ({ contradictions: [], absentContradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) },
   });
 
   const result = await loop.run({
@@ -571,7 +572,7 @@ test("bestRunSoFar guard is SKIPPED when realBugDetected fired (the current fail
   const loop = new FixLoop({
     execution,
     regeneration,
-    selectorCheck: { check: () => ({ contradictions: [], absentKeys: new Set(), anyVerifiedPresent: true, anyNonExtractable: false, anyUnverifiable: false }) },
+    selectorCheck: { check: () => ({ contradictions: [], absentContradictions: [], absentKeys: new Set(), anyVerifiedPresent: true, anyNonExtractable: false, anyUnverifiable: false }) },
   });
 
   const result = await loop.run({
@@ -619,7 +620,7 @@ test("an accepted round's execution replaces its changed file's cases, and the l
   const loop = new FixLoop({
     execution,
     regeneration,
-    selectorCheck: { check: () => ({ contradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) },
+    selectorCheck: { check: () => ({ contradictions: [], absentContradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) },
     acceptance,
   });
 
@@ -663,7 +664,7 @@ test("each round's acceptance is given the run before it with the tests it skipp
   const loop = new FixLoop({
     execution: { execute: async () => { throw new Error("the accepted path must not call the retry execution port"); } },
     regeneration: { regenerate: async () => ({ specs: ["b.spec.ts"], approved: true }) },
-    selectorCheck: { check: () => ({ contradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) },
+    selectorCheck: { check: () => ({ contradictions: [], absentContradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) },
     acceptance,
   });
 
@@ -697,7 +698,7 @@ test("a rejected acceptance keeps the prior run and stops without executing", as
   const loop = new FixLoop({
     execution,
     regeneration,
-    selectorCheck: { check: () => ({ contradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) },
+    selectorCheck: { check: () => ({ contradictions: [], absentContradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) },
     acceptance,
   });
 
@@ -733,7 +734,7 @@ test("a capped acceptance keeps the prior run and stops without executing", asyn
   const loop = new FixLoop({
     execution,
     regeneration,
-    selectorCheck: { check: () => ({ contradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) },
+    selectorCheck: { check: () => ({ contradictions: [], absentContradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) },
     acceptance,
   });
 
@@ -778,7 +779,7 @@ test("the best round's snapshot is restored when a later round regresses", async
   const loop = new FixLoop({
     execution,
     regeneration,
-    selectorCheck: { check: () => ({ contradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) },
+    selectorCheck: { check: () => ({ contradictions: [], absentContradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) },
     acceptance,
   });
 
@@ -812,7 +813,7 @@ test("an accepted round keeps a case the run cannot attribute to a file", async 
   const loop = new FixLoop({
     execution,
     regeneration,
-    selectorCheck: { check: () => ({ contradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) },
+    selectorCheck: { check: () => ({ contradictions: [], absentContradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) },
     acceptance,
   });
 
@@ -860,7 +861,7 @@ test("the initial run's own bytes are restored when the first accepted round is 
   const loop = new FixLoop({
     execution,
     regeneration,
-    selectorCheck: { check: () => ({ contradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) },
+    selectorCheck: { check: () => ({ contradictions: [], absentContradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) },
     acceptance,
   });
 
@@ -893,7 +894,7 @@ test("an accepted round never hides a flaky spec it did not re-run", async () =>
   const loop = new FixLoop({
     execution,
     regeneration,
-    selectorCheck: { check: () => ({ contradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) },
+    selectorCheck: { check: () => ({ contradictions: [], absentContradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) },
     acceptance,
   });
 
@@ -928,7 +929,7 @@ test("DEV unhealthy before a round's acceptance skips it", async () => {
   const loop = new FixLoop({
     execution,
     regeneration,
-    selectorCheck: { check: () => ({ contradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) },
+    selectorCheck: { check: () => ({ contradictions: [], absentContradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) },
     acceptance,
   });
 
@@ -965,7 +966,7 @@ test("a rejected fail round ends as infra-error when DEV went unhealthy during i
   const loop = new FixLoop({
     execution,
     regeneration,
-    selectorCheck: { check: () => ({ contradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) },
+    selectorCheck: { check: () => ({ contradictions: [], absentContradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) },
     acceptance,
   });
 
@@ -997,7 +998,7 @@ test("a validation rejection while DEV is down stays a validation rejection, not
   const loop = new FixLoop({
     execution,
     regeneration,
-    selectorCheck: { check: () => ({ contradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) },
+    selectorCheck: { check: () => ({ contradictions: [], absentContradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) },
     acceptance,
   });
 
@@ -1033,7 +1034,7 @@ test("a rejected infra-error round ends the run as infra-error", async () => {
   const loop = new FixLoop({
     execution,
     regeneration,
-    selectorCheck: { check: () => ({ contradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) },
+    selectorCheck: { check: () => ({ contradictions: [], absentContradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) },
     acceptance,
   });
 
@@ -1087,7 +1088,7 @@ test("reexploreNavigations thrash-stop — a heavy re-exploration round downgrad
   const loop = new FixLoop({
     execution,
     regeneration,
-    selectorCheck: { check: () => ({ contradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) },
+    selectorCheck: { check: () => ({ contradictions: [], absentContradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) },
   });
 
   const result = await loop.run({
@@ -1135,7 +1136,7 @@ test("mid-retry infra-error (DEV dies after a filtered retry-execute) discards c
   const loop = new FixLoop({
     execution,
     regeneration,
-    selectorCheck: { check: () => ({ contradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) },
+    selectorCheck: { check: () => ({ contradictions: [], absentContradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) },
     /* devHealthy on FixLoopInput is the FIRST check (adjudicator evidence, always healthy here); the
        SECOND, independent devHealthy() call happens right after the retry-execute returns fail — this
        one reports DEV down, forcing the mid-retry infra-error assignment.
@@ -1185,7 +1186,7 @@ test("the regen call threads cycleBudget to the the regeneration port, not the f
   const loop = new FixLoop({
     execution,
     regeneration,
-    selectorCheck: { check: () => ({ contradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) },
+    selectorCheck: { check: () => ({ contradictions: [], absentContradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) },
   });
 
   await loop.run({
@@ -1224,7 +1225,7 @@ test("lastSpecMetas reflects the FINAL regen round's own specMetas once the loop
   const loop = new FixLoop({
     execution,
     regeneration,
-    selectorCheck: { check: () => ({ contradictions: [], absentKeys: new Set(), anyVerifiedPresent: true, anyNonExtractable: false, anyUnverifiable: false }) },
+    selectorCheck: { check: () => ({ contradictions: [], absentContradictions: [], absentKeys: new Set(), anyVerifiedPresent: true, anyNonExtractable: false, anyUnverifiable: false }) },
   });
 
   const result = await loop.run({
@@ -1258,7 +1259,7 @@ test("lastSpecMetas is undefined when the loop never regenerated (already passin
   const loop = new FixLoop({
     execution,
     regeneration,
-    selectorCheck: { check: () => ({ contradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) },
+    selectorCheck: { check: () => ({ contradictions: [], absentContradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) },
   });
 
   const result = await loop.run({
@@ -1282,7 +1283,7 @@ const VALUE_MISMATCH = "expect(locator).toHaveText(expected) failed\nExpected: '
 const LOCATOR_FAULT = "getByRole resolved to 0 elements";
 
 function findings(overrides: Partial<SpecSelectorFindings> = {}): SpecSelectorFindings {
-  return { contradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false, ...overrides };
+  return { contradictions: [], absentContradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false, ...overrides };
 }
 
 function recordingLoop(opts: {

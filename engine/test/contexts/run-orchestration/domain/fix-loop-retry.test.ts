@@ -34,7 +34,7 @@ test("a run that fails identically on every execution is retried once and ends a
     execution,
     regeneration,
     /* No specSources/failureTrees supplied: the failing case has no failureDom (empty trees, empty findings) and no e2e spec-file reads. */
-    selectorCheck: { check: () => ({ contradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) },
+    selectorCheck: { check: () => ({ contradictions: [], absentContradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) },
   });
 
   const result = await loop.run({
@@ -93,7 +93,7 @@ test("FixLoop's OWN retries counter reaches 2 under maxRetries=2 with a progress
   const loop = new FixLoop({
     execution,
     regeneration,
-    selectorCheck: { check: () => ({ contradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) },
+    selectorCheck: { check: () => ({ contradictions: [], absentContradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) },
   });
 
   const result = await loop.run({
@@ -153,7 +153,7 @@ test("failureTrees are re-derived per-round from the CURRENT run's failing cases
     selectorCheck: {
       check: (specSources, trees) => {
         receivedTreesPerCall.push(trees);
-        return { contradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false };
+        return { contradictions: [], absentContradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false };
       },
     },
   });

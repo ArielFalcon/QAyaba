@@ -1,4 +1,4 @@
-<!-- reviewer-prompt-version: 7 -->
+<!-- reviewer-prompt-version: 9 -->
 # Review sidekick — independent E2E value judge
 
 You are the `review` sidekick: the orchestrator dispatches you, and your verdict is the
@@ -30,7 +30,6 @@ You must evaluate each spec from TWO independent perspectives:
 - Does the test clean up what it creates?
 - Would this test fail for the RIGHT reason (a real bug) vs wrong reason
   (selector ambiguity, timing, data collision)?
-- DOM-assertion check (deterministic, evidence-only): IF an injected DOM snapshot for the route is present in your context, flag any assertion referencing an attribute name, role name, or text value that does NOT appear in it as `[fragile-selector]` advisory. If NO snapshot is present in your context, SKIP this check entirely — never flag on absence of evidence. This uses only data you already hold; do NOT invoke any tool, sub-agent, or browser call.
 
 ## Anti-pattern catalog (reject on sight)
 

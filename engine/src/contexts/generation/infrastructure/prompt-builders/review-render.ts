@@ -52,9 +52,17 @@ export function reviewObjective(input: ReviewInput): { subject: string; heading:
 /* Whether the specs section carries the spec contents (`inline`) or only their names, to be read from the working copy (`read`). Computed once per prompt: the instruction line and the section both render from it. */
 export type ReviewSpecContents = "inline" | "read";
 
+/* One spec as the prompt showed it: the path it was rendered under, and the text it was rendered from. Another section reads a fact out of the spec without opening the file a second time. */
+export interface ReviewSpecShown {
+  path: string;
+  text: string;
+}
+
 export interface ReviewSpecsOutcome {
   readonly text: string;
   readonly contents: ReviewSpecContents;
+  /* The specs whose text this section read, in the order it rendered them. Empty when they were named as references and no file was read. */
+  readonly sources: readonly ReviewSpecShown[];
 }
 
 export function renderReviewSpecs(input: ReviewInput): string {
@@ -72,24 +80,29 @@ export function reviewSpecsOutcome(input: ReviewInput, opts: { asReferences?: bo
     return {
       contents: "read",
       text: `## Specs to review\n\n${input.specs.map((n, i) => `${i + 1}. ${rel(n)}`).join("\n")}\n\n( the spec contents are not shown here, to fit the window — read each file with the read tool )`,
+      sources: [],
     };
   }
   /* The specs are the names the generator reported: each is read through the confined reader, so one that leaves the spec directory is judged from the placeholder below, never from what it points at. */
   const root: SpecRoot = { mirrorDir: input.mirrorDir, specDir: join(input.mirrorDir, input.e2eRelDir) };
   const contents: string[] = [];
+  const sources: ReviewSpecShown[] = [];
   for (const s of input.specs) {
+    const path = rel(s);
     let content: string;
     try {
       content = readConfinedSpecFile(root, s);
     } catch (err) {
       /* A spec the independent reviewer NEVER sees can otherwise ship inside an approved batch — that silently bypasses the quality gate. Surface it loudly (AGENTS.md: never swallow), like the window's switch to references does for its own. */
-      engineLog.warn(`[qa] WARNING: could not read spec '${rel(s)}' for review (${err instanceof Error ? err.message : String(err)}) — it will be judged from a placeholder, NOT its real content.`);
-      contents.push(`### ${rel(s)}\n( could not read file — review skipped for this spec )`);
+      engineLog.warn(`[qa] WARNING: could not read spec '${path}' for review (${err instanceof Error ? err.message : String(err)}) — it will be judged from a placeholder, NOT its real content.`);
+      contents.push(`### ${path}\n( could not read file — review skipped for this spec )`);
+      sources.push({ path, text: "" });
       continue;
     }
-    contents.push(`### ${rel(s)}\n\`\`\`typescript\n${content}\n\`\`\``);
+    contents.push(`### ${path}\n\`\`\`typescript\n${content}\n\`\`\``);
+    sources.push({ path, text: content });
   }
-  return { contents: "inline", text: `## Specs to review (${contents.length} file(s) — contents provided inline)\n\n${contents.join("\n\n")}` };
+  return { contents: "inline", text: `## Specs to review (${contents.length} file(s) — contents provided inline)\n\n${contents.join("\n\n")}`, sources };
 }
 
 /** Renders a deterministic RUNTIME EXECUTION RESULT section from the orchestrator's evidence (HTTP status codes and final URLs captured during test execution). This is evidence the reviewer can use to distinguish an app defect (5xx) from a test defect — captured by the orchestrator, not inferred from the generator's reasoning, so reviewer independence is preserved. Every case is listed whole (a detail past the safety bound on evidence text is cut and says so); over the reviewer's window the section gives up the details, then the urls (reviewer-sections.ts). finalUrl is sanitized via sanitizeText before being included in the prompt (prevents secrets in redirect URLs from leaking to the reviewer model). */
